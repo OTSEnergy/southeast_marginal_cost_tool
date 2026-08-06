@@ -1,0 +1,145 @@
+======================================================================
+  Test Run: 2026-08-06 17:15:54  |  Result: ALL PASSED
+  24 tests: 24 passed, 0 failed
+======================================================================
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_columns_exist
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_length_8760
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_gen_capacity_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_transmission_uses_pcaf
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_emissions_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_total_is_sum_of_components
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_zero_scalars_only_energy
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_constant_load
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_monthly_proportionality
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_zero_load_only_fixed
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_demand_charge
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_gp_r31_seasonal_tiers
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_bill_increases_with_load
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_discount_factors_sum
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_zero_discount_rate
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_npv_known_answer
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_ratio_calculation
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_zero_lost_revenue
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_uniform_cwft
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_peaked_cwft_higher_for_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_reduction
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_formula
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_cwft_sums_to_one
+
+======================================================================
+  Test Run: 2026-08-06 17:12:38  |  Result: ALL PASSED
+  24 tests: 24 passed, 0 failed
+======================================================================
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_columns_exist
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_length_8760
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_gen_capacity_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_transmission_uses_pcaf
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_emissions_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_total_is_sum_of_components
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_zero_scalars_only_energy
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_constant_load
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_monthly_proportionality
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_zero_load_only_fixed
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_demand_charge
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_gp_r31_seasonal_tiers
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_bill_increases_with_load
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_discount_factors_sum
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_zero_discount_rate
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_npv_known_answer
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_ratio_calculation
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_zero_lost_revenue
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_uniform_cwft
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_peaked_cwft_higher_for_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_reduction
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_formula
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_cwft_sums_to_one
+
+======================================================================
+  Test Run: 2026-08-06 16:54:26  |  Result: ALL PASSED
+  24 tests: 24 passed, 0 failed
+======================================================================
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_columns_exist
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_length_8760
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_gen_capacity_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_transmission_uses_pcaf
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_emissions_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_total_is_sum_of_components
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_zero_scalars_only_energy
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_constant_load
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_monthly_proportionality
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_zero_load_only_fixed
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_demand_charge
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_gp_r31_seasonal_tiers
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_bill_increases_with_load
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_discount_factors_sum
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_zero_discount_rate
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_npv_known_answer
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_ratio_calculation
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_zero_lost_revenue
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_uniform_cwft
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_peaked_cwft_higher_for_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_reduction
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_formula
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_cwft_sums_to_one
+
+======================================================================
+  Test Run: 2026-08-06 16:35:38  |  Result: ALL PASSED
+  24 tests: 24 passed, 0 failed
+======================================================================
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_columns_exist
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_length_8760
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_gen_capacity_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_transmission_uses_pcaf
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_emissions_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_total_is_sum_of_components
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_zero_scalars_only_energy
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_constant_load
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_monthly_proportionality
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_zero_load_only_fixed
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_demand_charge
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_gp_r31_seasonal_tiers
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_bill_increases_with_load
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_discount_factors_sum
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_zero_discount_rate
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_npv_known_answer
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_ratio_calculation
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_zero_lost_revenue
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_uniform_cwft
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_peaked_cwft_higher_for_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_reduction
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_formula
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_cwft_sums_to_one
+
+======================================================================
+  Test Run: 2026-08-06 16:35:24  |  Result: ALL PASSED
+  24 tests: 24 passed, 0 failed
+======================================================================
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_columns_exist
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_output_length_8760
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_gen_capacity_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_transmission_uses_pcaf
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_emissions_formula
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_total_is_sum_of_components
+    PASS  tests/test_calculations.py::TestCalculateAvoidedCosts::test_zero_scalars_only_energy
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_constant_load
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_flat_rate_monthly_proportionality
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_zero_load_only_fixed
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_demand_charge
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_gp_r31_seasonal_tiers
+    PASS  tests/test_calculations.py::TestCalculateUrdbBill::test_bill_increases_with_load
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_discount_factors_sum
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_zero_discount_rate
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_npv_known_answer
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_ratio_calculation
+    PASS  tests/test_calculations.py::TestNPVDiscounting::test_rim_zero_lost_revenue
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_uniform_cwft
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_peaked_cwft_higher_for_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_epc_reduction
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_formula
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_elcc_proxy_peaky_load
+    PASS  tests/test_calculations.py::TestCapacityMetrics::test_cwft_sums_to_one
+

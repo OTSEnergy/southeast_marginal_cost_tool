@@ -119,625 +119,101 @@ AL_FD_URDB = {
     ]
 }
 
-# ==============================================================================
-# MOCK SETUP & FILE GENERATORS
-# ==============================================================================
-INPUT_DIRECTORY = "./Cambium_Hourly_Data_raw"
-
-def generate_default_cwft_file(filepath="CWFT.csv"):
-    """
-    MOCK CWFT FILE GENERATOR:
-    Creates a default 8760-hour Southeast Dual-Peak Capacity Worth Factor Table (CWFT)
-    CSV file in the main directory if it doesn't exist.
-    """
-    if not os.path.exists(filepath):
-        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-        cwft = np.zeros(8760)
-        winter_hours = []
-        summer_hours = []
-        
-        for h in range(1, 8761):
-            if h <= 1440 and (h % 24 in [6, 7, 8, 9]):
-                winter_hours.append(h - 1)
-            elif 4345 <= h <= 5832 and (h % 24 in [14, 15, 16, 17, 18]):
-                summer_hours.append(h - 1)
-                
-        # Distribute risk (45% winter, 55% summer)
-        cwft[winter_hours] = 0.45 / len(winter_hours)
-        cwft[summer_hours] = 0.55 / len(summer_hours)
-        
-        df = pd.DataFrame({
-            'Hour': np.arange(1, 8761),
-            'CWFT': cwft
-        })
-        df.to_csv(filepath, index=False)
-    return filepath
-
-
-def load_cwft_from_csv(filepath):
-    try:
-        df = pd.read_csv(filepath)
-        if 'CWFT' not in df.columns:
-            raise ValueError("The CWFT CSV file must contain a 'CWFT' column.")
-        if len(df) != 8760:
-            raise ValueError(f"The CWFT file must contain exactly 8760 rows (found {len(df)}).")
-            
-        cwft_array = df['CWFT'].to_numpy()
-        cwft_sum = cwft_array.sum()
-        if not np.isclose(cwft_sum, 1.0, atol=1e-3):
-            cwft_array = cwft_array / cwft_sum
-        return cwft_array
-    except Exception as e:
-        raise ValueError(f"Failed to parse CWFT CSV: {str(e)}")
-
-
-def generate_default_load_profiles_file(filepath="load_profiles.csv"):
-    if not os.path.exists(filepath):
-        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-        hours = np.arange(1, 8761)
-        np.random.seed(88)
-        
-        std_load = np.random.uniform(0.8, 1.2, 8760)
-        he_load = np.random.uniform(0.5, 0.8, 8760)
-        
-        for h in hours:
-            if h <= 1440 and (h % 24 in [6, 7, 8, 9]):
-                std_load[h-1] = np.random.uniform(4.5, 6.5)
-                he_load[h-1] = np.random.uniform(2.0, 3.2)
-            elif 4345 <= h <= 5832 and (h % 24 in [14, 15, 16, 17, 18]):
-                std_load[h-1] = np.random.uniform(2.5, 3.5)
-                he_load[h-1] = np.random.uniform(1.4, 2.2)
-                
-        df = pd.DataFrame({
-            'Hour': hours,
-            'Standard_Heat_Pump_kW': std_load,
-            'High_Efficiency_Heat_Pump_kW': he_load
-        })
-        df.to_csv(filepath, index=False)
-    return filepath
-
-
-def load_load_profiles_from_csv(filepath):
-    try:
-        df = pd.read_csv(filepath)
-        if 'Hour' not in df.columns:
-            raise ValueError("The Load Profiles CSV must contain an 'Hour' column.")
-        if len(df) != 8760:
-            raise ValueError(f"The Load Profiles CSV must contain exactly 8760 rows (found {len(df)}).")
-            
-        profile_cols = [col for col in df.columns if col != 'Hour']
-        if not profile_cols:
-            raise ValueError("The Load Profiles CSV must contain at least one load profile column.")
-            
-        for col in profile_cols:
-            df[col] = pd.to_numeric(df[col], errors='raise')
-        return df
-    except Exception as e:
-        raise ValueError(f"Failed to parse Load Profiles CSV: {str(e)}")
-
-
-def generate_mock_state_file(filepath, state_code, scenario):
-    """
-    SAFETY NET DATA GENERATOR:
-    Simulates a standard 8760-hour utility dataset capturing the distinct dual-peaking 
-    load characteristics of the Southeastern United States.
-    Outputs standard NREL Cambium column headers to verify the dynamic mapping engine.
-    """
-    state_seeds = {"AL": 42, "GA": 99, "FL": 101, "TN": 202, "MS": 303, "NC": 404, "SC": 505}
-    seed = state_seeds.get(state_code, 123)
-    np.random.seed(seed)
-    
-    hours = np.arange(1, 8761)
-    
-    if scenario == "HighDemandGrowth":
-        energy_base = np.random.uniform(25.0, 38.0, 8760)
-        carbon_base = np.random.uniform(450.0, 850.0, 8760)
-        winter_spike_range = (80.0, 130.0)
-        summer_spike_range = (70.0, 110.0)
-    elif scenario == "LowCarbonConstraint":
-        energy_base = np.random.uniform(18.0, 28.0, 8760)
-        carbon_base = np.random.uniform(150.0, 450.0, 8760)
-        winter_spike_range = (45.0, 80.0)
-        summer_spike_range = (35.0, 70.0)
-    elif scenario == "LowDemandGrowth":
-        energy_base = np.random.uniform(15.0, 25.0, 8760)
-        carbon_base = np.random.uniform(300.0, 650.0, 8760)
-        winter_spike_range = (50.0, 80.0)
-        summer_spike_range = (40.0, 70.0)
-    else:  # MidCase / Default
-        energy_base = np.random.uniform(20.0, 30.0, 8760)
-        carbon_base = np.random.uniform(350.0, 750.0, 8760)
-        winter_spike_range = (60.0, 90.0)
-        summer_spike_range = (50.0, 80.0)
-    
-    for h in hours:
-        if h <= 1440 and (h % 24 in [6, 7, 8, 9]):
-            energy_base[h-1] = np.random.uniform(*winter_spike_range)
-        elif 4345 <= h <= 5832 and (h % 24 in [14, 15, 16, 17, 18]):
-            energy_base[h-1] = np.random.uniform(*summer_spike_range)
-            
-    # Outputs raw NREL Cambium column headers
-    df = pd.DataFrame({
-        'Hour': hours,
-        'State': state_code,
-        'Scenario': scenario,
-        'lmp_energy': energy_base,
-        'co2_combust': carbon_base
-    })
-    
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    df.to_csv(filepath, index=False)
-
-
-def file_matches_scenario(filepath, scenario):
-    filename = os.path.basename(filepath).lower()
-    scenario_clean = scenario.lower()
-    if scenario_clean in filename:
-        return True
-    try:
-        head_df = pd.read_csv(filepath, nrows=5)
-        if 'Scenario' in head_df.columns:
-            if head_df['Scenario'].iloc[0].lower() == scenario_clean:
-                return True
-    except Exception:
-        pass
-    return False
 
 # ==============================================================================
-# PIPELINES & CALCULATORS
+# PROJECT MODULE IMPORTS
 # ==============================================================================
-def parse_cambium_columns(df):
-    """
-    NREL CAMBIUM COLUMN MAPPING ENGINE:
-    Audits column names to dynamically map real Cambium variables.
-    """
-    cols = df.columns
-    energy_col = None
-    for name in ['lmp_energy', 'marginal_cost_energy', 'Cambium_Energy_MWh', 'marginal_cost_energy_MWh', 'energy_price']:
-        for col in cols:
-            if name.lower() == col.lower():
-                energy_col = col
-                break
-        if energy_col:
-            break
-            
-    carbon_col = None
-    for name in ['co2_combust', 'marginal_co2_combust', 'Cambium_Carbon_kg_MWh', 'marginal_carbon_kg_MWh', 'carbon_intensity']:
-        for col in cols:
-            if name.lower() == col.lower():
-                carbon_col = col
-                break
-        if carbon_col:
-            break
-            
-    hour_col = None
-    for name in ['hour', 'Hour_Index', 'Hour_of_Year']:
-        for col in cols:
-            if name.lower() == col.lower():
-                hour_col = col
-                break
-        if hour_col:
-            break
-            
-    # Intelligent fallbacks
-    if not energy_col:
-        for col in cols:
-            if 'energy' in col.lower() or 'price' in col.lower() or 'mwh' in col.lower():
-                energy_col = col
-                break
-    if not carbon_col:
-        for col in cols:
-            if 'co2' in col.lower() or 'carbon' in col.lower() or 'kg' in col.lower():
-                carbon_col = col
-                break
-                
-    return hour_col, energy_col, carbon_col
+# These modules were extracted from app.py to keep calculation logic and data
+# I/O separate from the Streamlit UI. Each module is Streamlit-free and can be
+# tested, imported, or reused independently.
+#
+#   calculations.py - Grid avoided cost engine (pure math, no I/O)
+#                     Takes an 8760-hour DataFrame + scalar values and returns
+#                     hourly avoided costs in 5 components.
+#                     See: calculate_avoided_costs()
+#
+#   billing.py      - URDB-compliant retail billing engine + tariff data
+#                     Takes an 8760-hour load profile + a URDB rate JSON dict
+#                     and returns the annual bill and monthly breakdown.
+#                     See: calculate_urdb_bill(), GP_R31_URDB, AL_FD_URDB
+#
+#   data_loaders.py - All file I/O, data ingestion, and mock generators:
+#                     * Cambium CSV scanner + column mapping engine
+#                     * CWFT loader/generator  (default is MOCK placeholder)
+#                     * Load profile loader/generator (default is MOCK)
+#                     * Weather file loader (.epw / .csv, real files supported)
+#                     * URDB API fetch (live tariff download from NREL)
+#                     * Mock state data generator (for dev/testing only)
+#                     See: load_and_aggregate_data(), load_cwft_from_csv(),
+#                          load_load_profiles_from_csv(), fetch_urdb_rate(), etc.
+#
+# All modules are tested in tests/test_calculations.py (24 tests).
+# Run: python -m pytest
+# ==============================================================================
+from calculations import calculate_avoided_costs
+from billing import calculate_urdb_bill, GP_R31_URDB, AL_FD_URDB
+from data_loaders import (
+    INPUT_DIRECTORY,
+    generate_default_cwft_file,
+    load_cwft_from_csv,
+    generate_default_load_profiles_file,
+    load_load_profiles_from_csv,
+    generate_mock_state_file,
+    file_matches_scenario,
+    parse_cambium_columns,
+    load_custom_weather_file,
+    load_and_aggregate_data,
+    fetch_urdb_rate,
+)
 
+# ==============================================================================
+# DATA LOADING & FILE GENERATION - imported from data_loaders.py
+# ==============================================================================
+# All data I/O has been moved to data_loaders.py. Here is what is imported
+# and what each function does:
+#
+#   INPUT_DIRECTORY          './Cambium_Hourly_Data_raw' - where raw NREL CSVs live
+#
+#   generate_default_cwft_file(filepath)
+#       MOCK - Generates a synthetic Southeast dual-peak CWFT CSV
+#       (45% winter morning / 55% summer afternoon risk split).
+#       Status: Placeholder. Must be replaced with real utility/ISO data.
+#
+#   load_cwft_from_csv(filepath)
+#       REAL - Loads and validates a CWFT CSV (8760 rows, sum-to-1).
+#
+#   generate_default_load_profiles_file(filepath)
+#       MOCK - Generates synthetic heat pump load profiles.
+#       Status: Placeholder. Replace with real EnergyPlus prototype models.
+#
+#   load_load_profiles_from_csv(filepath)
+#       REAL - Loads and validates a load profiles CSV (8760 rows).
+#
+#   generate_mock_state_file(filepath, state_code, scenario)
+#       MOCK - Generates synthetic Cambium-like hourly data for dev/testing.
+#
+#   file_matches_scenario(filepath, scenario)
+#       REAL - Checks if a simplified-format CSV matches the selected scenario.
+#
+#   parse_cambium_columns(df)
+#       REAL - Dynamic column mapping engine for NREL naming conventions.
+#
+#   load_custom_weather_file(weather_case)
+#       REAL - Loads .epw or .csv weather files from Weather_Data_raw/.
+#
+#   load_and_aggregate_data(target_states, scenario, weather_case, ...)
+#       REAL - Main ingestion pipeline. @st.cache_data applied below.
+#
+#   fetch_urdb_rate(rate_label, api_key)
+#       REAL - Live API call to NREL OpenEI URDB for tariff download.
+#
+# Full implementations: data_loaders.py
+# ==============================================================================
 
-def load_custom_weather_file(weather_case):
-    """
-    Looks in Weather_Data_raw/<case_folder>/ for a .epw or .csv file and loads dry-bulb temperature (8760).
-    Returns a numpy array of temperatures in Fahrenheit, or None if no file is found.
-    """
-    case_folder_map = {
-        "2012 (Cambium-aligned baseline)": "Baseline",
-        "Extreme Winter": "Extreme_Winter",
-        "Extreme Summer": "Extreme_Summer"
-    }
-    folder_name = case_folder_map.get(weather_case, "Baseline")
-    target_dir = os.path.join("Weather_Data_raw", folder_name)
-    os.makedirs(target_dir, exist_ok=True)
-    
-    # Search for .epw or .csv files
-    files = []
-    for ext in ["*.epw", "*.csv"]:
-        files.extend(glob.glob(os.path.join(target_dir, ext)))
-        
-    if not files:
-        return None
-        
-    file_path = files[0]  # Take the first matched file
-    try:
-        if file_path.lower().endswith(".epw"):
-            # EPW files have 8 header lines, then 8760 data lines.
-            # Temperature is column index 6 (0-indexed), in Celsius.
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines = f.readlines()
-            data_lines = lines[8:]
-            if len(data_lines) != 8760:
-                data_lines = data_lines[:8760]
-            
-            temps_c = []
-            for line in data_lines:
-                parts = line.split(',')
-                if len(parts) > 6:
-                    temps_c.append(float(parts[6]))
-                else:
-                    temps_c.append(0.0)
-                    
-            temps_c = np.array(temps_c)
-            # Convert to Fahrenheit
-            temps_f = temps_c * 1.8 + 32.0
-            return temps_f
-            
-        elif file_path.lower().endswith(".csv"):
-            df = pd.read_csv(file_path)
-            # Try to find a temperature column
-            temp_col = None
-            for col in df.columns:
-                if any(x in col.lower() for x in ["temperature", "temp", "drybulb", "dry_bulb", "db_temp"]):
-                    temp_col = col
-                    break
-            if temp_col is None:
-                # If no clear header, take the first numeric column that isn't Hour or Hour index
-                numeric_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c.lower() not in ["hour", "hour_index", "datetime"]]
-                if numeric_cols:
-                    temp_col = numeric_cols[0]
-                    
-            if temp_col:
-                temps = df[temp_col].to_numpy()
-                if len(temps) != 8760:
-                    temps = np.resize(temps, 8760)
-                # Smart heuristic: Celsius vs Fahrenheit check
-                # If max temp is < 50, assume Celsius and convert
-                if np.nanmax(temps) < 50.0:
-                    temps = temps * 1.8 + 32.0
-                return temps
-    except Exception as e:
-        st.sidebar.error(f"Error loading custom weather file {os.path.basename(file_path)}: {str(e)}")
-        
-    return None
+# Apply Streamlit caching to the data pipeline at the app level.
+# data_loaders.py is Streamlit-free, so we wrap the import here.
+load_and_aggregate_data = st.cache_data(load_and_aggregate_data)
 
-
-@st.cache_data
-def load_and_aggregate_data(target_states, selected_scenario, weather_case, target_year="2026", planning_year="2040", input_directory=INPUT_DIRECTORY):
-    """
-    INGEST, AGGREGATE & WEATHER INJECTION PIPELINE (Cached):
-    Loads scenario files, maps columns dynamically, aggregates them, and generates temperature shifts.
-    Supports both preprocessed state files and raw NREL Cambium download structures.
-    """
-    os.makedirs(input_directory, exist_ok=True)
-    
-    # Track which states we successfully loaded from real data
-    loaded_states = set()
-    combined_list = []
-    mapped_energy_col = None
-    mapped_carbon_col = None
-    
-    # 1. Search recursively under the raw Cambium directory for all .csv files
-    all_csv_files = []
-    for root, dirs, files in os.walk(input_directory):
-        if any(x in root for x in ["__pycache__"]):
-            continue
-        for file in files:
-            if file.lower().endswith(".csv"):
-                all_csv_files.append(os.path.join(root, file))
-                
-    for file in all_csv_files:
-        try:
-            # Check if this is a raw NREL Cambium file
-            # Read first line without loading rows to see column list
-            first_row_df = pd.read_csv(file, nrows=0)
-            cols = [c.lower() for c in first_row_df.columns]
-            
-            is_raw_nrel = 'project' in cols and 'scenario' in cols and ('state' in cols or 'r' in cols)
-            
-            if is_raw_nrel:
-                # Read metadata from row index 1
-                meta_df = pd.read_csv(file, nrows=1)
-                file_state = str(meta_df['state'].iloc[0]).upper() if 'state' in meta_df.columns else ""
-                file_scenario = str(meta_df['Scenario'].iloc[0]).lower() if 'Scenario' in meta_df.columns else ""
-                # Year column is t
-                file_year = str(meta_df['t'].iloc[0]) if 't' in meta_df.columns else ""
-                
-                # Check if file matches selected scenario, state, and planning year
-                if (file_scenario == selected_scenario.lower() and 
-                    file_state in [s.upper() for s in target_states] and 
-                    file_year == str(planning_year)):
-                    
-                    # Read the hourly data (header is at row index 5)
-                    temp_df = pd.read_csv(file, header=5)
-                    temp_df['State'] = file_state
-                    temp_df['Scenario'] = selected_scenario
-                    temp_df['Hour'] = np.arange(1, 8761)
-                    
-                    loaded_states.add(file_state)
-                    filtered_df = temp_df
-                else:
-                    continue
-            else:
-                # Processed simplified format file
-                if not file_matches_scenario(file, selected_scenario):
-                    continue
-                temp_df = pd.read_csv(file)
-                if 'State' in temp_df.columns:
-                    filtered_df = temp_df[temp_df['State'].isin(target_states)]
-                    for s in filtered_df['State'].unique():
-                        loaded_states.add(str(s).upper())
-                else:
-                    continue
-            
-            if not filtered_df.empty:
-                # Dynamically map headers
-                hr_c, nrel_energy_c, nrel_carbon_c = parse_cambium_columns(filtered_df)
-                if nrel_energy_c:
-                    mapped_energy_col = nrel_energy_c
-                if nrel_carbon_c:
-                    mapped_carbon_col = nrel_carbon_c
-                    
-                rename_dict = {}
-                if nrel_energy_c:
-                    rename_dict[nrel_energy_c] = 'Cambium_Energy_MWh'
-                if nrel_carbon_c:
-                    rename_dict[nrel_carbon_c] = 'Cambium_Carbon_kg_MWh'
-                if hr_c and hr_c != 'Hour':
-                    rename_dict[hr_c] = 'Hour'
-                    
-                filtered_df = filtered_df.rename(columns=rename_dict)
-                
-                if 'Cambium_Energy_MWh' not in filtered_df.columns:
-                    raise ValueError(f"Could not map wholesale energy price in {file}. Found: {list(filtered_df.columns)}")
-                if 'Cambium_Carbon_kg_MWh' not in filtered_df.columns:
-                    raise ValueError(f"Could not map emissions rates in {file}. Found: {list(filtered_df.columns)}")
-                    
-                combined_list.append(filtered_df[['Hour', 'Cambium_Energy_MWh', 'Cambium_Carbon_kg_MWh', 'State']])
-                
-        except Exception as e:
-            # Silently pass for other files
-            pass
-            
-    # Ensure all requested states were successfully loaded from real files
-    missing_states = [s for s in target_states if s.upper() not in loaded_states]
-    if missing_states:
-        raise FileNotFoundError(
-            f"Missing Cambium grid data for state(s): {', '.join(missing_states)} "
-            f"(Scenario: {selected_scenario} | Year: {planning_year}). "
-            "Please download the raw NREL CSV files and place them in the 'Cambium_Hourly_Data_raw' directory."
-        )
-        
-    if not combined_list:
-        raise ValueError(f"No source data matched scenario ({selected_scenario}), year ({planning_year}), and states: {target_states}")
-        
-    raw_regional_df = pd.concat(combined_list, ignore_index=True)
-    
-    regional_base = raw_regional_df.groupby('Hour').agg({
-        'Cambium_Energy_MWh': 'mean',
-        'Cambium_Carbon_kg_MWh': 'mean'
-    }).reset_index()
-    
-    # Standard 8760-hour generation, aligned to the target year to preserve weekday/weekend assignments
-    date_range = pd.date_range(start=f"{target_year}-01-01 00:00:00", periods=8760, freq="h")
-    regional_base['Datetime'] = date_range
-    
-    # Peak Capacity Allocation Factor (PCAF) for localized T&D stress (top 100 grid hours)
-    top_100_cutoff = regional_base['Cambium_Energy_MWh'].nlargest(100).min()
-    regional_base['PCAF_Weight'] = 0.0
-    is_peak_hour = regional_base['Cambium_Energy_MWh'] >= top_100_cutoff
-    regional_base.loc[is_peak_hour, 'PCAF_Weight'] = 1.0 / is_peak_hour.sum()
-    
-    assert np.isclose(regional_base['PCAF_Weight'].sum(), 1.0), "PCAF values must sum to 1.0"
-    
-    # --------------------------------------------------------------------------
-    # Weather Profile & Temperature Generation
-    # --------------------------------------------------------------------------
-    hours = regional_base['Hour'].to_numpy()
-    np.random.seed(42)
-    
-    # Try to load custom weather file (.epw or .csv) from Weather_Data_raw/
-    custom_temp = load_custom_weather_file(weather_case)
-    
-    if custom_temp is not None:
-        temperature = custom_temp
-    else:
-        # Fall back to synthetic profile
-        seasonal_temp = 62.0 - 22.0 * np.cos(2 * np.pi * (hours - 360) / 8760)
-        daily_temp = -8.0 * np.cos(2 * np.pi * (hours - 15) / 24)
-        temp_noise = np.random.normal(0, 3.0, 8760)
-        temperature = seasonal_temp + daily_temp + temp_noise
-        
-    energy_price = regional_base['Cambium_Energy_MWh'].to_numpy()
-    
-    cwft_derived = np.zeros(8760)
-    winter_hours = []
-    summer_hours = []
-    for h in range(1, 8761):
-        if h <= 1440 and (h % 24 in [6, 7, 8, 9]):
-            winter_hours.append(h - 1)
-        elif 4345 <= h <= 5832 and (h % 24 in [14, 15, 16, 17, 18]):
-            summer_hours.append(h - 1)
-            
-    if weather_case == "Extreme Winter":
-        if custom_temp is None:
-            cold_snap_mask = (hours >= 120) & (hours <= 180)
-            temperature[cold_snap_mask] -= 22.0
-            
-        winter_morning_mask = (hours <= 1440) & (np.isin(hours % 24, [6, 7, 8, 9]))
-        energy_price[winter_morning_mask] *= np.random.uniform(2.2, 3.5, size=winter_morning_mask.sum())
-        
-        if custom_temp is None:
-            energy_price[cold_snap_mask & (np.isin(hours % 24, [6, 7, 8, 9]))] *= 2.0
-            
-        cwft_derived[winter_hours] = 0.80 / len(winter_hours)
-        cwft_derived[summer_hours] = 0.20 / len(summer_hours)
-        
-    elif weather_case == "Extreme Summer":
-        if custom_temp is None:
-            heatwave_mask = (hours >= 4800) & (hours <= 4860)
-            temperature[heatwave_mask] += 10.0
-            
-        summer_afternoon_mask = (hours >= 4345) & (hours <= 5832) & (np.isin(hours % 24, [14, 15, 16, 17, 18]))
-        energy_price[summer_afternoon_mask] *= np.random.uniform(2.2, 3.5, size=summer_afternoon_mask.sum())
-        
-        if custom_temp is None:
-            energy_price[heatwave_mask & (np.isin(hours % 24, [14, 15, 16, 17, 18]))] *= 2.0
-            
-        cwft_derived[winter_hours] = 0.15 / len(winter_hours)
-        cwft_derived[summer_hours] = 0.85 / len(summer_hours)
-        
-    else:
-        cwft_derived[winter_hours] = 0.45 / len(winter_hours)
-        cwft_derived[summer_hours] = 0.55 / len(summer_hours)
-        
-    regional_base['Temperature_F'] = temperature
-    regional_base['Cambium_Energy_MWh'] = energy_price
-    regional_base['CWFT_derived'] = cwft_derived
-    regional_base['Mapped_Energy_Col'] = mapped_energy_col
-    regional_base['Mapped_Carbon_Col'] = mapped_carbon_col
-    
-    return regional_base
-
-
-@st.cache_data
-def calculate_avoided_costs(df, cap_value, trans_value, dist_value, carbon_tax, cwft_array):
-    regional_base = df.copy()
-    regional_base['CWFT'] = cwft_array
-    
-    regional_base['Gen_Capacity_Value_MWh'] = cap_value * regional_base['CWFT'] * 1000
-    regional_base['Trans_Value_MWh'] = trans_value * regional_base['PCAF_Weight'] * 1000
-    regional_base['Dist_Value_MWh'] = dist_value * regional_base['PCAF_Weight'] * 1000
-    regional_base['Emissions_Value_MWh'] = (regional_base['Cambium_Carbon_kg_MWh'] / 1000.0) * carbon_tax
-    
-    regional_base['Total_Avoided_Cost_MWh'] = (
-        regional_base['Cambium_Energy_MWh'] +
-        regional_base['Gen_Capacity_Value_MWh'] +
-        regional_base['Trans_Value_MWh'] +
-        regional_base['Dist_Value_MWh'] +
-        regional_base['Emissions_Value_MWh']
-    )
-    return regional_base
-
-
-def calculate_urdb_bill(load_kw, datetime_series, rate_json):
-    """
-    URDB COMPLIANT BILLING ENGINE:
-    Parses URDB JSON structures (including V3 weekday/weekend schedules) 
-    and applies them to the hourly 8760 load profile.
-    """
-    fixed_charge_monthly = rate_json.get("fixedcharge", 0.0)
-    
-    energy_wd = rate_json.get("energyweekdayschedule", rate_json.get("energyratewindow"))
-    energy_we = rate_json.get("energyweekendschedule", rate_json.get("energyratewindow"))
-    energy_structure = rate_json.get("energyratestructure")
-    
-    demand_wd = rate_json.get("demandweekdayschedule", rate_json.get("demandratewindow"))
-    demand_we = rate_json.get("demandweekendschedule", rate_json.get("demandratewindow"))
-    demand_structure = rate_json.get("demandratestructure")
-    
-    months = datetime_series.dt.month.to_numpy()
-    hours = datetime_series.dt.hour.to_numpy()
-    dayofweek = datetime_series.dt.dayofweek.to_numpy() # 0=Mon, 6=Sun
-    
-    total_bill = 0.0
-    monthly_bills = []
-    
-    for m in range(1, 13):
-        mask = months == m
-        if not mask.any():
-            continue
-            
-        m_load = load_kw[mask]
-        m_hours = hours[mask]
-        m_dow = dayofweek[mask]
-        
-        # 1. Fixed monthly charge
-        m_bill = fixed_charge_monthly
-        
-        # 2. Energy charge
-        if energy_structure is not None and energy_wd is not None and energy_we is not None:
-            period_usage = {}
-            for i, kw in enumerate(m_load):
-                hr = m_hours[i]
-                dow = m_dow[i]
-                period_idx = energy_we[m - 1][hr] if dow >= 5 else energy_wd[m - 1][hr]
-                period_usage[period_idx] = period_usage.get(period_idx, 0.0) + kw
-                
-            for period_idx, kwh in period_usage.items():
-                if period_idx < len(energy_structure):
-                    tiers = energy_structure[period_idx]
-                    remaining_kwh = kwh
-                    tier_charge = 0.0
-                    for tier in tiers:
-                        tier_max = tier.get("max", float("inf"))
-                        tier_rate = tier.get("rate", 0.0) + tier.get("adj", 0.0)
-                        
-                        kwh_in_tier = min(remaining_kwh, tier_max)
-                        tier_charge += kwh_in_tier * tier_rate
-                        remaining_kwh -= kwh_in_tier
-                        if remaining_kwh <= 0:
-                            break
-                    m_bill += tier_charge
-                    
-        # 3. Demand charge
-        if demand_structure is not None and demand_wd is not None and demand_we is not None:
-            period_peaks = {}
-            for i, kw in enumerate(m_load):
-                hr = m_hours[i]
-                dow = m_dow[i]
-                period_idx = demand_we[m - 1][hr] if dow >= 5 else demand_wd[m - 1][hr]
-                period_peaks[period_idx] = max(period_peaks.get(period_idx, 0.0), kw)
-                
-            for period_idx, peak_kw in period_peaks.items():
-                if period_idx < len(demand_structure):
-                    tiers = demand_structure[period_idx]
-                    remaining_kw = peak_kw
-                    tier_charge = 0.0
-                    for tier in tiers:
-                        tier_max = tier.get("max", float("inf"))
-                        tier_rate = tier.get("rate", 0.0) + tier.get("adj", 0.0)
-                        
-                        kw_in_tier = min(remaining_kw, tier_max)
-                        tier_charge += kw_in_tier * tier_rate
-                        remaining_kw -= kw_in_tier
-                        if remaining_kw <= 0:
-                            break
-                    m_bill += tier_charge
-                    
-        total_bill += m_bill
-        monthly_bills.append(m_bill)
-        
-    return total_bill, np.array(monthly_bills)
-
-
-def fetch_urdb_rate(rate_label, api_key="DEMO_KEY"):
-    """
-    URDB API DOWNLOAD ENGINE:
-    Retrieves rate structure dynamically from the NREL OpenEI URDB API.
-    """
-    url = f"https://api.openei.org/utility_rates?version=3&format=json&api_key={api_key}&detail=full&getpage={rate_label}"
-    try:
-        req = urllib.request.Request(
-            url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            items = data.get("items", [])
-            if items:
-                return items[0]
-            else:
-                raise ValueError(f"No rate found matching label: {rate_label}")
-    except Exception as e:
-        raise ConnectionError(f"Failed to connect to NREL URDB API: {str(e)}")
 
 
 def dispatch_dr_program(datetime_series, cwft_array, dr_hours_per_year, season_name, max_hours_per_day, dr_capacity_kw, baseline_load):

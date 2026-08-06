@@ -90,4 +90,36 @@ The application's ingestion engine will automatically:
 - `load_profiles.csv`: Standard building load shapes for baseline and dynamic load modification analysis.
 - `southeast_avoided_costs_AL_GA.csv`: Hourly avoided cost projections derived from NREL Cambium datasets for Alabama and Georgia balancing authorities.
 
+---
 
+## 🤖 AI-Assisted Development
+
+This project uses AI coding assistants. Standing instructions for any AI working on this codebase are in [`AI_INSTRUCTIONS.md`](AI_INSTRUCTIONS.md). These cover:
+- **Living documentation** — 6 docs in `docs/` that must stay in sync with code
+- **Roadmap annotations** — user comments in `docs/roadmap.md` that guide priorities
+- **Testing** — `python -m pytest` after every code change
+
+Auto-discovery files are set up for GitHub Copilot (`.github/copilot-instructions.md`) and Gemini (`AGENTS.md`).
+
+---
+
+## 🧪 Testing
+
+Run the test suite:
+```bash
+python -m pytest
+```
+
+Tests cover the core calculation functions (avoided costs, URDB billing, NPV discounting, EPC/ELCC capacity metrics) and do not require Streamlit to be running.
+
+---
+
+## 📖 Documentation
+
+See the `docs/` folder for living project documentation:
+- [`docs/roadmap.md`](docs/roadmap.md) — Development milestones & progress tracking
+- [`docs/needs_and_gaps.md`](docs/needs_and_gaps.md) — Gap analysis vs. project vision
+- [`docs/glossary.md`](docs/glossary.md) — Domain terms & acronyms
+- [`docs/app_code_tour.md`](docs/app_code_tour.md) — Plain-English code walkthrough
+- [`docs/app_annotated.py`](docs/app_annotated.py) — Annotated teaching copy of `app.py`
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — Change log
