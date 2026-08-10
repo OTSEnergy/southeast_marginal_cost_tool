@@ -2,8 +2,8 @@
 
 > **Document Purpose:** Maps the current state of `app.py` against the project abstract and phased development plan to identify gaps, placeholders, hardcoded assumptions, and unresolved design decisions.
 >
-> **Last Updated:** 2026-08-06
-> **Assessed Against:** app.py (~1,350 lines) + calculations.py + billing.py + data_loaders.py
+> **Last Updated:** 2026-08-10
+> **Assessed Against:** app.py (1,210 lines) + calculations.py + billing.py + data_loaders.py + visualizations.py + config.py
 
 ---
 
@@ -22,17 +22,17 @@
 
 ## 1. Executive Summary
 
-The tool currently delivers a **single-user, wholesale-focused valuation engine** with strong foundational math (avoided costs, CWFT/EPC/ELCC capacity metrics, URDB retail billing, multi-year NPV discounting). However, significant gaps exist between the current implementation and the project vision of a **two-sided platform** serving both utility teams and technology vendors. The largest categories of gaps are:
+The tool currently delivers a **modularized, multi-metric valuation engine** with strong foundational math (avoided costs, CWFT/EPC/ELCC capacity metrics, URDB retail billing, multi-year NPV discounting, TRC, PCT, RIM cost-effectiveness tests, and customer payback periods). Recent updates integrated real 2012 BEopt building models and automated 2012 AMY EPW weather files. Significant gaps remaining relate to **user roles / dual-interface architecture** (Utility vs. Vendor views) and utility-supplied proprietary CWFT data. The gap landscape is summarized below:
 
 | Category | Severity | Count |
 |----------|----------|-------|
-| **Placeholders & mock data standing in for real data** | 🔴 High | 6 |
+| **Placeholders & mock data standing in for real data** | 🔴 High | 4 |
 | **Missing user roles / dual-interface architecture** | 🔴 High | 3 |
-| **Missing cost-effectiveness tests (TRC, RIM completeness)** | 🔴 High | 4 |
-| **Missing vendor-facing features (payback, guidance, targets)** | 🟡 Medium | 6 |
+| **Missing cost-effectiveness tests (TRC, PCT, RIM)** | ✅ **Resolved** | 0 |
+| **Missing vendor-facing features (payback, guidance, targets)** | 🟡 Medium | 4 |
 | **Explorer / what-if functionality** | 🟡 Medium | 4 |
 | **Visualization & audience-specific output gaps** | 🟡 Medium | 5 |
-| **Architecture & maintainability** | 🟢 Low | 5 |
+| **Architecture & maintainability** | ✅ **Resolved** | 0 |
 
 ---
 
@@ -41,6 +41,7 @@ The tool currently delivers a **single-user, wholesale-focused valuation engine*
 Before cataloguing gaps, here is what the tool **does** have working today:
 
 ### ✅ Functional
+- **Fully Modular Architecture** (Streamlit UI in `app.py` [1,210 lines], pure-Python logic in `calculations.py`, `billing.py`, `data_loaders.py`, `visualizations.py`, `config.py`)
 - **8,760-hour avoided cost engine** with 5 stacked components (energy, generation capacity, T&D, emissions)
 - **CWFT-based capacity allocation** (EPC and ELCC proxy calculations)
 - **PCAF-based T&D deferral allocation** (top 100 price hours)
@@ -49,19 +50,29 @@ Before cataloguing gaps, here is what the tool **does** have working today:
 - **URDB API integration** (live tariff import from NREL OpenEI)
 - **Custom tariff input** (paste JSON or flat rate)
 - **Multi-year NPV discounting** with escalation, degradation, and WACC
-- **RIM ratio calculation** (NPV grid savings / NPV lost revenue)
+- **Full California SPM Cost-Effectiveness Suite**:
+  - **TRC Test (Total Resource Cost)** = `NPV Grid Avoided Costs / (Gross Measure Cost + Utility Admin)`
+  - **PCT Test (Participant Cost Test / Customer ROI)** = `(NPV Customer Bill Savings + Incentive) / Gross Measure Cost`
+  - **RIM Test (Rate Impact Measure)** = `NPV Grid Avoided Costs / (NPV Lost Revenue + Program Costs)`
+- **Customer Payback Engine**:
+  - **Simple Payback Period (Years)**
+  - **Discounted Payback Period (Years)**
 - **Demand Response dispatch mode** (CWFT-ranked curtailment with daily call limits)
 - **Dynamic NREL Cambium column mapping** (handles variant column names)
+- **BEopt / EnergyPlus Raw Output Ingestion**:
+  - Auto-detects `ELECTRICITY:UNIT_1 [J](Hourly)` or `Electricity:Facility` headers
+  - Converts Joules `[J]` $\to$ kW ($\div 3,600,000$)
+  - Folder scanning mode (`Load_Profiles_raw/`) to merge multiple model runs into selectable baseline/proposed dropdowns
 - **Weather file support** (EPW and CSV import, synthetic fallback, extreme weather shifting)
-- **AMY weather generator** (diyepw integration for NOAA-sourced EPW files)
-- **8-tab dashboard** (scorecard, RIM table, grid charts, weather diagnostics, NPV/scenarios, debugger, calibration guide, weather generator)
+- **AMY weather generator** (`diyepw` integration for NOAA-sourced EPW files; 2012 EPWs generated for Atlanta & Birmingham)
+- **8-tab dashboard** (scorecard, RIM/TRC/PCT tables, grid charts, weather diagnostics, NPV/scenarios, debugger, calibration guide, weather generator)
 - **Scenario save/compare** (in-session side-by-side run comparison)
-- **Validation checks** (CWFT sum, capacity math trace, shape length)
+- **Automated Pytest Suite** (49 unit & integration tests covering all math, billing, config, viz, pipeline, and BEopt ingestion)
 - **CSV export** of top stress hours
 
 ### ⚠️ Partially Implemented
-- Weather sensitivity correlation check (exists but only as a diagnostic, not used in calculations)
-- `app_annotated.py` exists as a teaching copy but its dashboard tabs (tabs 2-7) are skeleton stubs compared to the full `app.py`
+- Weather sensitivity correlation check (exists as a diagnostic banner in Tab 1)
+- `app_annotated.py` exists as a teaching copy (needs ongoing sync review against modularized `app.py`) compared to the full `app.py`
 
 ---
 

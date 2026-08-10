@@ -18,106 +18,35 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Premium Custom CSS styling for metric cards and containers
-st.markdown(
-    """<style>
-/* Metric styling */
-[data-testid="stMetricValue"] {
-    font-size: 1.8rem;
-    font-weight: 700;
-    color: #0D9488; /* Sleek teal color for key figures */
-}
-[data-testid="stMetricLabel"] {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #4B5563;
-}
-div[data-testid="metric-container"] {
-    background-color: #F8FAFC;
-    border: 1px solid #E2E8F0;
-    padding: 15px 18px;
-    border-radius: 12px;
-    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
-    transition: transform 0.2s ease-in-out;
-}
-div[data-testid="metric-container"]:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05);
-}
-/* Style tables and graphs */
-[data-testid="stDataFrame"] {
-    border: 1px solid #E2E8F0;
-    border-radius: 12px;
-    overflow: hidden;
-}
-.badge {
-    display: inline-block;
-    padding: 0.35em 0.65em;
-    font-size: 0.85em;
-    font-weight: 700;
-    line-height: 1;
-    text-align: center;
-    white-space: nowrap;
-    vertical-align: baseline;
-    border-radius: 0.375rem;
-}
-.badge-success {
-    color: #fff;
-    background-color: #15803d;
-}
-.badge-warning {
-    color: #854d0e;
-    background-color: #fef08a;
-    border: 1px solid #eab308;
-}
-.badge-danger {
-    color: #fff;
-    background-color: #b91c1c;
-}
-</style>""",
-    unsafe_allow_html=True
+# Premium Custom CSS styling — sourced from config.py
+from config import (
+    CUSTOM_CSS,
+    SCENARIO_OPTIONS, PLANNING_YEAR_OPTIONS, DEFAULT_PLANNING_YEAR_INDEX,
+    WEATHER_CASE_OPTIONS, STATE_OPTIONS, DEFAULT_STATES,
+    DEFAULT_CAP_VALUE, DEFAULT_TRANS_VALUE, DEFAULT_DIST_VALUE, DEFAULT_CARBON_TAX,
+    CAP_VALUE_RANGE, TRANS_VALUE_RANGE, DIST_VALUE_RANGE, CARBON_TAX_RANGE,
+    DEFAULT_ASSET_LIFE, DEFAULT_DISCOUNT_RATE, DEFAULT_ESCALATION_RATE,
+    DEFAULT_RETAIL_ESCALATION, DEFAULT_DEGRADATION_RATE,
+    DEFAULT_GROSS_MEASURE_COST, DEFAULT_UTILITY_INCENTIVE, DEFAULT_UTILITY_ADMIN_COST,
+    DEFAULT_DR_HOURS_PER_YEAR, DEFAULT_DR_SEASON, DR_SEASON_OPTIONS,
+    DEFAULT_DR_MAX_HOURS_PER_DAY, DEFAULT_DR_CAPACITY_KW,
+    TARIFF_OPTIONS, GRID_COMPONENTS, WEEK_WINDOWS, COLORS,
+    WEATHER_SENSITIVITY_STRONG, WEATHER_SENSITIVITY_MODERATE,
+    get_weather_sensitivity_style,
 )
+from visualizations import (
+    build_weekly_overlay_chart,
+    build_annual_avoided_cost_chart,
+    build_stacked_components_chart,
+    build_lifetime_npv_chart,
+)
+from calculations import (
+    calculate_avoided_costs,
+    dispatch_dr_program,
+    calculate_cost_effectiveness_tests,
+)
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# ==============================================================================
-# PRE-PACKAGED LOCAL URDB TARIFS
-# ==============================================================================
-GP_R31_URDB = {
-    "name": "Georgia Power - Schedule R-31 (Residential)",
-    "fixedcharge": 16.48, # includes riders: $14.00/mo base * 1.177209 rider multiplier
-    "energyratewindow": [
-        [0]*24, [0]*24, [0]*24, [0]*24, [0]*24, # Jan - May (Winter = Period 0)
-        [1]*24, [1]*24, [1]*24, [1]*24,         # Jun - Sep (Summer = Period 1)
-        [0]*24, [0]*24, [0]*24                  # Oct - Dec (Winter = Period 0)
-    ],
-    "energyratestructure": [
-        [{"rate": 0.142062}], # Period 0: Winter rate (8.2116¢ base + 3.8561¢ FCR) * 1.177209 riders
-        [
-            {"max": 650.0, "rate": 0.148101}, # Summer Tier 1 (8.7738¢ base + 3.8069¢ FCR) * 1.177209 riders
-            {"max": 350.0, "rate": 0.216379}, # Summer Tier 2 (14.5738¢ base + 3.8069¢ FCR) * 1.177209 riders
-            {"rate": 0.222371}                 # Summer Tier 3 (15.0828¢ base + 3.8069¢ FCR) * 1.177209 riders
-        ] # Period 1: Summer tiered blocks
-    ]
-}
-
-AL_FD_URDB = {
-    "name": "Alabama Power - Rate FD (Family Dwelling)",
-    "fixedcharge": 15.58, # $14.50/mo base + $1.08/mo NDR (averaging $13.00/yr)
-    "energyratewindow": [
-        [0]*24, [0]*24, [0]*24, [0]*24, [0]*24, # Jan - May (Winter = Period 0)
-        [1]*24, [1]*24, [1]*24, [1]*24,         # Jun - Sep (Summer = Period 1)
-        [0]*24, [0]*24, [0]*24                  # Oct - Dec (Winter = Period 0)
-    ],
-    "energyratestructure": [
-        [
-            {"max": 750.0, "rate": 0.150384}, # Winter Tier 1 (12.4384¢ base + 2.600¢ ECR)
-            {"rate": 0.138384}                 # Winter Tier 2 (11.2384¢ base + 2.600¢ ECR)
-        ], # Period 0: Winter tiered blocks
-        [
-            {"max": 1000.0, "rate": 0.150384}, # Summer Tier 1 (12.4384¢ base + 2.600¢ ECR)
-            {"rate": 0.152913}                  # Summer Tier 2 (12.6913¢ base + 2.600¢ ECR)
-        ] # Period 1: Summer tiered blocks
-    ]
-}
 
 
 # ==============================================================================
@@ -127,14 +56,13 @@ AL_FD_URDB = {
 # I/O separate from the Streamlit UI. Each module is Streamlit-free and can be
 # tested, imported, or reused independently.
 #
-#   calculations.py - Grid avoided cost engine (pure math, no I/O)
-#                     Takes an 8760-hour DataFrame + scalar values and returns
-#                     hourly avoided costs in 5 components.
-#                     See: calculate_avoided_costs()
+#   config.py       - Default parameters, option lists, CSS, color palette.
+#                     Imported above (before page config).
+#
+#   calculations.py - Grid avoided cost engine + DR dispatch (pure math, no I/O)
+#                     See: calculate_avoided_costs(), dispatch_dr_program()
 #
 #   billing.py      - URDB-compliant retail billing engine + tariff data
-#                     Takes an 8760-hour load profile + a URDB rate JSON dict
-#                     and returns the annual bill and monthly breakdown.
 #                     See: calculate_urdb_bill(), GP_R31_URDB, AL_FD_URDB
 #
 #   data_loaders.py - All file I/O, data ingestion, and mock generators:
@@ -147,10 +75,14 @@ AL_FD_URDB = {
 #                     See: load_and_aggregate_data(), load_cwft_from_csv(),
 #                          load_load_profiles_from_csv(), fetch_urdb_rate(), etc.
 #
-# All modules are tested in tests/test_calculations.py (24 tests).
+#   visualizations.py - Plotly chart builder functions (pure Plotly, no Streamlit).
+#                       Each function returns a go.Figure for st.plotly_chart().
+#                       Imported above (before page config).
+#
+# All modules are tested in tests/test_calculations.py.
 # Run: python -m pytest
 # ==============================================================================
-from calculations import calculate_avoided_costs
+from calculations import calculate_avoided_costs, dispatch_dr_program
 from billing import calculate_urdb_bill, GP_R31_URDB, AL_FD_URDB
 from data_loaders import (
     INPUT_DIRECTORY,
@@ -216,35 +148,7 @@ load_and_aggregate_data = st.cache_data(load_and_aggregate_data)
 
 
 
-def dispatch_dr_program(datetime_series, cwft_array, dr_hours_per_year, season_name, max_hours_per_day, dr_capacity_kw, baseline_load):
-    months = datetime_series.dt.month
-    eligible_mask = np.ones(8760, dtype=bool)
-    
-    if season_name == "Summer Only (Jun-Sep)":
-        eligible_mask = np.isin(months, [6, 7, 8, 9])
-    elif season_name == "Winter Only (Oct-May)":
-        eligible_mask = np.isin(months, [10, 11, 12, 1, 2, 3, 4, 5])
-        
-    eligible_indices = np.where(eligible_mask)[0]
-    sorted_eligible = eligible_indices[np.argsort(-cwft_array[eligible_indices])]
-    
-    selected_hours = []
-    daily_counts = {}
-    dates = datetime_series.dt.date.to_numpy()
-    
-    for idx in sorted_eligible:
-        date = dates[idx]
-        count = daily_counts.get(date, 0)
-        if count < max_hours_per_day:
-            selected_hours.append(idx)
-            daily_counts[date] = count + 1
-            if len(selected_hours) >= dr_hours_per_year:
-                break
-                
-    dr_reduction = np.zeros(8760)
-    for idx in selected_hours:
-        dr_reduction[idx] = min(dr_capacity_kw, baseline_load[idx])
-    return dr_reduction, selected_hours
+# dispatch_dr_program() has been moved to calculations.py (imported above)
 
 
 def render_weather_generator(key_suffix: str):
@@ -363,31 +267,30 @@ st.sidebar.markdown(
 
 # 1. Weather & Scenario Selectors
 st.sidebar.markdown("### 🌤️ Grid Weather & Scenario")
-scenario_options = ["HighDemandGrowth", "MidCase", "LowCarbonConstraint", "LowDemandGrowth"]
 selected_scenario = st.sidebar.selectbox(
     "NREL Future Scenario",
-    options=scenario_options,
+    options=SCENARIO_OPTIONS,
     index=0
 )
 
 planning_year = st.sidebar.selectbox(
     "NREL Planning Year",
-    options=["2025", "2030", "2035", "2040", "2045", "2050"],
-    index=3,
+    options=PLANNING_YEAR_OPTIONS,
+    index=DEFAULT_PLANNING_YEAR_INDEX,
     help="Select the target grid planning year for valuation."
 )
 
 weather_case = st.sidebar.selectbox(
     "Grid Weather Case",
-    options=["2012 (Cambium-aligned baseline)", "Extreme Winter", "Extreme Summer"],
+    options=WEATHER_CASE_OPTIONS,
     index=0,
     help="Alters temperatures, pushes peaks, and shifts reliability CWFT risk."
 )
 
 target_states = st.sidebar.multiselect(
     "Target States",
-    options=["AL", "GA", "FL", "TN", "MS", "NC", "SC"],
-    default=["AL", "GA"]
+    options=STATE_OPTIONS,
+    default=DEFAULT_STATES
 )
 
 # 2. Split Capacity Values
@@ -395,22 +298,22 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### 💸 Grid Valuation Scalars")
 cap_value = st.sidebar.number_input(
     "Gen Capacity Value ($/kW-year)",
-    min_value=0.0, max_value=1000.0, value=100.00, step=5.00, format="%.2f"
+    min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1], value=DEFAULT_CAP_VALUE, step=CAP_VALUE_RANGE[2], format="%.2f"
 )
 
 trans_value = st.sidebar.number_input(
     "Transmission Deferral ($/kW-year)",
-    min_value=0.0, max_value=500.0, value=15.00, step=1.00, format="%.2f"
+    min_value=TRANS_VALUE_RANGE[0], max_value=TRANS_VALUE_RANGE[1], value=DEFAULT_TRANS_VALUE, step=TRANS_VALUE_RANGE[2], format="%.2f"
 )
 
 dist_value = st.sidebar.number_input(
     "Distribution Deferral ($/kW-year)",
-    min_value=0.0, max_value=500.0, value=15.00, step=1.00, format="%.2f"
+    min_value=DIST_VALUE_RANGE[0], max_value=DIST_VALUE_RANGE[1], value=DEFAULT_DIST_VALUE, step=DIST_VALUE_RANGE[2], format="%.2f"
 )
 
 carbon_tax = st.sidebar.slider(
     "Carbon Penalty ($/metric ton)",
-    min_value=0.0, max_value=100.00, value=30.00, step=5.00, format="$%.2f"
+    min_value=CARBON_TAX_RANGE[0], max_value=CARBON_TAX_RANGE[1], value=DEFAULT_CARBON_TAX, step=CARBON_TAX_RANGE[2], format="$%.2f"
 )
 
 # 3. Retail Tariff & URDB Selector
@@ -418,20 +321,14 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔌 Retail Tariff (NREL URDB)")
 tariff_type = st.sidebar.selectbox(
     "Retail Utility Tariff Type",
-    options=[
-        "Georgia Power - Schedule R-31 (Residential)",
-        "Alabama Power - Rate FD (Family Dwelling)",
-        "Import from NREL URDB (API Label)",
-        "Paste Custom URDB V3 JSON",
-        "Custom Flat Rate / Demand"
-    ],
+    options=TARIFF_OPTIONS,
     index=0,
     help="Define customer bill impact using packaged rates, pasting URDB JSONs, or querying the OpenEI API."
 )
 
 retail_escalation_rate = st.sidebar.number_input(
     "Retail Price Escalation (%)",
-    min_value=-5.0, max_value=15.0, value=2.0, step=0.5, format="%.1f"
+    min_value=-5.0, max_value=15.0, value=DEFAULT_RETAIL_ESCALATION, step=0.5, format="%.1f"
 )
 
 active_tariff_json = None
@@ -493,31 +390,110 @@ dr_mode = st.sidebar.toggle(
     help="Curbs load reduction dynamically during high-stress hours subject to call limits."
 )
 
-dr_hours_per_year = 50
-dr_season = "Summer Only (Jun-Sep)"
-dr_max_hours_per_day = 4
-dr_capacity_kw = 1.0
+dr_hours_per_year = DEFAULT_DR_HOURS_PER_YEAR
+dr_season = DEFAULT_DR_SEASON
+dr_max_hours_per_day = DEFAULT_DR_MAX_HOURS_PER_DAY
+dr_capacity_kw = DEFAULT_DR_CAPACITY_KW
 
 if dr_mode:
-    dr_hours_per_year = st.sidebar.number_input("DR Call Hours per Year", min_value=1, max_value=8760, value=50, step=5)
-    dr_season = st.sidebar.selectbox("DR Season of Applicability", ["Summer Only (Jun-Sep)", "Winter Only (Oct-May)", "Both Seasons"])
-    dr_max_hours_per_day = st.sidebar.slider("Max Daily Call Hours", min_value=1, max_value=24, value=4)
-    dr_capacity_kw = st.sidebar.number_input("DR Curtailment Capacity (kW)", min_value=0.1, value=1.0, step=0.5, format="%.2f")
+    dr_hours_per_year = st.sidebar.number_input("DR Call Hours per Year", min_value=1, max_value=8760, value=DEFAULT_DR_HOURS_PER_YEAR, step=5)
+    dr_season = st.sidebar.selectbox("DR Season of Applicability", DR_SEASON_OPTIONS)
+    dr_max_hours_per_day = st.sidebar.slider("Max Daily Call Hours", min_value=1, max_value=24, value=DEFAULT_DR_MAX_HOURS_PER_DAY)
+    dr_capacity_kw = st.sidebar.number_input("DR Curtailment Capacity (kW)", min_value=0.1, value=DEFAULT_DR_CAPACITY_KW, step=0.5, format="%.2f")
 
 # 5. Financial Lifetime & NPV Adjustments
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⏳ Asset Lifetime & NPV")
-asset_life = st.sidebar.number_input("Asset Lifetime (Years)", min_value=1, max_value=50, value=15, step=1)
-discount_rate = st.sidebar.number_input("Discount Rate / WACC (%)", min_value=0.0, max_value=25.0, value=7.0, step=0.5, format="%.1f")
-escalation_rate = st.sidebar.number_input("Grid Price Escalation (%)", min_value=-5.0, max_value=15.0, value=2.0, step=0.5, format="%.1f")
-degradation_rate = st.sidebar.number_input("Annual Efficiency Decay (%)", min_value=0.0, max_value=10.0, value=1.0, step=0.1, format="%.1f")
+asset_life = st.sidebar.number_input("Asset Lifetime (Years)", min_value=1, max_value=50, value=DEFAULT_ASSET_LIFE, step=1)
+discount_rate = st.sidebar.number_input("Discount Rate / WACC (%)", min_value=0.0, max_value=25.0, value=DEFAULT_DISCOUNT_RATE, step=0.5, format="%.1f")
+escalation_rate = st.sidebar.number_input("Grid Price Escalation (%)", min_value=-5.0, max_value=15.0, value=DEFAULT_ESCALATION_RATE, step=0.5, format="%.1f")
+degradation_rate = st.sidebar.number_input("Annual Efficiency Decay (%)", min_value=0.0, max_value=10.0, value=DEFAULT_DEGRADATION_RATE, step=0.1, format="%.1f")
+
+# 5b. Measure & Program Costs
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 💰 Measure & Program Costs")
+gross_measure_cost = st.sidebar.number_input("Gross Installed Measure Cost ($)", min_value=0.0, value=DEFAULT_GROSS_MEASURE_COST, step=250.0, format="%.2f", help="Total upfront equipment, materials, and installation labor cost.")
+utility_incentive = st.sidebar.number_input("Utility Rebate / Incentive ($)", min_value=0.0, value=DEFAULT_UTILITY_INCENTIVE, step=50.0, format="%.2f", help="Customer rebate or financial incentive provided by utility.")
+utility_admin_cost = st.sidebar.number_input("Utility Admin & Marketing Cost ($)", min_value=0.0, value=DEFAULT_UTILITY_ADMIN_COST, step=25.0, format="%.2f", help="Utility administrative, marketing, and processing costs per participant.")
 
 # 6. File Input Paths
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📂 Input File Paths")
 use_custom_cwft = st.sidebar.checkbox("Use Custom CWFT CSV File", value=True)
 cwft_filepath = st.sidebar.text_input("CWFT CSV File Path", value="CWFT.csv")
-load_profiles_filepath = st.sidebar.text_input("Load Profiles CSV Path", value="load_profiles.csv")
+# Load profiles path options
+if os.path.exists("Load_Profiles_raw") and len(glob.glob(os.path.join("Load_Profiles_raw", "*.csv"))) > 0:
+    default_load_idx = 0
+else:
+    default_load_idx = 1
+
+selected_load_option = st.sidebar.selectbox(
+    "Load Profiles Source",
+    options=["📁 Load_Profiles_raw (BEopt / EnergyPlus raw models)", "📄 load_profiles.csv (Default synthetic)", "✏️ Custom Path..."],
+    index=default_load_idx,
+    help="Supports raw BEopt / EnergyPlus output CSVs, custom 8760 CSVs, or entire directories."
+)
+
+if "Custom Path" in selected_load_option:
+    load_profiles_filepath = st.sidebar.text_input("Custom Load Profiles Path", value="load_profiles.csv")
+elif "Load_Profiles_raw" in selected_load_option:
+    load_profiles_filepath = "Load_Profiles_raw"
+else:
+    load_profiles_filepath = "load_profiles.csv"
+
+# Load profile case selection (Baseline vs Proposed)
+try:
+    generate_default_load_profiles_file(load_profiles_filepath if load_profiles_filepath != "Load_Profiles_raw" else "load_profiles.csv")
+    load_profiles_df = load_load_profiles_from_csv(load_profiles_filepath)
+    profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
+    
+    st.sidebar.markdown("#### 🏠 Select Model Cases")
+    if os.path.isdir(load_profiles_filepath):
+        st.sidebar.caption(f"📁 **Folder Mode:** Found {len(profile_columns)} raw model file(s) in `{os.path.basename(load_profiles_filepath)}`.")
+    else:
+        st.sidebar.caption(f"📄 **File Mode:** Found {len(profile_columns)} profile column(s) in `{os.path.basename(load_profiles_filepath)}`.")
+
+    # Smart default indices
+    default_base_idx = 0
+    default_prop_idx = 1 if len(profile_columns) > 1 else 0
+    for idx, p in enumerate(profile_columns):
+        p_low = p.lower()
+        if any(k in p_low for k in ["erheat", "baseline", "standard", "electricresistance"]):
+            default_base_idx = idx
+        elif any(k in p_low for k in ["heatpump", "proposed", "highefficiency", "hp"]):
+            default_prop_idx = idx
+
+    if dr_mode:
+        baseline_col = st.sidebar.selectbox(
+            "Baseline Profile (for DR)",
+            options=profile_columns,
+            index=default_base_idx,
+            help="Select which building model or column represents the baseline load profile prior to Demand Response curtailment."
+        )
+        proposed_col = baseline_col
+        st.sidebar.caption("⚡ *DR Mode Active:* Proposed profile is calculated dynamically as Baseline − DR curtailment.")
+    else:
+        baseline_col = st.sidebar.selectbox(
+            "Baseline Case (e.g., Electric Resistance)",
+            options=profile_columns,
+            index=default_base_idx,
+            help="Select the building model file or column to use as the Baseline load profile."
+        )
+        proposed_col = st.sidebar.selectbox(
+            "Proposed Case (e.g., Heat Pump)",
+            options=profile_columns,
+            index=default_prop_idx,
+            help="Select the building model file or column to use as the Proposed load profile."
+        )
+        
+    if baseline_col == proposed_col and not dr_mode and len(profile_columns) > 1:
+        st.sidebar.warning("⚠️ Baseline and Proposed profiles are identical. Select two different models for savings calculations.")
+
+except Exception as e:
+    st.sidebar.error(f"Error loading profiles: {e}")
+    profile_columns = []
+    baseline_col = None
+    proposed_col = None
 
 st.sidebar.markdown("---")
 # Metadata Tracker inputs
@@ -636,20 +612,16 @@ else:
             results_df = calculate_avoided_costs(raw_df, cap_value, trans_value, dist_value, carbon_tax, cwft_array)
             
             # Setup Baseline and Proposed loads
+            baseline_load = load_profiles_df[baseline_col].to_numpy()
+            
             if dr_mode:
-                baseline_col = st.sidebar.selectbox("Baseline Profile for DR", options=profile_columns, index=0)
-                baseline_load = load_profiles_df[baseline_col].to_numpy()
-                
                 dr_reduction, dr_indices = dispatch_dr_program(
                     datetime_series, cwft_array, dr_hours_per_year, dr_season, dr_max_hours_per_day, dr_capacity_kw, baseline_load
                 )
                 proposed_load = baseline_load - dr_reduction
                 load_reduction = dr_reduction
-                st.sidebar.info(f"DR Mode Active: {len(dr_indices)} hours dispatched. Proposed load is Baseline - DR.")
+                st.sidebar.info(f"DR Mode Active: {len(dr_indices)} hours dispatched. Proposed load is Baseline − DR.")
             else:
-                baseline_col = st.sidebar.selectbox("Baseline Load Profile", options=profile_columns, index=0)
-                proposed_col = st.sidebar.selectbox("Proposed Load Profile", options=profile_columns, index=min(1, len(profile_columns)-1))
-                baseline_load = load_profiles_df[baseline_col].to_numpy()
                 proposed_load = load_profiles_df[proposed_col].to_numpy()
                 load_reduction = baseline_load - proposed_load
             
@@ -711,7 +683,25 @@ else:
             npv_retail_lost_revenue = annual_lost_revenue * retail_pv_multipliers.sum()
             
             npv_net_savings = npv_grid_savings - npv_retail_lost_revenue
-            rim_ratio = npv_grid_savings / npv_retail_lost_revenue if npv_retail_lost_revenue > 0 else 0.0
+            
+            # 4b. Cost-Effectiveness & Payback Tests (TRC, PCT, RIM, Payback)
+            annual_cust_savings_stream = (annual_lost_revenue * retail_esc_factors * deg_factors)
+            cost_tests = calculate_cost_effectiveness_tests(
+                npv_grid_savings=npv_grid_savings,
+                npv_lost_revenue=npv_retail_lost_revenue,
+                npv_customer_bill_savings=npv_retail_lost_revenue,
+                gross_measure_cost=gross_measure_cost,
+                utility_incentive=utility_incentive,
+                utility_admin_cost=utility_admin_cost,
+                annual_customer_savings_stream=annual_cust_savings_stream,
+                pv_multipliers=retail_pv_multipliers
+            )
+            trc_ratio = cost_tests["trc_ratio"]
+            pct_ratio = cost_tests["pct_ratio"]
+            rim_ratio = cost_tests["rim_ratio"]
+            simple_payback = cost_tests["simple_payback"]
+            discounted_payback = cost_tests["discounted_payback"]
+            net_customer_cost = cost_tests["net_customer_cost"]
             
             # 5. Peak Coincidence, EPC & ELCC Proxy Math
             epc_baseline = (baseline_load * cwft_array).sum()
@@ -779,18 +769,10 @@ else:
                 cool_corr = 0.0
                 
             max_corr = max(abs(heat_corr), abs(cool_corr))
-            if max_corr >= 0.60:
-                weather_sensitivity_status = "Responsive (Strong Temperature Correlation)"
-                weather_color = "#ECFDF5"  # light green
-                weather_text_color = "#065F46"
-            elif max_corr >= 0.35:
-                weather_sensitivity_status = "Moderate Sensitivity"
-                weather_color = "#FFFBEB"  # light yellow
-                weather_text_color = "#92400E"
-            else:
-                weather_sensitivity_status = "Unresponsive / Low Sensitivity"
-                weather_color = "#FEF2F2"  # light red
-                weather_text_color = "#991B1B"
+            ws_style = get_weather_sensitivity_style(max_corr)
+            weather_sensitivity_status = ws_style["label"]
+            weather_color = ws_style["bg_color"]
+            weather_text_color = ws_style["text_color"]
                 
             weather_aligned = (meta_load_weather == meta_cambium_weather == meta_cwft_weather)
             alignment_status = f"{weather_sensitivity_status} | User Label: {'Aligned' if weather_aligned else 'Mixed'}"
@@ -815,7 +797,7 @@ else:
             with tab_summary:
                 # Weather Sensitivity and Year Alignment Row
                 st.markdown(
-                    f"""<div style="background-color: {weather_color}; border: 1px solid {'#10B981' if max_corr >= 0.6 else '#F59E0B' if max_corr >= 0.35 else '#EF4444'}; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.95rem; color: {weather_text_color};">
+                    f"""<div style="background-color: {weather_color}; border: 1px solid {ws_style['border_color']}; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.95rem; color: {weather_text_color};">
 <b>Weather Sensitivity Check (NOT year alignment):</b> <b>{weather_sensitivity_status}</b> (Max $r = {max_corr:.2f}$)<br>
 • Heating Season Correlation: <b>{heat_corr:.2f}</b> | • Cooling Season Correlation: <b>{cool_corr:.2f}</b><br>
 • Documented Weather Years: Load = <b>{meta_load_weather}</b> | Cambium Grid = <b>{meta_cambium_weather}</b> | CWFT = <b>{meta_cwft_weather}</b> {'(Aligned)' if weather_aligned else '(Mixed)'}<br>
@@ -857,6 +839,53 @@ else:
                         label="EPC Reduction (kW)",
                         value=f"{epc_reduction:.2f} kW",
                         help="Effective Peak Contribution (EPC) reduction. Calculated as sum(Load Reduction * CWFT). This drives 100% of the Generation Capacity deferral savings value."
+                    )
+                    
+                st.markdown("### 📊 Standard Practice Manual (SPM) & Customer Payback")
+                ce_col1, ce_col2, ce_col3, ce_col4, ce_col5 = st.columns(5)
+                with ce_col1:
+                    trc_color = "color: #15803d; font-weight: bold;" if trc_ratio >= 1.0 else "color: #b91c1c; font-weight: bold;"
+                    st.markdown(
+                        f"""<div data-testid="metric-container">
+<div data-testid="stMetricLabel">Total Resource Cost (TRC)</div>
+<div style="font-size: 1.8rem; font-weight: 700; {trc_color}">{trc_ratio:.3f}</div>
+<div style="font-size: 0.8rem; color: #64748B;">NPV Grid / (Measure + Admin)</div>
+</div>""",
+                        unsafe_allow_html=True
+                    )
+                with ce_col2:
+                    pct_color = "color: #15803d; font-weight: bold;" if pct_ratio >= 1.0 else "color: #b91c1c; font-weight: bold;"
+                    st.markdown(
+                        f"""<div data-testid="metric-container">
+<div data-testid="stMetricLabel">Participant Cost Test (PCT)</div>
+<div style="font-size: 1.8rem; font-weight: 700; {pct_color}">{pct_ratio:.3f}</div>
+<div style="font-size: 0.8rem; color: #64748B;">(Bill Savings + Rebate) / Measure</div>
+</div>""",
+                        unsafe_allow_html=True
+                    )
+                with ce_col3:
+                    rim_color = "color: #15803d; font-weight: bold;" if rim_ratio >= 1.0 else "color: #b91c1c; font-weight: bold;"
+                    st.markdown(
+                        f"""<div data-testid="metric-container">
+<div data-testid="stMetricLabel">Rate Impact Measure (RIM)</div>
+<div style="font-size: 1.8rem; font-weight: 700; {rim_color}">{rim_ratio:.3f}</div>
+<div style="font-size: 0.8rem; color: #64748B;">NPV Grid / (Lost Rev + Program)</div>
+</div>""",
+                        unsafe_allow_html=True
+                    )
+                with ce_col4:
+                    sp_str = f"{simple_payback:.1f} yrs" if simple_payback != float('inf') else "N/A"
+                    st.metric(
+                        label="Simple Payback",
+                        value=sp_str,
+                        help="Net Measure Cost (Cost - Rebate) divided by Year 1 Customer Bill Savings."
+                    )
+                with ce_col5:
+                    dp_str = f"{discounted_payback:.1f} yrs" if discounted_payback != float('inf') else "N/A"
+                    st.metric(
+                        label="Discounted Payback",
+                        value=dp_str,
+                        help="Years to break even considering customer retail price escalation and discount rate."
                     )
                     
                 st.markdown("### ⚡ Capacity Contribution Metrics")
@@ -992,57 +1021,18 @@ else:
                 st.markdown("#### 🕒 Weekly Profile Load reduction & Grid costs")
                 st.markdown("Review how load reduction aligns with wholesale hourly avoided cost peaks.")
                 
-                week_options = {
-                    "Winter Peak Week (Jan 1-7)": (0, 168),
-                    "Summer Peak Week (Jul 15-21)": (4680, 4848),
-                    "Shoulder Week (Apr 10-16)": (2376, 2544)
-                }
-                selected_week = st.selectbox("Select Week Window", options=list(week_options.keys()), index=0)
-                start_h, end_h = week_options[selected_week]
+                selected_week = st.selectbox("Select Week Window", options=list(WEEK_WINDOWS.keys()), index=0)
+                start_h, end_h = WEEK_WINDOWS[selected_week]
                 
-                fig_calc_overlay = make_subplots(specs=[[{"secondary_y": True}]])
-                cost_slice = results_df.iloc[start_h:end_h]
                 dt_slice = datetime_series.iloc[start_h:end_h]
+                cost_slice = results_df['Total_Avoided_Cost_MWh'].iloc[start_h:end_h]
                 
-                fig_calc_overlay.add_trace(
-                    go.Scatter(
-                        x=dt_slice, y=cost_slice['Total_Avoided_Cost_MWh'],
-                        name="Grid Avoided Cost ($/MWh)",
-                        line=dict(color="#8B5CF6", width=2, dash='dash')
-                    ),
-                    secondary_y=True
+                fig_calc_overlay = build_weekly_overlay_chart(
+                    dt_slice, cost_slice,
+                    baseline_load[start_h:end_h],
+                    proposed_load[start_h:end_h],
+                    load_reduction[start_h:end_h]
                 )
-                fig_calc_overlay.add_trace(
-                    go.Scatter(
-                        x=dt_slice, y=baseline_load[start_h:end_h],
-                        name="Baseline Load (kW)", line=dict(color="#EF4444", width=1.5)
-                    ),
-                    secondary_y=False
-                )
-                fig_calc_overlay.add_trace(
-                    go.Scatter(
-                        x=dt_slice, y=proposed_load[start_h:end_h],
-                        name="Proposed Load (kW)", line=dict(color="#0D9488", width=1.5)
-                    ),
-                    secondary_y=False
-                )
-                fig_calc_overlay.add_trace(
-                    go.Scatter(
-                        x=dt_slice, y=load_reduction[start_h:end_h],
-                        name="Load reduction (kW)", line=dict(color="#F59E0B", width=2)
-                    ),
-                    secondary_y=False
-                )
-                
-                fig_calc_overlay.update_layout(
-                    template="plotly_white",
-                    height=400,
-                    margin=dict(l=40, r=40, t=20, b=40),
-                    hovermode="x unified",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                )
-                fig_calc_overlay.update_yaxes(title_text="Customer Load / reduction (kW)", secondary_y=False)
-                fig_calc_overlay.update_yaxes(title_text="Avoided Cost ($/MWh)", secondary_y=True)
                 st.plotly_chart(fig_calc_overlay, use_container_width=True)
                 
             # ------------------------------------------------------------------
@@ -1052,21 +1042,7 @@ else:
                 st.markdown("### 📅 Hourly wholesale avoided cost distribution")
                 st.markdown("Distribution of the wholesale energy, generation capacity (CWFT), transmission & distribution (PCAF), and emissions value.")
                 
-                fig_grid_full = go.Figure()
-                fig_grid_full.add_trace(go.Scatter(
-                    x=results_df['Datetime'],
-                    y=results_df['Total_Avoided_Cost_MWh'],
-                    mode='lines',
-                    name='Total avoided cost rate ($/MWh)',
-                    line=dict(color='#8B5CF6', width=1.2)
-                ))
-                fig_grid_full.update_layout(
-                    xaxis_title="Date",
-                    yaxis_title="Avoided Cost ($/MWh)",
-                    template="plotly_white",
-                    height=380,
-                    margin=dict(l=40, r=30, t=10, b=40)
-                )
+                fig_grid_full = build_annual_avoided_cost_chart(results_df)
                 st.plotly_chart(fig_grid_full, use_container_width=True)
                 
                 # Stacked components for peak weeks
@@ -1074,44 +1050,13 @@ else:
                 with col_st1:
                     st.markdown("#### ❄️ Winter morning peak details (Jan 1-7)")
                     winter_slice = results_df.iloc[0:168]
-                    fig_w_stack = go.Figure()
-                    
-                    grid_components = [
-                        ('Cambium_Energy_MWh', 'Wholesale Energy', '#F59E0B'),
-                        ('Gen_Capacity_Value_MWh', 'Generation Capacity (CWFT)', '#0D9488'),
-                        ('Trans_Value_MWh', 'Transmission Deferral (PCAF)', '#3B82F6'),
-                        ('Dist_Value_MWh', 'Distribution Deferral (PCAF)', '#EC4899'),
-                        ('Emissions_Value_MWh', 'Emissions Compliance', '#10B981')
-                    ]
-                    
-                    for col_n, label_n, col_color in grid_components:
-                        fig_w_stack.add_trace(go.Scatter(
-                            x=winter_slice['Datetime'], y=winter_slice[col_n],
-                            mode='lines', name=label_n, stackgroup='one',
-                            line=dict(color=col_color, width=0.5)
-                        ))
-                    fig_w_stack.update_layout(
-                        template="plotly_white", height=320,
-                        margin=dict(l=40, r=20, t=10, b=40),
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                    )
+                    fig_w_stack = build_stacked_components_chart(winter_slice, show_legend=True)
                     st.plotly_chart(fig_w_stack, use_container_width=True)
                     
                 with col_st2:
                     st.markdown("#### ☀️ Summer afternoon peak details (Jul 15-21)")
                     summer_slice = results_df.iloc[4680:4848]
-                    fig_s_stack = go.Figure()
-                    for col_n, label_n, col_color in grid_components:
-                        fig_s_stack.add_trace(go.Scatter(
-                            x=summer_slice['Datetime'], y=summer_slice[col_n],
-                            mode='lines', name=label_n, stackgroup='one',
-                            line=dict(color=col_color, width=0.5),
-                            showlegend=False
-                        ))
-                    fig_s_stack.update_layout(
-                        template="plotly_white", height=320,
-                        margin=dict(l=40, r=20, t=10, b=40)
-                    )
+                    fig_s_stack = build_stacked_components_chart(summer_slice, show_legend=False)
                     st.plotly_chart(fig_s_stack, use_container_width=True)
                     
             # ------------------------------------------------------------------
@@ -1278,29 +1223,8 @@ else:
                 projected_lost_nominal = annual_lost_revenue * retail_esc_factors * deg_factors
                 projected_lost_disc = annual_lost_revenue * retail_pv_multipliers
                 
-                fig_lifetime = go.Figure()
-                fig_lifetime.add_trace(go.Bar(
-                    x=years, y=projected_grid_nominal,
-                    name='Nominal Grid savings', marker_color='#F59E0B'
-                ))
-                fig_lifetime.add_trace(go.Bar(
-                    x=years, y=projected_grid_disc,
-                    name='Discounted Grid NPV', marker_color='#0D9488'
-                ))
-                fig_lifetime.add_trace(go.Bar(
-                    x=years, y=projected_lost_disc,
-                    name='Discounted Lost Revenue NPV', marker_color='#EF4444'
-                ))
-                
-                fig_lifetime.update_layout(
-                    title="Nominal vs. Discounted present value streams",
-                    xaxis_title="Operating Year",
-                    yaxis_title="Annual value ($)",
-                    template="plotly_white",
-                    height=350,
-                    margin=dict(l=40, r=20, t=30, b=40),
-                    barmode='group',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                fig_lifetime = build_lifetime_npv_chart(
+                    years, projected_grid_nominal, projected_grid_disc, projected_lost_disc
                 )
                 st.plotly_chart(fig_lifetime, use_container_width=True)
 

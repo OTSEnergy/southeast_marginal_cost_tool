@@ -600,22 +600,23 @@ Use the table below to track milestone status. **Mark the Decision column** with
 |-----------|----------|--------|----------------|------------------|
 | **M1: Harden Foundation** | | | | |
 | ↳ 1.1 CWFT replacement | 📦 EXTERNAL | ⬜ Not Started | Justin (JH) | JH to provide; team proceeds on other items in parallel. Awaiting DD-2. |
-| ↳ 1.2 Real load profiles | 📦 EXTERNAL | ⬜ Not Started | John (JB) | JB will provide using HP+TES template models + DOE templates. **Scoped to single-family residential for prototyping.** |
+| ↳ 1.2 Real load profiles | 📦 EXTERNAL | 🟡 In Progress | John (JB) | Real BEopt models added (`ERHeatBeOptModel_Birmingham2012.csv` and `HeatPumpBeOptModel_Birmingham2012.csv`). 2012 AMY EPWs ready. |
+| ↳ 1.2a Flexible load ingestion | 🔨 BUILD | 🟢 **v1 Done** | JB + AI | Smart CSV loader built into `data_loaders.py`: auto-detects BEopt/EnergyPlus `ELECTRICITY:UNIT_1` / `Electricity:Facility` headers, converts Joules `[J]` → kW, and scans folders (`Load_Profiles_raw/`). |
 | ↳ 1.3 State coverage | 🔀 MODIFY | ⬜ Not Started | JB + AI | **Reduced scope:** GA & AL only (maybe TN). Keep extensible for future states. Not adding others during prototype stage. |
-| ↳ 1.4 Weather file | 🔨 BUILD | ⬜ Not Started | AI | "Pretty straightforward" — generate 2012 AMY EPW via diyepw |
+| ↳ 1.4 Weather file | 🔨 BUILD | 🟢 **v1 Done** | AI | 2012 AMY EPW files generated via `diyepw` for Atlanta (WMO 722190) and Birmingham (WMO 722280). Saved to `Weather_Data_raw/Baseline/`. App weather generator tab also functional. |
 | ↳ 1.5 File upload UX | 🔨 BUILD | ⬜ Not Started | AI | "Straightforward request to the AI" |
-| ↳ 1.6 Code modularization | 🔨 BUILD | 🟡 **Phase 2 Done** | JB + AI | Phase 1: `calculations.py` + `billing.py`. Phase 2: `data_loaders.py` (10 functions, ~500 lines). app.py now ~1,350 lines. Remaining: `visualizations.py`, `config.py`. |
+| ↳ 1.6 Code modularization | 🔨 BUILD | ✅ **Phase 3 Done** | JB + AI | Phase 1: `calculations.py` + `billing.py`. Phase 2: `data_loaders.py`. Phase 3: `visualizations.py` + `config.py` + `dispatch_dr_program` → `calculations.py`. app.py now ~1,210 lines. All modules are Streamlit-free and independently testable. |
 | ↳ 1.7 Error handling | 🔨 BUILD | ⬜ Not Started | AI | AI to suggest fix + add appropriate testing |
 | ↳ 1.8 Unused file cleanup | ❓ DISCUSS | ⬜ Not Started | Justin (JH) | Check with Justin on role of `southeast_avoided_costs_AL_GA.csv` |
 | **M2: Utility Value Story** | 🔀 MODIFY | | | **Goal updated:** Not just showing to planning team, but getting team buy-in for limited ongoing support/maintenance. |
-| ↳ 2.1 TRC test | 🔨 BUILD | ⬜ Not Started | JB lead, JH+SC review | JB leads implementation; JH & SC provide/support values and sanity-check math |
-| ↳ 2.2 PCT test | 🔨 BUILD | ⬜ Not Started | JB lead, JH+SC review | Same ownership pattern as 2.1 |
+| ↳ 2.1 TRC test | 🔨 BUILD | 🟢 **v1 Done** | JB lead, JH+SC review | Calculated as `NPV Avoided Grid Costs / (Gross Measure Cost + Utility Admin)`. Configurable in sidebar. |
+| ↳ 2.2 PCT test | 🔨 BUILD | 🟢 **v1 Done** | JB lead, JH+SC review | Participant Cost Test / Customer ROI calculated as `(Customer Bill Savings + Incentive) / Gross Measure Cost`. |
 | ↳ 2.3 Capacity methodology docs | 📦 EXTERNAL | ⬜ Not Started | JH lead | JH to lead methodology documentation |
 | ↳ 2.4 T&D deferral docs | 📦 EXTERNAL | ⬜ Not Started | JH lead | JH to lead methodology documentation |
 | ↳ 2.5 Emissions options | ⏸️ DEFER | ⬜ Not Started | Unassigned | "To assign later" |
 | ↳ 2.6 Visualization polish | ⏸️ DEFER | ⬜ Not Started | — | "To revisit after progress above" (after 2.1–2.5) |
 | **M3: Vendor Experience** | | | | |
-| ↳ 3.1 Cost-of-ownership / payback | 🔨 BUILD | ⬜ Not Started | JB + AI, Al/Mitch review | JB takes first crack with AI support. Al & Mitch as external sanity check. |
+| ↳ 3.1 Cost-of-ownership / payback | 🔨 BUILD | 🟢 **v1 Done** | JB + AI, Al/Mitch review | Simple and Discounted Payback Periods (Years) calculated and displayed in Tab 1 Overview Scorecard. |
 | ↳ 3.2 Performance target engine | 🔨 BUILD | ⬜ Not Started | JB lead, JH support | JB leads; Justin flags utility-perspective items JB might overlook |
 | ↳ 3.3 Cost-effectiveness gap calc | ❓ DISCUSS | ⬜ Not Started | Needs brainstorm | "A lot of very interesting possibilities — deserves a dedicated brainstorm" |
 | ↳ 3.4 Vendor-facing visualizations | 🔨 BUILD | ⬜ Not Started | JB lead | "Finalize plan as we get closer" |
@@ -629,7 +630,7 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 5.1 Utility validation | | ⬜ Not Started | | |
 | ↳ 5.2 Technology developer tests | | ⬜ Not Started | | |
 | ↳ 5.3 Usability feedback | | ⬜ Not Started | | |
-| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v1 Done** | AI | 24 tests passing: avoided costs (7), URDB billing (6), NPV (5), EPC/ELCC (6). Pytest infra + standing instruction in place. |
+| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v2 Done** | AI | 49 tests passing: avoided costs (7), URDB billing (6), NPV (5), EPC/ELCC (6), DR dispatch (5), config (7), visualizations (5), integration pipeline (5), load profile ingestion (2), cost-effectiveness math (1). Pytest infra + standing instruction in place. |
 | **M6: Handoff & Expansion** | | | | |
 | ↳ 6.1 Multi-region expansion | | ⬜ Not Started | | |
 | ↳ 6.2 Institutional home transition | | ⬜ Not Started | | |

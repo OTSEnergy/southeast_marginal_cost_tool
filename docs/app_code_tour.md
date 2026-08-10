@@ -1,21 +1,28 @@
-# ⚡ Deep Code Tour: Southeast Marginal Cost Valuation Engine (`app.py`)
+# ⚡ Deep Code Tour: Southeast Marginal Cost Valuation Engine
 
-Welcome! This guide is written specifically for **non-coders, energy analysts, policy managers, and relative programming beginners**. It breaks down line-by-line and section-by-section what is happening under the hood of `app.py`.
+Welcome! This guide is written specifically for **non-coders, energy analysts, policy managers, and relative programming beginners**. It breaks down line-by-line and section-by-section what is happening under the hood of the Southeast Marginal Cost Valuation Engine.
 
-Whether you want to understand how Python talks to Streamlit, how energy economics equations are computed, or how 8,760-hour utility data is processed, this tour explains it all in plain English using real-world analogies.
+The application is structured into **6 modular Python files** to ensure clean separation of calculation logic, data ingestion, billing, chart building, configuration, and Streamlit user interface:
+
+| Module | Role & Purpose |
+|--------|----------------|
+| **`app.py`** (~1,210 lines) | Streamlit web application layout, sidebar controls, dashboard tabs, and orchestration. |
+| **`calculations.py`** (~260 lines) | Pure-Python calculation engine: 5-component avoided costs, DR dispatch, EPC/ELCC metrics, and TRC/PCT/RIM/Payback math. |
+| **`billing.py`** (~180 lines) | URDB V3 retail electricity billing engine and pre-packaged tariff schedules (Georgia Power R-31, Alabama Power Rate FD). |
+| **`data_loaders.py`** (~700 lines) | Data ingestion pipeline: NREL Cambium CSV scanner, raw BEopt/EnergyPlus load profile parser, weather EPW loader, CWFT loader, URDB API client. |
+| **`visualizations.py`** (~230 lines) | Streamlit-free Plotly chart builder functions returning interactive `go.Figure` objects for all dashboard tabs. |
+| **`config.py`** (~250 lines) | Central configuration: sidebar defaults, option lists, color palettes, CSS styling, and weather sensitivity thresholds. |
 
 ---
 
 ## 🧭 Table of Contents
 1. [Core Concepts & Glossary](#1-core-concepts--glossary)
-2. [Chapter 1: Imports & UI Setup (Lines 1–80)](#chapter-1-imports--ui-setup-lines-180)
-3. [Chapter 2: Utility Rate Structures (URDB) (Lines 81–121)](#chapter-2-utility-rate-structures-urdb-lines-81121)
-4. [Chapter 3: Mock Data Generators & File Handlers (Lines 122–285)](#chapter-3-mock-data-generators--file-handlers-lines-122285)
-5. [Chapter 4: Data Processing & Valuation Pipeline (Lines 286–630)](#chapter-4-data-processing--valuation-pipeline-lines-286630)
-6. [Chapter 5: The Retail Bill Calculation Engine (Lines 631–773)](#chapter-5-the-retail-bill-calculation-engine-lines-631773)
-7. [Chapter 6: Weather File Generator (`diyepw`) (Lines 774–875)](#chapter-6-weather-file-generator-diyepw-lines-774875)
-8. [Chapter 7: Sidebar Controls & Inputs (Lines 876–1064)](#chapter-7-sidebar-controls--inputs-lines-8761064)
-9. [Chapter 8: Results Engine & Dashboard Tabs (Lines 1065–1957)](#chapter-8-results-engine--dashboard-tabs-lines-10651957)
+2. [Module 1: `config.py` — Central Defaults & Styling](#module-1-configpy--central-defaults--styling)
+3. [Module 2: `data_loaders.py` — Grid, Weather & BEopt Ingestion](#module-2-data_loaderspy--grid-weather--beopt-ingestion)
+4. [Module 3: `calculations.py` — Wholesale Avoided Costs & SPM Tests](#module-3-calculationspy--wholesale-avoided-costs--spm-tests)
+5. [Module 4: `billing.py` — Retail Tariffs & URDB Billing Engine](#module-4-billingpy--retail-tariffs--urdb-billing-engine)
+6. [Module 5: `visualizations.py` — Interactive Plotly Charts](#module-5-visualizationspy--interactive-plotly-charts)
+7. [Module 6: `app.py` — Sidebar Controls & Dashboard Tabs](#module-6-apppy--sidebar-controls--dashboard-tabs)
 
 ---
 

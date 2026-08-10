@@ -4,6 +4,91 @@ This file tracks changes to the living project documents in the `docs/` folder.
 
 ---
 
+## [2026-08-10] — Living Documentation Sync Pass
+
+### Updated
+- **`docs/needs_and_gaps.md`**: Updated Capabilities section, Executive Summary gap count table, and architecture status to reflect completion of Phase 3 modularization, real 2012 BEopt model ingestion, 2012 AMY weather files, TRC/PCT/RIM cost-effectiveness tests, and 49 passing automated tests.
+- **`docs/app_code_tour.md`**: Updated introduction and table of contents to map the 6-module architecture (`app.py`, `calculations.py`, `billing.py`, `data_loaders.py`, `visualizations.py`, `config.py`).
+- **`docs/roadmap.md`**: Verified milestone statuses (M1.2a, M1.4, M1.6, M2.1, M2.2, M3.1, M5.4 marked Done).
+- **`AI_INSTRUCTIONS.md`**: Verified standing instructions for 6-module maintenance and test suite execution.
+
+---
+
+## [2026-08-10] — Measure & Program Costs, TRC, PCT & Payback Tests (M2.1, M2.2, M3.1)
+
+### Added
+- **`config.py` Defaults:** `DEFAULT_GROSS_MEASURE_COST` ($3,000), `DEFAULT_UTILITY_INCENTIVE` ($500), `DEFAULT_UTILITY_ADMIN_COST` ($100).
+- **`calculations.py` Engine:**
+  - `calculate_cost_effectiveness_tests()` — Computes standard California SPM test ratios (**TRC**, **PCT**, **RIM**) and **Simple & Discounted Customer Payback Periods (Years)**.
+- **`app.py` UI Enhancements:**
+  - Sidebar section **"💰 Measure & Program Costs"** for Gross Installed Measure Cost ($), Utility Rebate / Incentive ($), and Utility Program Admin Cost ($).
+  - Executive Overview Scorecard (Tab 1) updated with **TRC**, **PCT**, **RIM**, **Simple Payback**, and **Discounted Payback** KPI cards.
+- **`tests/test_calculations.py`:**
+  - Added `TestCostEffectivenessTests` suite (TRC, PCT, RIM, Simple Payback, and Discounted Payback math). Total tests: 49.
+
+### Verified
+- `python -m pytest`: 49/49 passed (0.66s)
+
+---
+
+## [2026-08-10] — Real Building Models & Flexible Load Profile Ingestion (M1.2a & M1.4)
+
+### Added
+- **`Load_Profiles_raw/`** — New directory created for raw building simulation outputs (BEopt, EnergyPlus, eQUEST, or custom 8760 CSVs) with `instructions.txt`.
+- **BEopt Model Output Support** — Added `ERHeatBeOptModel_Birmingham2012.csv` and `HeatPumpBeOptModel_Birmingham2012.csv` to `Load_Profiles_raw/`.
+- **`data_loaders.py` Enhancements:**
+  - `_extract_profile_from_beopt_or_eplus()` — Smart helper that auto-detects `ELECTRICITY:UNIT_1 [J](Hourly)` or `Electricity:Facility` headers, converts Joules `[J]` → kW (`/ 3,600,000`), and formats 8760 hours.
+  - `load_load_profiles_from_csv()` — Updated to accept single BEopt/E+ CSV files or an entire folder (e.g. `Load_Profiles_raw/`), combining all model runs into a unified 8760 DataFrame.
+- **`app.py` UI Upgrade:**
+  - Added sidebar dropdown allowing users to toggle between `Load_Profiles_raw` (real BEopt models), `load_profiles.csv` (synthetic baseline), or a custom file path.
+- **`tests/test_calculations.py`:**
+  - Added `TestLoadProfileIngestion` suite (2 tests: single raw BEopt parsing & directory multi-file merging). Total tests: 48.
+
+### Verified
+- `python -m pytest`: 48/48 passed (0.56s)
+
+---
+
+## [2026-08-10] — Code Modularization Phase 3 (M1.6)
+
+### Added
+- **`config.py`** (248 lines) — Central configuration module. Extracted all hardcoded defaults (sidebar values, scenario/state option lists, financial parameters, DR defaults), chart constants (grid component definitions with colors, week windows), CSS styling, weather sensitivity thresholds, and tariff selector options from `app.py`. Includes `get_weather_sensitivity_style()` helper.
+- **`visualizations.py`** (230 lines) — Plotly chart builder module. Four Streamlit-free functions that each return a `go.Figure`:
+  - `build_weekly_overlay_chart()` — dual-axis weekly load + avoided cost overlay
+  - `build_annual_avoided_cost_chart()` — full-year hourly avoided cost time series
+  - `build_stacked_components_chart()` — stacked area of 5 grid cost components
+  - `build_lifetime_npv_chart()` — grouped bar of nominal vs discounted cash flows
+
+### Modified
+- **`calculations.py`** (170 lines, was 103) — Added `dispatch_dr_program()` function, moved from `app.py`. Pure NumPy demand response dispatch logic with season filtering, daily call limits, and load-capped curtailment.
+- **`app.py`** (1,210 lines, was 1,433) — Net reduction of 223 lines:
+  - Removed dead duplicate tariff dicts (`GP_R31_URDB`, `AL_FD_URDB`) that were already imported from `billing.py`
+  - Replaced all inline sidebar defaults with `config.py` constants
+  - Replaced 4 inline Plotly chart builders with `visualizations.py` function calls
+  - Replaced weather sensitivity threshold logic with `config.get_weather_sensitivity_style()`
+  - Moved `dispatch_dr_program()` to `calculations.py`, imported it back
+  - Updated module header comments to reflect all 6 extracted modules
+- **`tests/test_calculations.py`** — Added 17 new tests (total: 41):
+  - `TestDispatchDrProgram` (5 tests): hour limits, daily limits, season filtering, load cap, shapes
+  - `TestConfig` (7 tests): option list integrity, default values, grid components, week windows, CSS, weather sensitivity function
+  - `TestVisualizations` (5 tests): each builder returns valid `go.Figure` with correct trace counts
+  - Removed Plotly stubs — tests now use real Plotly for visualization validation
+
+### Verified
+- `python -m pytest`: 46/46 passed (0.65s)
+
+### Module Summary After Phase 3
+| Module | Lines | Role |
+|--------|-------|------|
+| `app.py` | 1,210 | UI orchestration (Streamlit layout, sidebar, tabs) |
+| `calculations.py` | 170 | Grid avoided costs + DR dispatch |
+| `billing.py` | 219 | URDB billing engine + tariff data |
+| `data_loaders.py` | 699 | All file I/O |
+| `visualizations.py` | 230 | Plotly chart builders |
+| `config.py` | 248 | Defaults, constants, CSS |
+
+---
+
 ## [2026-08-06] — Code Modularization Phase 2 (M1.6)
 
 ### Added

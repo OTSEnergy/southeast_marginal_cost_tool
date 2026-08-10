@@ -14,6 +14,7 @@ No Streamlit, no file I/O, no network calls.
 Run with:  python -m pytest
 """
 
+import os
 import sys
 import types
 import numpy as np
@@ -111,17 +112,23 @@ def _make_plotly_stubs():
 
 # Install stubs before importing app (still needed for any app.py references)
 _st_stub = _make_streamlit_stub()
-_plotly, _go, _subplots = _make_plotly_stubs()
+# NOTE: We do NOT stub plotly anymore — visualizations.py needs real Plotly
+# to construct actual Figure objects. Only stub Streamlit.
 
 sys.modules["streamlit"] = _st_stub
-sys.modules["plotly"] = _plotly
-sys.modules["plotly.graph_objects"] = _go
-sys.modules["plotly.subplots"] = _subplots
 
 # Import the extracted modules directly — no Streamlit stub needed for these
 # since they are pure Python with no UI dependencies.
-from calculations import calculate_avoided_costs  # noqa: E402
+from calculations import calculate_avoided_costs, dispatch_dr_program  # noqa: E402
 from billing import calculate_urdb_bill  # noqa: E402
+import config  # noqa: E402
+from visualizations import (  # noqa: E402
+    build_weekly_overlay_chart,
+    build_annual_avoided_cost_chart,
+    build_stacked_components_chart,
+    build_lifetime_npv_chart,
+)
+import plotly.graph_objects as go  # noqa: E402
 
 
 # ======================================================================
@@ -494,3 +501,446 @@ class TestCapacityMetrics:
         """CWFT arrays must sum to 1.0."""
         assert pytest.approx(cwft_uniform.sum(), abs=1e-6) == 1.0
         assert pytest.approx(cwft_peaked.sum(), abs=1e-6) == 1.0
+
+
+# ======================================================================
+#  TEST SUITE 5: dispatch_dr_program()
+# ======================================================================
+
+class TestDispatchDrProgram:
+    """Validates the demand response dispatch logic."""
+
+    def test_respects_hour_limit(self, datetime_2012, cwft_uniform):
+        """DR dispatch should not exceed dr_hours_per_year."""
+        baseline = np.ones(8760) * 2.0
+        _, selected = dispatch_dr_program(
+            datetime_2012, cwft_uniform, 50, "Both Seasons", 24, 1.0, baseline
+        )
+        assert len(selected) == 50
+
+    def test_respects_daily_limit(self, datetime_2012, cwft_uniform):
+        """DR dispatch should not call more than max_hours_per_day in one day."""
+        baseline = np.ones(8760) * 2.0
+        _, selected = dispatch_dr_program(
+            datetime_2012, cwft_uniform, 8760, "Both Seasons", 4, 1.0, baseline
+        )
+        dates = datetime_2012.iloc[selected].dt.date
+        daily_counts = dates.value_counts()
+        assert daily_counts.max() <= 4
+
+    def test_summer_only_season(self, datetime_2012, cwft_uniform):
+        """Summer-only DR should only dispatch in Jun-Sep."""
+        baseline = np.ones(8760) * 2.0
+        _, selected = dispatch_dr_program(
+            datetime_2012, cwft_uniform, 100, "Summer Only (Jun-Sep)", 24, 1.0, baseline
+        )
+        months = datetime_2012.iloc[selected].dt.month
+        assert all(m in [6, 7, 8, 9] for m in months)
+
+    def test_reduction_capped_at_load(self, datetime_2012, cwft_uniform):
+        """DR reduction should not exceed actual baseline load."""
+        baseline = np.ones(8760) * 0.5  # only 0.5 kW available
+        reduction, _ = dispatch_dr_program(
+            datetime_2012, cwft_uniform, 50, "Both Seasons", 24, 2.0, baseline
+        )
+        assert reduction.max() <= 0.5 + 1e-10
+
+    def test_returns_correct_shapes(self, datetime_2012, cwft_uniform):
+        """Should return 8760-length array and a list of indices."""
+        baseline = np.ones(8760) * 2.0
+        reduction, selected = dispatch_dr_program(
+            datetime_2012, cwft_uniform, 50, "Both Seasons", 24, 1.0, baseline
+        )
+        assert len(reduction) == 8760
+        assert isinstance(selected, list)
+
+
+# ======================================================================
+#  TEST SUITE 6: config.py constants
+# ======================================================================
+
+class TestConfig:
+    """Validates config module constants are well-formed."""
+
+    def test_scenario_options_nonempty(self):
+        assert len(config.SCENARIO_OPTIONS) >= 2
+        assert all(isinstance(s, str) for s in config.SCENARIO_OPTIONS)
+
+    def test_planning_year_options(self):
+        assert len(config.PLANNING_YEAR_OPTIONS) >= 2
+        assert config.DEFAULT_PLANNING_YEAR_INDEX < len(config.PLANNING_YEAR_OPTIONS)
+
+    def test_default_values_positive(self):
+        assert config.DEFAULT_CAP_VALUE > 0
+        assert config.DEFAULT_TRANS_VALUE > 0
+        assert config.DEFAULT_DIST_VALUE > 0
+        assert config.DEFAULT_CARBON_TAX >= 0
+        assert config.DEFAULT_ASSET_LIFE > 0
+        assert config.DEFAULT_DISCOUNT_RATE > 0
+
+    def test_grid_components_has_5(self):
+        assert len(config.GRID_COMPONENTS) == 5
+        for col, label, color in config.GRID_COMPONENTS:
+            assert isinstance(col, str)
+            assert isinstance(label, str)
+            assert color.startswith("#")
+
+    def test_week_windows_valid(self):
+        assert len(config.WEEK_WINDOWS) >= 2
+        for label, (start, end) in config.WEEK_WINDOWS.items():
+            assert 0 <= start < end <= 8760
+
+    def test_weather_sensitivity_function(self):
+        strong = config.get_weather_sensitivity_style(0.8)
+        assert "Strong" in strong["label"] or "Responsive" in strong["label"]
+        moderate = config.get_weather_sensitivity_style(0.45)
+        assert "Moderate" in moderate["label"]
+        low = config.get_weather_sensitivity_style(0.1)
+        assert "Low" in low["label"] or "Unresponsive" in low["label"]
+
+    def test_custom_css_nonempty(self):
+        assert len(config.CUSTOM_CSS) > 100
+        assert "<style>" in config.CUSTOM_CSS
+
+
+# ======================================================================
+#  TEST SUITE 7: visualizations.py chart builders
+# ======================================================================
+
+class TestVisualizations:
+    """Validates that visualization functions return valid Plotly Figures."""
+
+    def test_weekly_overlay_returns_figure(self, datetime_2012):
+        dt_slice = datetime_2012.iloc[0:168]
+        cost = np.random.rand(168) * 50
+        baseline = np.ones(168) * 2.0
+        proposed = np.ones(168) * 1.5
+        reduction = baseline - proposed
+
+        fig = build_weekly_overlay_chart(dt_slice, cost, baseline, proposed, reduction)
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 4  # 4 traces
+
+    def test_annual_avoided_cost_returns_figure(self, grid_df_8760, cwft_uniform):
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        fig = build_annual_avoided_cost_chart(results)
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 1  # single trace
+
+    def test_stacked_components_returns_figure(self, grid_df_8760, cwft_uniform):
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        slice_df = results.iloc[0:168]
+        fig = build_stacked_components_chart(slice_df, show_legend=True)
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 5  # 5 component traces
+
+    def test_stacked_components_no_legend(self, grid_df_8760, cwft_uniform):
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        fig = build_stacked_components_chart(results.iloc[0:168], show_legend=False)
+        # All traces should have showlegend=False
+        for trace in fig.data:
+            assert trace.showlegend is False
+
+    def test_lifetime_npv_returns_figure(self):
+        years = np.arange(1, 16)
+        nominal = np.ones(15) * 100
+        disc_grid = np.ones(15) * 80
+        disc_lost = np.ones(15) * 60
+        fig = build_lifetime_npv_chart(years, nominal, disc_grid, disc_lost)
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 3  # 3 bar traces
+
+
+# ======================================================================
+#  TEST SUITE 8: Integration Pipeline
+# ======================================================================
+#
+#  These tests chain multiple modules together the same way app.py does,
+#  verifying that the handoffs between modules work correctly:
+#
+#    grid_df → calculate_avoided_costs → results_df
+#              → calculate_urdb_bill (baseline & proposed)
+#              → NPV discounting
+#              → dispatch_dr_program
+#              → visualization builders
+#
+#  If a column name changes in one module, or a function signature
+#  shifts, these tests will catch it even if the unit tests still pass.
+# ======================================================================
+
+class TestIntegrationPipeline:
+    """
+    End-to-end integration tests that exercise the full data pipeline
+    across multiple modules. Each test mirrors a real path through app.py.
+    """
+
+    def test_grid_to_avoided_costs_column_contract(self, grid_df_8760, cwft_uniform):
+        """
+        Pipeline step 1: grid data → calculate_avoided_costs()
+        
+        Verifies that the DataFrame produced by the grid fixture has the
+        columns that calculate_avoided_costs() expects, and that the output
+        has the columns that downstream billing + visualization expects.
+        """
+        # The grid fixture must have these columns (contract from data_loaders)
+        required_input_cols = ["Cambium_Energy_MWh", "Cambium_Carbon_kg_MWh", "PCAF_Weight"]
+        for col in required_input_cols:
+            assert col in grid_df_8760.columns, f"Grid data missing required column: {col}"
+
+        # Run the avoided cost engine
+        results = calculate_avoided_costs(
+            grid_df_8760, 100.0, 15.0, 15.0, 30.0, cwft_uniform
+        )
+
+        # The output must have these columns (contract for billing + viz)
+        required_output_cols = [
+            "Cambium_Energy_MWh", "CWFT",
+            "Gen_Capacity_Value_MWh", "Trans_Value_MWh",
+            "Dist_Value_MWh", "Emissions_Value_MWh",
+            "Total_Avoided_Cost_MWh"
+        ]
+        for col in required_output_cols:
+            assert col in results.columns, f"Results missing required column: {col}"
+
+    def test_full_pipeline_grid_to_npv(self, grid_df_8760, cwft_uniform,
+                                       datetime_2012, gp_r31_rate):
+        """
+        Full pipeline: grid → avoided costs → billing → NPV.
+        
+        Mirrors the core calculation flow in app.py tabs 1-5.
+        Verifies that all intermediate values are finite and that the
+        final NPV numbers are in a sane range.
+        """
+        # --- Step 1: Calculate avoided costs ---
+        results = calculate_avoided_costs(
+            grid_df_8760, 100.0, 15.0, 15.0, 30.0, cwft_uniform
+        )
+        assert len(results) == 8760
+        assert results["Total_Avoided_Cost_MWh"].notna().all(), "NaN in avoided costs"
+
+        # --- Step 2: Build load profiles (synthetic) ---
+        baseline_load = np.ones(8760) * 2.0       # 2 kW constant
+        proposed_load = np.ones(8760) * 1.5        # 1.5 kW (e.g., efficient HP)
+        load_reduction = baseline_load - proposed_load  # 0.5 kW savings
+
+        # --- Step 3: Calculate annual grid savings ---
+        # This is the exact formula app.py uses: sum(reduction * hourly_rate) / 1000
+        annual_grid_savings = (
+            load_reduction * results["Total_Avoided_Cost_MWh"].values
+        ).sum() / 1000.0  # kW × $/MWh → $/kWh, summed
+
+        assert np.isfinite(annual_grid_savings), "Grid savings is not finite"
+        assert annual_grid_savings > 0, "Grid savings should be positive for load reduction"
+
+        # --- Step 4: Calculate retail bills ---
+        total_base, monthly_base = calculate_urdb_bill(
+            baseline_load, datetime_2012, gp_r31_rate
+        )
+        total_prop, monthly_prop = calculate_urdb_bill(
+            proposed_load, datetime_2012, gp_r31_rate
+        )
+
+        assert total_base > total_prop, "Baseline bill should exceed proposed bill"
+        annual_lost_revenue = total_base - total_prop
+        assert annual_lost_revenue > 0, "Lost revenue should be positive"
+
+        # --- Step 5: NPV discounting (mirrors app.py exactly) ---
+        asset_life = config.DEFAULT_ASSET_LIFE
+        discount_pct = config.DEFAULT_DISCOUNT_RATE / 100.0
+        escalation_pct = config.DEFAULT_ESCALATION_RATE / 100.0
+        degradation_pct = config.DEFAULT_DEGRADATION_RATE / 100.0
+
+        years = np.arange(1, asset_life + 1)
+        esc_factors = (1 + escalation_pct) ** (years - 1)
+        deg_factors = (1 - degradation_pct) ** (years - 1)
+        disc_factors = 1 / ((1 + discount_pct) ** years)
+        pv_multipliers = esc_factors * deg_factors * disc_factors
+
+        npv_grid = annual_grid_savings * pv_multipliers.sum()
+        npv_lost = annual_lost_revenue * pv_multipliers.sum()
+
+        assert np.isfinite(npv_grid), "NPV grid savings is not finite"
+        assert np.isfinite(npv_lost), "NPV lost revenue is not finite"
+        assert npv_grid > 0, "NPV grid savings should be positive"
+        assert npv_lost > 0, "NPV lost revenue should be positive"
+
+        # --- Step 6: RIM ratio ---
+        rim_ratio = npv_grid / npv_lost if npv_lost > 0 else 0.0
+        assert np.isfinite(rim_ratio), "RIM ratio is not finite"
+        assert rim_ratio > 0, "RIM ratio should be positive"
+
+    def test_dr_dispatch_feeds_into_billing(self, grid_df_8760, cwft_uniform,
+                                            datetime_2012, gp_r31_rate):
+        """
+        Pipeline with DR mode: grid → avoided costs → DR dispatch → billing.
+        
+        Verifies that DR dispatch produces a load profile that the billing
+        engine accepts, and that the DR-adjusted bill differs from baseline.
+        """
+        results = calculate_avoided_costs(
+            grid_df_8760, 100.0, 15.0, 15.0, 30.0, cwft_uniform
+        )
+
+        baseline_load = np.ones(8760) * 2.0
+
+        # Dispatch DR program
+        dr_reduction, selected_hours = dispatch_dr_program(
+            datetime_2012, cwft_uniform,
+            dr_hours_per_year=50,
+            season_name="Summer Only (Jun-Sep)",
+            max_hours_per_day=4,
+            dr_capacity_kw=1.0,
+            baseline_load=baseline_load
+        )
+
+        # Build DR-adjusted load profile
+        proposed_load = baseline_load - dr_reduction
+        assert (proposed_load >= 0).all(), "DR should not create negative load"
+
+        # Feed into billing engine — this is the handoff test
+        total_base, _ = calculate_urdb_bill(baseline_load, datetime_2012, gp_r31_rate)
+        total_dr, _ = calculate_urdb_bill(proposed_load, datetime_2012, gp_r31_rate)
+
+        assert total_dr < total_base, "DR-adjusted bill should be less than baseline"
+        assert total_dr > 0, "DR bill should still be positive (fixed charges)"
+
+    def test_avoided_costs_feed_into_visualizations(self, grid_df_8760, cwft_uniform,
+                                                     datetime_2012):
+        """
+        Pipeline: grid → avoided costs → visualization builders.
+        
+        Verifies that the results DataFrame from calculate_avoided_costs()
+        has exactly the columns and structure that each chart builder expects.
+        """
+        results = calculate_avoided_costs(
+            grid_df_8760, 100.0, 15.0, 15.0, 30.0, cwft_uniform
+        )
+        # Attach Datetime column (app.py does this during data loading)
+        results["Datetime"] = datetime_2012.values
+
+        baseline_load = np.ones(8760) * 2.0
+        proposed_load = np.ones(8760) * 1.5
+        load_reduction = baseline_load - proposed_load
+
+        # Chart 1: Annual avoided cost (needs 'Datetime' + 'Total_Avoided_Cost_MWh')
+        fig1 = build_annual_avoided_cost_chart(results)
+        assert isinstance(fig1, go.Figure)
+
+        # Chart 2: Stacked components (needs 'Datetime' + all 5 component columns)
+        fig2 = build_stacked_components_chart(results.iloc[0:168])
+        assert isinstance(fig2, go.Figure)
+        assert len(fig2.data) == 5
+
+        # Chart 3: Weekly overlay (needs datetime slice + arrays)
+        dt_slice = datetime_2012.iloc[0:168]
+        cost_slice = results["Total_Avoided_Cost_MWh"].iloc[0:168]
+        fig3 = build_weekly_overlay_chart(
+            dt_slice, cost_slice,
+            baseline_load[0:168], proposed_load[0:168], load_reduction[0:168]
+        )
+        assert isinstance(fig3, go.Figure)
+        assert len(fig3.data) == 4
+
+        # Chart 4: Lifetime NPV (takes arrays, not DataFrame)
+        years = np.arange(1, 16)
+        fig4 = build_lifetime_npv_chart(
+            years, np.ones(15) * 100, np.ones(15) * 80, np.ones(15) * 60
+        )
+        assert isinstance(fig4, go.Figure)
+
+    def test_config_defaults_work_with_calculations(self, grid_df_8760, cwft_uniform):
+        """
+        Verifies that config.py default values are compatible with
+        the calculation engine — no type mismatches, no out-of-range errors.
+        """
+        # Use config defaults exactly as app.py would
+        results = calculate_avoided_costs(
+            grid_df_8760,
+            config.DEFAULT_CAP_VALUE,
+            config.DEFAULT_TRANS_VALUE,
+            config.DEFAULT_DIST_VALUE,
+            config.DEFAULT_CARBON_TAX,
+            cwft_uniform
+        )
+        assert len(results) == 8760
+        assert results["Total_Avoided_Cost_MWh"].notna().all()
+        assert (results["Total_Avoided_Cost_MWh"] > 0).all(), \
+            "With positive defaults, total avoided cost should be positive every hour"
+
+
+# ======================================================================
+#  TEST SUITE 9: Load Profile Ingestion
+# ======================================================================
+
+class TestLoadProfileIngestion:
+    """
+    Validates BEopt / EnergyPlus raw output parsing and multi-file directory loading.
+    """
+
+    def test_beopt_raw_file_parsing(self):
+        from data_loaders import load_load_profiles_from_csv
+        filepath = "Load_Profiles_raw/ERHeatBeOptModel_Birmingham2012.csv"
+        if os.path.exists(filepath):
+            df = load_load_profiles_from_csv(filepath)
+            assert "Hour" in df.columns
+            assert len(df) == 8760
+            profile_cols = [c for c in df.columns if c != "Hour"]
+            assert len(profile_cols) == 1
+            # Values should be converted to kW (mean between 1 and 10 kW for residential)
+            kw_vals = df[profile_cols[0]].to_numpy()
+            assert 0.5 < kw_vals.mean() < 10.0
+            assert kw_vals.max() > 5.0
+
+    def test_load_profiles_directory_scan(self):
+        from data_loaders import load_load_profiles_from_csv
+        dirpath = "Load_Profiles_raw"
+        if os.path.exists(dirpath):
+            df = load_load_profiles_from_csv(dirpath)
+            assert "Hour" in df.columns
+            assert len(df) == 8760
+            # Should have merged both model files
+            profile_cols = [c for c in df.columns if c != "Hour"]
+            assert len(profile_cols) >= 2
+            assert any("ERHeat" in c for c in profile_cols)
+            assert any("HeatPump" in c for c in profile_cols)
+
+
+# ======================================================================
+#  TEST SUITE 10: Cost Effectiveness & Payback Math
+# ======================================================================
+
+class TestCostEffectivenessTests:
+    """
+    Validates TRC, PCT, RIM, and payback period calculations.
+    """
+
+    def test_trc_and_pct_ratios(self):
+        from calculations import calculate_cost_effectiveness_tests
+        
+        npv_grid = 5000.0
+        npv_lost = 3000.0
+        gross_cost = 3000.0
+        incentive = 500.0
+        admin = 100.0
+        annual_savings = np.ones(15) * 300.0
+        pv_mults = np.ones(15) * 0.8
+
+        res = calculate_cost_effectiveness_tests(
+            npv_grid, npv_lost, npv_lost, gross_cost, incentive, admin, annual_savings, pv_mults
+        )
+
+        # TRC = 5000 / (3000 + 100) = 5000 / 3100 = 1.6129
+        assert pytest.approx(res["trc_ratio"], abs=1e-3) == 5000.0 / 3100.0
+        # PCT = (3000 + 500) / 3000 = 3500 / 3000 = 1.1667
+        assert pytest.approx(res["pct_ratio"], abs=1e-3) == 3500.0 / 3000.0
+        # Net customer cost = 3000 - 500 = 2500
+        assert res["net_customer_cost"] == 2500.0
+        # Simple payback = 2500 / 300 = 8.333 years
+        assert pytest.approx(res["simple_payback"], abs=1e-3) == 2500.0 / 300.0
+        # Discounted payback = 2500 / (300 * 0.8) = 2500 / 240 = 10.417 years
+        assert pytest.approx(res["discounted_payback"], abs=1e-3) == 10.416666
+
+

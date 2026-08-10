@@ -61,10 +61,11 @@ After processing annotations, update the progress tracking table, clear resolved
 ## Key Project Context
 
 - **Architecture:** Streamlit UI app (`app.py`) with extracted pure-Python modules:
-  - `calculations.py` — grid avoided cost engine (5-component hourly valuation)
+  - `calculations.py` — grid avoided cost engine + DR dispatch (5-component hourly valuation)
   - `billing.py` — URDB-compliant retail billing engine + pre-packaged tariff schedules
   - `data_loaders.py` — all file I/O: Cambium ingestion, CWFT, load profiles, weather, URDB API, mock generators
-  - *(Planned)* `visualizations.py`, `config.py`
+  - `visualizations.py` — Plotly chart builder functions (4 chart types, returns `go.Figure`)
+  - `config.py` — default parameters, option lists, CSS styling, color palette, constants
 - **Stakeholders:** JB (John Bush, project lead), JH (Justin, utility-side partner), SC (cost-effectiveness reviewer), Al/Mitch (external reviewers).
 - **Scope:** Southeast US utilities (currently GA & AL, planned TN). Single-family residential for prototyping.
 - **See `docs/roadmap.md`** for the full 6-milestone development plan and current status.

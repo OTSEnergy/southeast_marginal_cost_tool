@@ -171,31 +171,121 @@ def generate_default_load_profiles_file(filepath="load_profiles.csv"):
     return filepath
 
 
+def _extract_profile_from_beopt_or_eplus(df, filename_stem):
+    """
+    Helper to extract total electricity demand/consumption from a BEopt or
+    EnergyPlus CSV export file.
+    
+    Converts Joules [J] -> kW by dividing by 3.6e6.
+    """
+    elec_col = None
+    # 1. Look for known standard output meter names
+    for c in df.columns:
+        c_upper = c.upper()
+        if 'ELECTRICITY:UNIT_1' in c_upper or 'ELECTRICITY:FACILITY' in c_upper:
+            elec_col = c
+            break
+            
+    # 2. Fallback to fuzzy search
+    if not elec_col:
+        for c in df.columns:
+            c_low = c.lower()
+            if 'electricity' in c_low and ('unit_1' in c_low or 'facility' in c_low or 'total' in c_low or 'building' in c_low):
+                elec_col = c
+                break
+                
+    if elec_col:
+        vals = pd.to_numeric(df[elec_col], errors='coerce').to_numpy()
+        if len(vals) != 8760:
+            vals = np.resize(vals, 8760)
+            
+        # Unit conversion: Joules [J] to kW (kWh per hour)
+        if '[j]' in elec_col.lower() or np.nanmean(vals) > 1000.0:
+            vals = vals / 3600000.0
+        elif '[w]' in elec_col.lower():
+            vals = vals / 1000.0
+            
+        col_name = f"{filename_stem}_kW" if not filename_stem.endswith("_kW") else filename_stem
+        return col_name, vals
+        
+    return None, None
+
+
 def load_load_profiles_from_csv(filepath):
     """
-    Load and validate a load profiles CSV file.
+    Load and validate a load profiles CSV file or directory of raw simulation files.
 
-    Requirements:
-    - Must contain an 'Hour' column
-    - Must have exactly 8760 rows
-    - Must have at least one numeric profile column (besides 'Hour')
+    Supports:
+    - Standard simplified CSV (with 'Hour' and kW profile columns)
+    - Raw BEopt / EnergyPlus CSV exports (extracts ELECTRICITY:UNIT_1 or
+      Electricity:Facility, converts Joules -> kW, auto-generates 8760 hours)
+    - Directory path (e.g., 'Load_Profiles_raw/'): scans all CSV files, extracts
+      their load profiles, and merges them into a single 8760-hour DataFrame.
 
-    Returns: pd.DataFrame with Hour + profile columns
+    Returns: pd.DataFrame with 'Hour' + numeric profile columns in kW
     Raises: ValueError on invalid format
     """
     try:
+        # If filepath is a directory, load all CSV files in that directory
+        if os.path.isdir(filepath):
+            csv_files = glob.glob(os.path.join(filepath, "*.csv"))
+            if not csv_files:
+                raise ValueError(f"No CSV files found in directory '{filepath}'")
+            
+            merged_dict = {'Hour': np.arange(1, 8761)}
+            for fp in sorted(csv_files):
+                stem = os.path.splitext(os.path.basename(fp))[0]
+                sub_df = pd.read_csv(fp)
+                
+                # Check if it's a simple profile file or a BEopt/E+ export
+                if 'Hour' in sub_df.columns and len(sub_df.columns) > 1 and not any(':' in c for c in sub_df.columns):
+                    for col in sub_df.columns:
+                        if col != 'Hour':
+                            merged_dict[col] = pd.to_numeric(sub_df[col], errors='coerce').to_numpy()
+                else:
+                    col_name, vals = _extract_profile_from_beopt_or_eplus(sub_df, stem)
+                    if vals is not None:
+                        merged_dict[col_name] = vals
+                        
+            res_df = pd.DataFrame(merged_dict)
+            if len(res_df.columns) <= 1:
+                raise ValueError(f"Could not extract load profiles from CSV files in '{filepath}'")
+            return res_df
+
+        # Otherwise, process single file
         df = pd.read_csv(filepath)
+        stem = os.path.splitext(os.path.basename(filepath))[0]
+        
+        # Check if this is a BEopt or EnergyPlus output export (large # of columns or no 'Hour' col)
+        is_beopt_eplus = ('Date/Time' in df.columns or any(':' in c for c in df.columns))
+        
+        if is_beopt_eplus:
+            col_name, vals = _extract_profile_from_beopt_or_eplus(df, stem)
+            if vals is not None:
+                return pd.DataFrame({
+                    'Hour': np.arange(1, 8761),
+                    col_name: vals
+                })
+            else:
+                raise ValueError(f"Could not find an electricity/facility load column in '{filepath}'")
+
+        # Standard simple format check
         if 'Hour' not in df.columns:
-            raise ValueError("The Load Profiles CSV must contain an 'Hour' column.")
+            # If no 'Hour' column, assume first column is time or add synthetic Hour column
+            if len(df) == 8760 and len(df.columns) >= 1:
+                df.insert(0, 'Hour', np.arange(1, 8761))
+            else:
+                raise ValueError("The Load Profiles CSV must contain an 'Hour' column or have exactly 8760 rows.")
+
         if len(df) != 8760:
-            raise ValueError(f"The Load Profiles CSV must contain exactly 8760 rows (found {len(df)}).")
+            df = df.iloc[:8760] if len(df) > 8760 else df
 
         profile_cols = [col for col in df.columns if col != 'Hour']
         if not profile_cols:
             raise ValueError("The Load Profiles CSV must contain at least one load profile column.")
 
         for col in profile_cols:
-            df[col] = pd.to_numeric(df[col], errors='raise')
+            df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
     except Exception as e:
         raise ValueError(f"Failed to parse Load Profiles CSV: {str(e)}")
