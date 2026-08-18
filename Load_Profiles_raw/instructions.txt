@@ -1,0 +1,8 @@
+Place raw building model output files here (from BEopt, EnergyPlus, eQUEST, or custom simulations).
+
+Supported Formats & Expected Content:
+- BEopt CSV outputs (e.g. hourly building total electric power in kW or kWh)
+- EnergyPlus CSV output files (e.g. eplusout.csv with Electricity:Facility)
+- Custom 8760 CSV load profiles (containing datetime/hour and kW columns)
+
+You can save individual baseline vs. proposed files or multi-column comparison files in this directory.
