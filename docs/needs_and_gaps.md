@@ -337,6 +337,12 @@ The project plan calls for:
 ---
 
 ### 5.5 🟢 Dashboard Tab Organization Could Be Improved
+> **[John/Assistant, 2026-08-18]:** ✅ Resolved for now — tabs consolidated from 9 to 7
+> (Setup & Calibration Guide, Overview Scorecard, Cost-Effectiveness Table, Charts,
+> Weather & Peak Diagnostics, Scenario Manager, Diagnostics & Top Hours). Decided to
+> stay on single-page tabs rather than migrate to `pages/` (see roadmap.md 4.4);
+> revisit if the consolidated set becomes unwieldy again.
+
 With 8 tabs currently, and more features planned, the tab layout will become unwieldy.
 
 **What's Needed:**
@@ -427,7 +433,7 @@ All default values (capacity scalar $100/kW-yr, T&D $15/kW-yr, carbon $30/ton, e
 | **Utility user mode** (capacity, EPC/ELCC, RIM/TRC, T&D) | 🟡 Partial | RIM exists; TRC missing; EPC/ELCC are proxies; T&D is simplified |
 | **Product dev user mode** (homeowner cost, utility cost, gap, payback) | 🔴 Not started | No customer cost-of-ownership, no payback, no vendor view |
 | **Researcher mode** (transparency, detailed hourly, model insights) | 🟡 Partial | Debugger tab exists but no dedicated researcher interface |
-| **Example building models** | 🔴 Not started | Only random synthetic profiles exist |
+| **Example building models** | � In progress | Real BEopt models added (Birmingham AL ER Heat vs. Heat Pump, 2026-08-18); sidebar Example Building Library picker live with pick-and-view only. More examples + what-if editing still needed. |
 | **What-if explorer** (adjust power for key hours, add EV charger) | 🔴 Not started | No in-app load modification capability |
 | **Technology improvement guidance / targets** | 🔴 Not started | No performance gap analysis or improvement recommendations |
 | **Best/worst performance highlighting** | 🔴 Not started | No hour-by-hour performance scoring |

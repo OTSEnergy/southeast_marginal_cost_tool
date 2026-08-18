@@ -104,35 +104,40 @@ def build_weekly_load_and_temp_chart(datetime_slice, baseline_slice, proposed_sl
 
 def build_weekly_grid_economics_chart(slice_df, mode="Stacked Components"):
     """
-    Build a 3-row subplot figure for weekly grid avoided cost analysis:
+    Build a 4-row subplot figure for weekly grid & customer economics analysis:
     - Row 1: Grid Avoided Cost Economics ($/MWh) — configurable as stacked components,
              individual component lines, or total marginal cost.
     - Row 2: Standalone Load Reduction panel (kW) aligned on the exact same X-axis.
-    - Row 3: Hourly Operating Cost Delta ($/hr) — value created per hour ($/hr).
+    - Row 3: Hourly Operating Cost Delta ($/hr) — wholesale value created per hour ($/hr).
+    - Row 4: Customer Retail Operating Cost ($/hr) — Baseline vs. Proposed bill impact,
+             with the applicable retail energy rate ($/kWh) on a secondary Y-axis.
 
     Parameters
     ----------
     slice_df : pd.DataFrame
         DataFrame slice containing 'Datetime', all grid component columns, 'Load_Reduction_kW',
-        and optionally 'Hourly_Savings_hr'.
+        and optionally 'Hourly_Savings_hr', 'Customer_Cost_Baseline_hr', 'Customer_Cost_Proposed_hr',
+        and 'Retail_Rate_kWh'.
     mode : str
         One of "Stacked Components", "Individual Component Lines", "Total Marginal Cost ($/MWh)".
 
     Returns
     -------
     go.Figure
-        3-row subplot figure with Grid Economics on Row 1, Load Reduction on Row 2,
-        and Hourly Cost Delta ($/hr) on Row 3.
+        4-row subplot figure with Grid Economics on Row 1, Load Reduction on Row 2,
+        Hourly Cost Delta ($/hr) on Row 3, and Customer Retail Operating Cost on Row 4.
     """
     fig = make_subplots(
-        rows=3, cols=1,
+        rows=4, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.07,
-        row_heights=[0.46, 0.27, 0.27],
+        vertical_spacing=0.055,
+        row_heights=[0.34, 0.20, 0.20, 0.26],
+        specs=[[{"secondary_y": False}], [{"secondary_y": False}], [{"secondary_y": False}], [{"secondary_y": True}]],
         subplot_titles=(
             "Wholesale Grid Avoided Cost Economics ($/MWh)",
             "Standalone Load Reduction (kW)",
-            "Hourly Operating Cost Delta ($/hr) — Grid Value Created"
+            "Hourly Operating Cost Delta ($/hr) — Grid Value Created",
+            "Customer Retail Operating Cost ($/hr) — Baseline vs. Proposed"
         )
     )
 
@@ -209,9 +214,52 @@ def build_weekly_grid_economics_chart(slice_df, mode="Stacked Components"):
         row=3, col=1
     )
 
+    # Row 4: Customer Retail Operating Cost ($/hr) — Baseline vs. Proposed,
+    # with the applicable retail energy rate ($/kWh) on a secondary Y-axis.
+    if 'Customer_Cost_Baseline_hr' in slice_df.columns:
+        baseline_cost_vals = slice_df['Customer_Cost_Baseline_hr']
+    else:
+        baseline_cost_vals = np.zeros(len(slice_df))
+
+    if 'Customer_Cost_Proposed_hr' in slice_df.columns:
+        proposed_cost_vals = slice_df['Customer_Cost_Proposed_hr']
+    else:
+        proposed_cost_vals = np.zeros(len(slice_df))
+
+    if 'Retail_Rate_kWh' in slice_df.columns:
+        retail_rate_vals = slice_df['Retail_Rate_kWh']
+    else:
+        retail_rate_vals = np.zeros(len(slice_df))
+
+    fig.add_trace(
+        go.Scatter(
+            x=slice_df['Datetime'], y=baseline_cost_vals,
+            mode='lines', name='Customer Cost - Baseline ($/hr)',
+            line=dict(color=COLORS["red"], width=2)
+        ),
+        row=4, col=1, secondary_y=False
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=slice_df['Datetime'], y=proposed_cost_vals,
+            mode='lines', name='Customer Cost - Proposed ($/hr)',
+            line=dict(color=COLORS["teal"], width=2)
+        ),
+        row=4, col=1, secondary_y=False
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=slice_df['Datetime'], y=retail_rate_vals,
+            mode='lines', name='Retail Energy Rate ($/kWh)',
+            line=dict(color=COLORS["blue"], width=1.5, dash='dot'),
+            opacity=0.85
+        ),
+        row=4, col=1, secondary_y=True
+    )
+
     fig.update_layout(
         template="plotly_white",
-        height=680,
+        height=900,
         margin=dict(l=40, r=40, t=30, b=40),
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
@@ -219,7 +267,9 @@ def build_weekly_grid_economics_chart(slice_df, mode="Stacked Components"):
     fig.update_yaxes(title_text="Avoided Cost ($/MWh)", row=1, col=1)
     fig.update_yaxes(title_text="Reduction (kW)", row=2, col=1)
     fig.update_yaxes(title_text="Cost Delta ($/hr)", row=3, col=1)
-    fig.update_xaxes(title_text="Date", row=3, col=1)
+    fig.update_yaxes(title_text="Customer Cost ($/hr)", row=4, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="Retail Rate ($/kWh)", row=4, col=1, secondary_y=True)
+    fig.update_xaxes(title_text="Date", row=4, col=1)
 
     return fig
 

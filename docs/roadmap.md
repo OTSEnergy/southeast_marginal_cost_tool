@@ -402,6 +402,44 @@ Phase 2 (Additional Budget / Future Year)
 **Estimated scope:** Medium  
 **Depends on:** M3 (vendor features exist to be shown/hidden by role)
 
+### 4.0 UI/UX Layout & Sidebar Cleanup
+> **[John/Assistant, 2026-08-18]:** 🔨 BUILD — ✅ DONE (2026-08-18). Full sidebar +
+> tab consolidation implemented in one session; 55/55 tests passing after each step,
+> plus a headless Streamlit smoke test confirming the app still imports and serves.
+
+- [x] Sidebar: convert flat list of `st.sidebar.markdown("### ...")` sections into
+  collapsible `st.expander` groups so the panel doesn't read as one long control dump.
+- [x] Sidebar: merge the "load data / 8760 profile" inputs and the new Example Building
+  picker (see 4.3) into a single section that also gives a plain-language description
+  of what "the technology" means in this tool (i.e., the measure being evaluated).
+- [x] Sidebar: fold "Weather Alignment Metadata" into that same technology/load section
+  (it describes the load file's weather year, so it belongs with the load inputs).
+- [x] Sidebar: fold "Measure & Program Costs" into "Asset Lifetime & NPV" as one
+  "Financial Assumptions" section.
+- [x] Reduce emoji usage significantly across sidebar headers and tab labels.
+- [x] Tabs: keep single-page tabs for now (see 4.4 decision below), consolidated
+  from 9 tabs down to 7:
+  - Moved **EPW Calibration Guide** + **AMY Weather Generator** into one
+    "Setup & Calibration Guide" tab placed *first*, since they're setup-stage tools,
+    not results.
+  - Merged all chart/plot content (Weekly Analysis Graphs + Grid Avoided Costs charts +
+    Lifetime NPV chart) into a single "Charts" tab, organized with sub-headers:
+    Overall Scorecard → Utility Cost Tests → Customer & Building Load.
+  - Kept the Scenario Manager's save/compare table as its own tab (not a chart).
+  - Renamed/regrouped "Debugger & Top Hours" → "Diagnostics & Top Hours" — the
+    validation checks/math trace are now in a collapsed expander, with the Top
+    Stress Hours export as the main visible content.
+- [x] Standardized KPI/metric card styling via the new `ratio_card_html()` helper in
+  `config.py` (TRC/PCT/RIM cards on the Scorecard tab now share one consistent
+  design instead of ad-hoc inline HTML).
+
+> **Note:** The results tabs (everything after "Run Valuation Engine" is clicked)
+> could not be interactively exercised by the AI assistant — verification was via
+> static analysis (no errors), the full pytest suite (55/55 passing, including the
+> `import app` smoke test), and a headless `streamlit run` + HTTP 200 check. **John
+> should click through the post-run tabs once to visually confirm** the Charts tab
+> and Diagnostics tab render as expected.
+
 ### 4.1 User Role Selector
 *Ref: needs_and_gaps.md §5.1*
 
@@ -432,17 +470,22 @@ Phase 2 (Additional Budget / Future Year)
 - [ ] Re-run valuation instantly on the modified profile
 
 ### 4.3 Pre-Loaded Example Building Library
+> **[John/Assistant, 2026-08-18]:** 🔨 BUILD — ✅ DONE (2026-08-18) for pick-and-view
+> scope. Editing via the What-If Explorer (4.2) stays open for later, not built now.
 
-- [ ] Package the real building models from M1.2 as selectable examples:
-  - "Single Family – Atlanta, GA – Gas Furnace + AC (Baseline)"
-  - "Single Family – Atlanta, GA – Standard Heat Pump"
-  - "Single Family – Birmingham, AL – High-Efficiency Variable-Speed HP"
+- [x] Package the real building models from M1.2 as selectable examples:
+  - "Single Family – Birmingham, AL – Electric Resistance Heat (Baseline) vs. Heat Pump (Proposed)" ✅ first example, 2026-08-18
+  - "Single Family – Atlanta, GA – Gas Furnace + AC (Baseline)" *(future)*
+  - "Single Family – Atlanta, GA – Standard Heat Pump" *(future)*
   - etc.
-- [ ] Each selection auto-loads the corresponding baseline + proposed profiles and sets appropriate defaults
-- [ ] Allow users to start from an example and then modify via the explorer (4.2)
+- [x] Each selection auto-loads the corresponding baseline + proposed profiles and locks the Weather Alignment Metadata fields to the example's documented weather year (since the building model and its weather file are paired)
+- [ ] Allow users to start from an example and then modify via the explorer (4.2) — *deferred, not in this pass*
 
 ### 4.4 Multi-Page App Consideration
 *Ref: needs_and_gaps.md §5.5*
+> **[John/Assistant, 2026-08-18]:** ❓ DISCUSS LATER — decided to stay on single-page
+> tabs for now (consolidated per 4.0) rather than migrate to `pages/`. Revisit once
+> the consolidated tab set itself starts feeling unwieldy again.
 
 - [ ] Evaluate whether to migrate from single-page tabs to Streamlit's multi-page architecture (`pages/` directory)
 - [ ] This would allow cleaner separation of: Setup → Analysis → Results → Tools
@@ -630,10 +673,11 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 3.4 Vendor-facing visualizations | 🔨 BUILD | ⬜ Not Started | JB lead | "Finalize plan as we get closer" |
 | ↳ 3.5 Parametric / sensitivity testing | ❓ DISCUSS | ⬜ Not Started | Al/Mitch vetting | Vet with Al & Mitch — "don't want to create something too easy/simplistic" |
 | **M4: Dual-View & Explorer** | ❓ DISCUSS | | | Needs vetting with Al & Mitch before proceeding |
+| ↳ 4.0 UI/UX layout & sidebar cleanup | 🔨 BUILD | ✅ Done | John/Assistant | Sidebar reorganized into collapsible sections, tabs consolidated 9→7, KPI cards standardized, emojis trimmed (2026-08-18) |
 | ↳ 4.1 User role selector | | ⬜ Not Started | | |
 | ↳ 4.2 What-if explorer / load editor | | ⬜ Not Started | | |
-| ↳ 4.3 Pre-loaded building library | | ⬜ Not Started | | |
-| ↳ 4.4 Multi-page app evaluation | | ⬜ Not Started | | |
+| ↳ 4.3 Pre-loaded building library | 🔨 BUILD | ✅ Done (pick-and-view) | John/Assistant | Birmingham AL ER Heat vs. Heat Pump example live; what-if editing deferred to 4.2 (2026-08-18) |
+| ↳ 4.4 Multi-page app evaluation | ❓ DISCUSS | ⬜ Deferred | John/Assistant | Staying on single-page tabs for now; revisit if consolidated tab set feels unwieldy again |
 | **M5: Validation & Test Cases** | | | | |
 | ↳ 5.1 Utility validation | | ⬜ Not Started | | |
 | ↳ 5.2 Technology developer tests | | ⬜ Not Started | | |

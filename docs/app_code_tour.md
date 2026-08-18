@@ -186,19 +186,25 @@ Interfaces with Pacific Northwest National Laboratory's (PNNL) `diyepw` Python t
 
 ---
 
-## Chapter 7: Sidebar Controls & Inputs (Lines 876–1064)
+## Chapter 7: Sidebar Controls & Inputs (~lines 260–580, approximate)
 
-Creates the left-hand navigation sidebar control panel:
-*   **Scenario & Year**: Selects NREL Cambium grid projection (HighDemandGrowth, MidCase, LowCarbonConstraint, LowDemandGrowth) and planning horizon (2025–2050).
-*   **Target States**: Multi-select box for Southeast states (AL, GA, FL, TN, MS, NC, SC).
-*   **Valuation Scalars**: Numerical inputs for Generation Capacity ($100/kW-yr default), Transmission Deferral ($15/kW-yr default), Distribution Deferral ($15/kW-yr default), and Carbon Penalty ($30/ton default).
-*   **Financial Terms**: Asset life (years), WACC discount rate (%), grid price escalation (%), retail price escalation (%), and equipment performance decay (%).
+> **Updated 2026-08-18:** The sidebar was reorganized into seven collapsible
+> `st.sidebar.expander(...)` sections (previously a flat list of markdown headers).
+> Line numbers below are approximate and will drift as the file changes.
+
+*   **Grid Scenario & Region** *(expanded by default)*: NREL Cambium grid projection (HighDemandGrowth, MidCase, LowCarbonConstraint, LowDemandGrowth), planning horizon (2025–2050), weather case, and target Southeast states (AL, GA, FL, TN, MS, NC, SC).
+*   **Demand Response (Optional)** *(collapsed by default)*: DR mode toggle plus hours/season/max-hours-per-day/capacity inputs.
+*   **Building / Technology & Load Data** *(expanded by default)*: Describes the technology/measure being evaluated and is where the 8760-hour load data comes in. Includes the new **Example Building Library** picker (select a pre-configured example instead of your own data — see Chapter 8 note below) and, when no example is selected, the original Load Profiles Source picker (folder / synthetic / custom path) plus baseline/proposed column selection. Weather Alignment Metadata (load/Cambium/CWFT weather years) now lives at the bottom of this same section, and is auto-locked (disabled, pre-filled) when an example is selected.
+*   **Grid Valuation Assumptions** *(collapsed by default)*: Generation Capacity ($/kW-yr), Transmission Deferral ($/kW-yr), Distribution Deferral ($/kW-yr), and Carbon Penalty ($/ton).
+*   **Retail Tariff (NREL URDB)** *(expanded by default)*: Tariff type, retail escalation rate, and URDB fetch/paste/custom-flat-rate controls.
+*   **Financial Assumptions** *(collapsed by default)*: Merges the former "Asset Lifetime & NPV" (asset life, discount rate, escalation, degradation) and "Measure & Program Costs" (gross measure cost, utility incentive, admin cost) into one section.
+*   **Advanced: Custom Data Files** *(collapsed by default)*: Optional custom CWFT file path.
 
 ---
 
-## Chapter 8: Results Engine & Dashboard Tabs (Lines 1065–1957)
+## Chapter 8: Results Engine & Dashboard Tabs (~lines 580–1500, approximate)
 
-When the user clicks **🚀 Run Valuation Engine**, the app executes financial calculations and populates 8 organized dashboard tabs:
+When the user clicks **Run Valuation Engine**, the app executes financial calculations and populates 7 organized dashboard tabs (consolidated from 9 on 2026-08-18).
 
 ### Key Math Performed in the Dashboard
 1.  **EPC (Effective Peak Contribution)**:
@@ -209,15 +215,17 @@ When the user clicks **🚀 Run Valuation Engine**, the app executes financial c
 3.  **Multi-Year Cash Flow Discounting**:
     Applies discount factors $1 / (1 + r)^t$, price escalation $(1 + e)^t$, and annual heat pump efficiency degradation $(1 - d)^t$ over the asset lifetime (e.g., 15 years) to compute Net Present Value (NPV).
 
-### The 8 Tab Views
-1.  **📊 Overview Scorecard**: Displays top-level KPI metrics (Net NPV, RIM Ratio, Grid Savings, Customer Bill Savings, EPC Reduction) and temperature responsiveness checks.
-2.  **🔌 Retail Lost Revenue & RIM**: Side-by-side cost-effectiveness comparison table and weekly load overlay charts.
-3.  **📅 Wholesale Grid Avoided Costs**: Stacked area charts showing hourly component breakdowns ($/MWh).
-4.  **🌡️ Weather & Peak Coincidence**: Statistical correlations, temperature extremes, top 50/100 CWFT coincidence percentages, and peak-to-off-peak demand ratios.
-5.  **⏳ Lifetime NPV & Scenario Manager**: Allows users to save runs, compare scenarios side-by-side, and view discounted cash flow streams.
-6.  **🔍 Debugger & Top Hours Export**: Proves capacity math equations, runs sanity validation checks, and exports top stress hours to CSV.
-7.  **📖 EPW Calibration Guide**: Best practices for aligning EnergyPlus building simulations with Cambium grid datasets.
-8.  **🌩️ AMY Weather Generator**: In-app tool to generate custom weather files via `diyepw`.
+### The 7 Tab Views
+1.  **Setup & Calibration Guide**: EPW/weather alignment best practices for matching EnergyPlus building simulations to Cambium grid datasets, plus the in-app AMY Weather Generator (`diyepw`). Placed first since these are setup-stage tools, not results.
+2.  **Overview Scorecard**: Top-level KPI metrics (Net NPV, RIM Ratio, Grid Savings, Customer Bill Savings, EPC Reduction), temperature responsiveness checks, and the TRC/PCT/RIM ratio cards (now rendered via the shared `ratio_card_html()` helper in `config.py` for a consistent style).
+3.  **Cost-Effectiveness Table**: Side-by-side cost-effectiveness comparison table (wholesale grid savings vs. retail lost revenue vs. RIM ratio).
+4.  **Charts**: All chart/plot content consolidated into one tab with three logical groups: **Overall Scorecard** (lifetime discounted cash flow chart), **Utility Cost Tests** (annual wholesale avoided cost distribution, winter/summer stacked component charts, weekly grid economics chart), and **Customer & Building Load** (weekly building demand vs. outdoor temperature chart).
+5.  **Weather & Peak Diagnostics**: Statistical correlations, temperature extremes, top 50/100 CWFT coincidence percentages, and peak-to-off-peak demand ratios.
+6.  **Scenario Manager**: Save runs and compare scenarios side-by-side in a table (the lifetime NPV chart itself moved to the Charts tab).
+7.  **Diagnostics & Top Hours**: Validation checks and the capacity avoided-cost math trace are now tucked into a collapsed expander at the top; the Top Stress Hours table + CSV export is the main visible content.
+
+### Example Building Library (new, 2026-08-18)
+The sidebar's Building/Technology section includes a pre-configured example picker (`EXAMPLE_BUILDINGS` in `config.py`). Selecting an example auto-loads its baseline/proposed load columns and locks the Weather Alignment Metadata to the example's documented weather year. Current scope is **pick-and-view only** — editing an example via a what-if explorer is planned for later (see `docs/roadmap.md` §4.2).
 
 ---
 *Generated for the Southeast Marginal Cost Valuation Engine. Designed for clear, transparent energy modeling.*

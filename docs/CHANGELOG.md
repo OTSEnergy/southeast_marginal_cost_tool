@@ -2,6 +2,61 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-08-18] — Sidebar Reorganization, Example Building Library & Tab Consolidation
+
+### Added / Updated
+- **`config.py`:**
+  - Added `EXAMPLE_BUILDINGS` list — the first pre-configured example is "Birmingham, AL — Electric Resistance Heat vs. Heat Pump (BEopt, 2012)", pairing the two real BEopt models added to `Load_Profiles_raw/` (`ERHeatBeOptModel_Birmingham2012.csv` baseline / `HeatPumpBeOptModel_Birmingham2012.csv` proposed) with a locked 2012 weather year and AL state.
+  - Added `ratio_card_html(label, value, sublabel, passing)` helper plus matching `.kpi-card` CSS classes so ratio-style metric cards (TRC/PCT/RIM) share one consistent visual design instead of ad-hoc inline HTML per card.
+- **`app.py`:**
+  - **Sidebar rewrite:** converted the flat list of `st.sidebar.markdown("### ...")` sections into 7 collapsible `st.sidebar.expander(...)` groups: *Grid Scenario & Region*, *Demand Response (Optional)*, *Building / Technology & Load Data*, *Grid Valuation Assumptions*, *Retail Tariff (NREL URDB)*, *Financial Assumptions*, *Advanced: Custom Data Files*.
+  - The new **Building / Technology & Load Data** section combines: a plain-language description of "the technology" being evaluated, the new **Example Building Library** picker, the existing load-profile source/column selection, and **Weather Alignment Metadata** (folded in from its own former section). When an example is selected, baseline/proposed columns and the weather-year fields auto-populate and lock (`disabled=True`).
+  - **Financial Assumptions** now merges the former "Asset Lifetime & NPV" and "Measure & Program Costs" sections into one.
+  - **Tab consolidation:** reduced from 9 tabs to 7: `tab_setup` (merges the old EPW Calibration Guide + AMY Weather Generator, moved to the front since they're setup-stage tools), `tab_summary` (Overview Scorecard — KPI cards now use `ratio_card_html()`), `tab_calculator` (Cost-Effectiveness Table, unchanged logic), `tab_charts` (new — merges the old Weekly Analysis Graphs + Grid Avoided Costs charts + Lifetime NPV chart into one tab with sub-groups "Overall Scorecard" → "Utility Cost Tests" → "Customer & Building Load"), `tab_weather_diag` (unchanged), `tab_scenarios` (Scenario Manager — save/compare table only, NPV chart moved to Charts), `tab_diagnostics` (renamed from "Debugger & Top Hours" — validation checks + math trace demoted into a collapsed `st.expander`, Top Stress Hours export is now the main visible content).
+  - Significantly reduced emoji usage across sidebar labels, tab labels, welcome screen, calibration guide, and the AMY weather generator helper.
+- **`docs/roadmap.md`:**
+  - Added Milestone 4 subsection **4.0 UI/UX Layout & Sidebar Cleanup** (marked ✅ Done) documenting the agreed sidebar/tab/styling changes.
+  - Annotated **4.3 Pre-Loaded Example Building Library** as ✅ Done for pick-and-view scope (what-if editing deferred to 4.2).
+  - Annotated **4.4 Multi-Page App Consideration** as deferred — staying on single-page tabs for now.
+  - Updated the Milestone 4 progress tracking table rows for 4.0, 4.3, 4.4.
+- **`docs/needs_and_gaps.md`:**
+  - Updated the "Example building models" priority-matrix status from 🔴 Not started to 🟡 In progress.
+  - Updated §5.5 "Dashboard Tab Organization" with a resolution note (tabs consolidated 9→7, staying on single-page tabs).
+- **`docs/app_code_tour.md`:**
+  - Rewrote Chapter 7 (Sidebar Controls & Inputs) and Chapter 8 (Results Engine & Dashboard Tabs) to describe the new 7-expander sidebar and 7-tab dashboard, including the Example Building Library. Line-number references are now approximate per the file's own maintenance rules.
+
+### Verification
+- `python -m pytest` run after each major edit (sidebar rewrite, tab consolidation, KPI card refactor, emoji cleanup): **55/55 passing** throughout, no regressions.
+- Static analysis (`get_errors`) clean on `app.py` and `config.py` after each edit.
+- Headless `streamlit run app.py` smoke tests (twice) confirmed the app imports and serves (HTTP 200) with no server-side tracebacks.
+- **Caveat:** The AI assistant could not interactively click "Run Valuation Engine" in a browser, so the post-run results tabs (Charts, Diagnostics, etc.) were verified via code review + tests + static analysis only, not a live visual check. **John should click through the consolidated tabs once to confirm they render as expected.**
+
+### Documentation Drift Note
+- **`docs/app_annotated.py`** was NOT re-synced this session — it still reflects the pre-2026-08-18 sidebar layout and 9-tab structure. This is now two sessions of drift (the 2026-08-18 weekly-graphs tab split from the entry below, plus today's full sidebar/tab rewrite). A full re-sync pass is recommended before this file is used for onboarding/teaching purposes.
+
+---
+
+## [2026-08-18] — New "Weekly Analysis Graphs" Tab & Customer Operating Cost Chart Row
+
+### Added / Updated
+- **`app.py`:**
+  - Split the former "🔌 Retail lost revenue & RIM" tab in two: it now shows only the two-sided cost-effectiveness table, while a new **"📈 Weekly Analysis Graphs"** tab (inserted right after it) holds the weekly Building Load vs. Temperature chart and the Grid/Customer Economics chart, along with their week-selector and view-mode controls.
+  - Added hourly customer retail rate/cost computation (`hourly_retail_rate`, `baseline_cost_hr`, `proposed_cost_hr`) via `billing.get_hourly_energy_rate()`, applied to whichever tariff is active (packaged URDB, fetched URDB, pasted URDB, or custom flat/demand fallback).
+  - Weekly Analysis Graphs tab now also reports total customer retail bill savings for the selected week alongside total grid avoided cost value.
+  - Renumbered the `# TAB N:` section comments to account for the new tab.
+- **`billing.py`:**
+  - Added `get_hourly_energy_rate(datetime_series, rate_json)` — returns an 8760-element array of the marginal (first-tier) retail energy rate ($/kWh) per hour, based on the URDB period mapping. This is a simplified diagnostic helper for hourly charts (ignores monthly cumulative-usage tiering); `calculate_urdb_bill()` remains the source of truth for actual bill totals.
+- **`visualizations.py`:**
+  - `build_weekly_grid_economics_chart()` is now a 4-row subplot (was 3): added Row 4, **"Customer Retail Operating Cost ($/hr) — Baseline vs. Proposed"**, plotting baseline and proposed hourly customer cost on the primary Y-axis and the applicable retail energy rate ($/kWh) on a secondary Y-axis.
+- **`tests/test_calculations.py`:**
+  - Added `TestGetHourlyEnergyRate` suite (flat rate, seasonal GP R-31 rate change, no-energy-structure zero case).
+  - Updated `test_weekly_grid_economics_chart` trace-count assertions for the new 4th row (+3 traces per mode). Total tests: 55 (55/55 passing).
+
+### Documentation Drift Note
+- **`docs/app_annotated.py`** was NOT re-synced this session (still reflects the pre-2026-08-18 tab layout and 3-row grid economics chart). Flagging for a future full re-sync pass; `app.py` line count and structure have since diverged from this file.
+
+---
+
 ## [2026-08-11] — MidCase Default, Tab List Wrapping/Scroll & Dual Weekly Analysis Charts
 
 ### Added / Updated

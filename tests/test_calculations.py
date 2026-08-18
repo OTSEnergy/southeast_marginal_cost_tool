@@ -120,7 +120,7 @@ sys.modules["streamlit"] = _st_stub
 # Import the extracted modules directly — no Streamlit stub needed for these
 # since they are pure Python with no UI dependencies.
 from calculations import calculate_avoided_costs, dispatch_dr_program  # noqa: E402
-from billing import calculate_urdb_bill  # noqa: E402
+from billing import calculate_urdb_bill, get_hourly_energy_rate  # noqa: E402
 import config  # noqa: E402
 from visualizations import (  # noqa: E402
     build_weekly_overlay_chart,
@@ -355,6 +355,39 @@ class TestCalculateUrdbBill:
 
         assert pytest.approx(energy_2, rel=1e-4) == energy_1 * 2.0, \
             "Energy portion should double when load doubles"
+
+
+# ======================================================================
+#  TEST SUITE 2b: get_hourly_energy_rate()
+# ======================================================================
+
+class TestGetHourlyEnergyRate:
+    """Validates the hourly marginal retail rate helper used by the
+    Weekly Analysis Graphs tab's customer operating cost chart."""
+
+    def test_flat_rate_constant_everywhere(self, datetime_2012, flat_rate):
+        """A flat single-tier rate should return the same rate for every hour."""
+        rates = get_hourly_energy_rate(datetime_2012, flat_rate)
+        assert len(rates) == 8760
+        np.testing.assert_allclose(rates, 0.10, rtol=1e-6)
+
+    def test_gp_r31_seasonal_rate_changes(self, datetime_2012, gp_r31_rate):
+        """Georgia Power R-31 should have a lower winter rate than summer rate."""
+        rates = get_hourly_energy_rate(datetime_2012, gp_r31_rate)
+        months = datetime_2012.dt.month.to_numpy()
+
+        winter_rate = rates[months == 1][0]   # January
+        summer_rate = rates[months == 7][0]   # July
+
+        assert pytest.approx(winter_rate, rel=1e-6) == 0.142062
+        assert pytest.approx(summer_rate, rel=1e-6) == 0.148101  # first summer tier
+        assert summer_rate != winter_rate
+
+    def test_no_energy_structure_returns_zeros(self, datetime_2012):
+        """Rate structures without an energy schedule should return all zeros."""
+        rates = get_hourly_energy_rate(datetime_2012, {"fixedcharge": 10.0})
+        assert len(rates) == 8760
+        assert (rates == 0.0).all()
 
 
 # ======================================================================
@@ -639,21 +672,24 @@ class TestVisualizations:
         results["Datetime"] = datetime_2012.values
         slice_df = results.iloc[0:168].copy()
         slice_df['Load_Reduction_kW'] = np.ones(168) * 0.5
+        slice_df['Customer_Cost_Baseline_hr'] = np.ones(168) * 0.30
+        slice_df['Customer_Cost_Proposed_hr'] = np.ones(168) * 0.20
+        slice_df['Retail_Rate_kWh'] = np.ones(168) * 0.15
 
         # Test stacked mode
         fig_stacked = build_weekly_grid_economics_chart(slice_df, mode="Stacked Components")
         assert isinstance(fig_stacked, go.Figure)
-        assert len(fig_stacked.data) == 7  # 5 component areas + 1 load reduction trace + 1 cost delta trace
+        assert len(fig_stacked.data) == 10  # 5 component areas + 1 load reduction + 1 cost delta + 3 customer cost/rate traces
 
         # Test individual lines mode
         fig_lines = build_weekly_grid_economics_chart(slice_df, mode="Individual Component Lines")
         assert isinstance(fig_lines, go.Figure)
-        assert len(fig_lines.data) == 8  # 5 component lines + 1 total cost line + 1 load reduction trace + 1 cost delta trace
+        assert len(fig_lines.data) == 11  # 5 component lines + 1 total cost line + 1 load reduction + 1 cost delta + 3 customer cost/rate traces
 
         # Test total marginal cost mode
         fig_total = build_weekly_grid_economics_chart(slice_df, mode="Total Marginal Cost ($/MWh)")
         assert isinstance(fig_total, go.Figure)
-        assert len(fig_total.data) == 3  # 1 total cost line + 1 load reduction trace + 1 cost delta trace
+        assert len(fig_total.data) == 6  # 1 total cost line + 1 load reduction + 1 cost delta + 3 customer cost/rate traces
 
     def test_annual_avoided_cost_returns_figure(self, grid_df_8760, cwft_uniform):
         from calculations import calculate_avoided_costs
