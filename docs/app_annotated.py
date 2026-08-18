@@ -294,24 +294,86 @@ def generate_default_load_profiles_file(filepath="load_profiles.csv"):
     return filepath
 
 
+def _read_profile_file(filepath):
+    """Helper to read CSV or Excel (.xlsx / .xls) files into a DataFrame."""
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext in ['.xlsx', '.xls']:
+        return pd.read_excel(filepath)
+    else:
+        return pd.read_csv(filepath)
+
+
+def _is_date_or_time_col(col_name):
+    """Check if a column name represents a date, time, timestamp, or hour index."""
+    c_low = str(col_name).strip().lower()
+    date_keywords = ['hour', 'date', 'datetime', 'date/time', 'timestamp', 'time', 'index', 'year', 'month', 'day']
+    if c_low in date_keywords:
+        return True
+    if any(k in c_low for k in ['date/time', 'timestamp']):
+        return True
+    return False
+
+
 def load_load_profiles_from_csv(filepath):
-    """Reads and validates the load_profiles.csv file."""
+    """Reads and validates load profiles from CSV or Excel (.xlsx/.xls) files or raw output folders."""
     try:
-        df = pd.read_csv(filepath)
-        if 'Hour' not in df.columns:
-            raise ValueError("The Load Profiles CSV must contain an 'Hour' column.")
-        if len(df) != 8760:
-            raise ValueError(f"The Load Profiles CSV must contain exactly 8760 rows (found {len(df)}).")
+        if os.path.isdir(filepath):
+            files = []
+            for ext in ["*.csv", "*.xlsx", "*.xls"]:
+                files.extend(glob.glob(os.path.join(filepath, ext)))
+            files = [f for f in files if not os.path.basename(f).startswith("~$")]
+            if not files:
+                raise ValueError(f"No load profile CSV or Excel files found in directory '{filepath}'")
             
-        profile_cols = [col for col in df.columns if col != 'Hour']
-        if not profile_cols:
-            raise ValueError("The Load Profiles CSV must contain at least one load profile column.")
+            merged_dict = {'Hour': np.arange(1, 8761)}
+            for fp in sorted(files):
+                stem = os.path.splitext(os.path.basename(fp))[0]
+                sub_df = _read_profile_file(fp)
+                
+                is_beopt_eplus = ('Date/Time' in sub_df.columns or any(':' in str(c) for c in sub_df.columns))
+                if is_beopt_eplus:
+                    elec_col = None
+                    for c in sub_df.columns:
+                        c_upper = str(c).upper()
+                        if 'ELECTRICITY:UNIT_1' in c_upper or 'ELECTRICITY:FACILITY' in c_upper:
+                            elec_col = c
+                            break
+                    if elec_col:
+                        vals = pd.to_numeric(sub_df[elec_col], errors='coerce').to_numpy()
+                        if len(vals) != 8760:
+                            vals = np.resize(vals, 8760)
+                        if '[j]' in str(elec_col).lower() or np.nanmean(vals) > 1000.0:
+                            vals = vals / 3600000.0
+                        col_key = f"{stem}_kW" if not stem.endswith("_kW") else stem
+                        merged_dict[col_key] = vals
+                else:
+                    non_date_cols = [c for c in sub_df.columns if not _is_date_or_time_col(c)]
+                    for col in non_date_cols:
+                        vals = pd.to_numeric(sub_df[col], errors='coerce').to_numpy()
+                        if len(vals) != 8760:
+                            vals = np.resize(vals, 8760)
+                        col_key = col if col not in merged_dict else f"{stem} - {col}"
+                        merged_dict[col_key] = vals
+                        
+            res_df = pd.DataFrame(merged_dict)
+            if len(res_df.columns) <= 1:
+                raise ValueError(f"Could not extract load profiles from files in '{filepath}'")
+            return res_df
+
+        df = _read_profile_file(filepath)
+        non_date_cols = [c for c in df.columns if not _is_date_or_time_col(c)]
+        if not non_date_cols:
+            raise ValueError(f"The Load Profiles file '{filepath}' must contain at least one numeric load profile column.")
             
-        for col in profile_cols:
-            df[col] = pd.to_numeric(df[col], errors='raise')
-        return df
+        out_dict = {'Hour': np.arange(1, 8761)}
+        for col in non_date_cols:
+            vals = pd.to_numeric(df[col], errors='coerce').to_numpy()
+            if len(vals) != 8760:
+                vals = np.resize(vals, 8760)
+            out_dict[col] = vals
+        return pd.DataFrame(out_dict)
     except Exception as e:
-        raise ValueError(f"Failed to parse Load Profiles CSV: {str(e)}")
+        raise ValueError(f"Failed to parse Load Profiles file: {str(e)}")
 
 
 def generate_mock_state_file(filepath, state_code, scenario):

@@ -124,6 +124,8 @@ from billing import calculate_urdb_bill  # noqa: E402
 import config  # noqa: E402
 from visualizations import (  # noqa: E402
     build_weekly_overlay_chart,
+    build_weekly_load_and_temp_chart,
+    build_weekly_grid_economics_chart,
     build_annual_avoided_cost_chart,
     build_stacked_components_chart,
     build_lifetime_npv_chart,
@@ -621,6 +623,38 @@ class TestVisualizations:
         assert isinstance(fig, go.Figure)
         assert len(fig.data) == 4  # 4 traces
 
+    def test_weekly_load_and_temp_chart(self, datetime_2012):
+        dt_slice = datetime_2012.iloc[0:168]
+        baseline = np.ones(168) * 2.0
+        proposed = np.ones(168) * 1.5
+        temp = np.random.rand(168) * 50 + 30.0
+
+        fig = build_weekly_load_and_temp_chart(dt_slice, baseline, proposed, temp)
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 3  # baseline, proposed, temp
+
+    def test_weekly_grid_economics_chart(self, grid_df_8760, cwft_uniform, datetime_2012):
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        results["Datetime"] = datetime_2012.values
+        slice_df = results.iloc[0:168].copy()
+        slice_df['Load_Reduction_kW'] = np.ones(168) * 0.5
+
+        # Test stacked mode
+        fig_stacked = build_weekly_grid_economics_chart(slice_df, mode="Stacked Components")
+        assert isinstance(fig_stacked, go.Figure)
+        assert len(fig_stacked.data) == 7  # 5 component areas + 1 load reduction trace + 1 cost delta trace
+
+        # Test individual lines mode
+        fig_lines = build_weekly_grid_economics_chart(slice_df, mode="Individual Component Lines")
+        assert isinstance(fig_lines, go.Figure)
+        assert len(fig_lines.data) == 8  # 5 component lines + 1 total cost line + 1 load reduction trace + 1 cost delta trace
+
+        # Test total marginal cost mode
+        fig_total = build_weekly_grid_economics_chart(slice_df, mode="Total Marginal Cost ($/MWh)")
+        assert isinstance(fig_total, go.Figure)
+        assert len(fig_total.data) == 3  # 1 total cost line + 1 load reduction trace + 1 cost delta trace
+
     def test_annual_avoided_cost_returns_figure(self, grid_df_8760, cwft_uniform):
         from calculations import calculate_avoided_costs
         results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
@@ -901,11 +935,29 @@ class TestLoadProfileIngestion:
             df = load_load_profiles_from_csv(dirpath)
             assert "Hour" in df.columns
             assert len(df) == 8760
-            # Should have merged both model files
+            # Should have merged model files and multi-column cases (including Excel)
             profile_cols = [c for c in df.columns if c != "Hour"]
             assert len(profile_cols) >= 2
             assert any("ERHeat" in c for c in profile_cols)
             assert any("HeatPump" in c for c in profile_cols)
+            assert "Total TES" in profile_cols
+            assert "Total No TES" in profile_cols
+
+    def test_excel_file_parsing(self):
+        from data_loaders import load_load_profiles_from_csv
+        filepath = "Load_Profiles_raw/HP_TES_DummyData.xlsx"
+        if os.path.exists(filepath):
+            df = load_load_profiles_from_csv(filepath)
+            assert "Hour" in df.columns
+            assert len(df) == 8760
+            profile_cols = [c for c in df.columns if c != "Hour"]
+            assert "Total TES" in profile_cols
+            assert "Total No TES" in profile_cols
+            assert "Date" not in profile_cols  # Date column must be excluded
+            # Numeric values test
+            assert df["Total TES"].notna().all()
+            assert df["Total No TES"].notna().all()
+            assert df["Total TES"].mean() > 0.1
 
 
 # ======================================================================

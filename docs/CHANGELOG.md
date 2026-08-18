@@ -2,6 +2,37 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-08-11] — MidCase Default, Tab List Wrapping/Scroll & Dual Weekly Analysis Charts
+
+### Added / Updated
+- **`config.py`:**
+  - Updated `SCENARIO_OPTIONS` order so `"MidCase"` is the default scenario selection at app startup.
+  - Enhanced `CUSTOM_CSS` with responsive wrapping (`flex-wrap: wrap !important`) and smooth horizontal scrolling for Streamlit tab list elements (`[data-testid="stTabs"]`, `div[data-baseweb="tab-list"]`).
+- **`visualizations.py`:**
+  - Added `build_weekly_load_and_temp_chart()` — dual-axis chart comparing Baseline vs Proposed building load (kW) on left Y-axis with Outdoor Air Temperature (°F) on right Y-axis.
+  - Added `build_weekly_grid_economics_chart()` — 3-row subplot figure rendering Grid Avoided Costs ($/MWh) on Row 1, Standalone Load Reduction (kW) on Row 2, and **Hourly Operating Cost Delta ($/hr)** on Row 3 (`Load Reduction kW / 1000 * Avoided Cost $/MWh`).
+- **`app.py`:**
+  - Updated Tab 2 weekly profile analysis section to compute `Hourly_Savings_hr` ($/hr) and display a weekly total avoided cost value summary caption.
+- **`tests/test_calculations.py`:**
+  - Added unit tests for `build_weekly_load_and_temp_chart()` and `build_weekly_grid_economics_chart()`. Total tests: 52 (52/52 passing).
+
+---
+
+## [2026-08-10] — Excel (.xlsx/.xls) & Multi-Column Load Profile Ingestion
+
+### Added / Updated
+- **`data_loaders.py`:**
+  - Added `_read_profile_file()` helper supporting both `.csv` and Excel (`.xlsx` / `.xls`) files.
+  - Added `_is_date_or_time_col()` helper to automatically identify and strip date/time/hour index columns (e.g. `Date`, `DateTime`, `Time`, `Timestamp`, `Hour`).
+  - Updated `load_load_profiles_from_csv()` to handle multi-case files (e.g. 3-column files like `Date` + `Total TES` + `Total No TES` from `HP_TES_DummyData.xlsx`) in both single-file mode and directory scan mode (`Load_Profiles_raw/`).
+- **`app.py`:**
+  - Updated `Load_Profiles_raw` path check to look for `*.csv`, `*.xlsx`, and `*.xls` files.
+  - Updated Single File Mode UI to explicitly ask `"Which column in [file] is the Baseline load?"` and `"Which column in [file] is the Proposed load?"` without using keyword-guessing heuristics. Folder Mode retains smart defaults for multi-model directory scans.
+- **`requirements.txt`:** Added `openpyxl>=3.0.0` for Excel file reading.
+- **`tests/test_calculations.py`:**
+  - Added `test_excel_file_parsing` and updated `test_load_profiles_directory_scan` in `TestLoadProfileIngestion`. Total tests: 50.
+- **`docs/roadmap.md` & `docs/needs_and_gaps.md`:** Completed item 1.2b (`🔀 MODIFY` / ✅ **v1 Done**) — replaced keyword guessing in Single File Mode with explicit column selection prompts.
+
 ---
 
 ## [2026-08-10] — Living Documentation Sync Pass

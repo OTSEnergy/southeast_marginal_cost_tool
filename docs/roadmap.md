@@ -181,6 +181,13 @@ Phase 2 (Additional Budget / Future Year)
 
 > **[John, 8/4/2026]:** This can be done by me, starting with probably the template HP+TES models and I shoudl also consider bringing in some DOE template buildings.  Let's assume for now, for prototyping, that we're gonna stick to single family res
 
+### 1.2b Revisit Load Profile Column Selection UX
+*Ref: needs_and_gaps.md §3.6 & §5.1*
+
+- [x] Modify multi-column load profile ingestion so that instead of relying on keyword heuristics (`no tes`, `erheat`, `heatpump`) to guess baseline vs. proposed columns, the UI explicitly asks the user to select "Which column represents Baseline?" and "Which column represents Proposed?".
+
+> **[John, 2026-08-10]:** 🔀 MODIFY — Revisit auto-selection logic. I'd rather it essentially ask "which column?" than try to get too cute with guessing baseline vs. proposed cases. *(Implemented 2026-08-10 for Single File Mode)*
+
 ### 1.3 Expand Cambium State Coverage
 *Ref: needs_and_gaps.md §3.3*
 
@@ -602,6 +609,7 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 1.1 CWFT replacement | 📦 EXTERNAL | ⬜ Not Started | Justin (JH) | JH to provide; team proceeds on other items in parallel. Awaiting DD-2. |
 | ↳ 1.2 Real load profiles | 📦 EXTERNAL | 🟡 In Progress | John (JB) | Real BEopt models added (`ERHeatBeOptModel_Birmingham2012.csv` and `HeatPumpBeOptModel_Birmingham2012.csv`). 2012 AMY EPWs ready. |
 | ↳ 1.2a Flexible load ingestion | 🔨 BUILD | 🟢 **v1 Done** | JB + AI | Smart CSV loader built into `data_loaders.py`: auto-detects BEopt/EnergyPlus `ELECTRICITY:UNIT_1` / `Electricity:Facility` headers, converts Joules `[J]` → kW, and scans folders (`Load_Profiles_raw/`). |
+| ↳ 1.2b Explicit column selector UX | 🔀 MODIFY | 🟢 **v1 Done** | JB + AI | Single File Mode explicitly prompts "Which column in [file] is Baseline/Proposed?" without keyword guessing. Folder mode retains smart defaults. |
 | ↳ 1.3 State coverage | 🔀 MODIFY | ⬜ Not Started | JB + AI | **Reduced scope:** GA & AL only (maybe TN). Keep extensible for future states. Not adding others during prototype stage. |
 | ↳ 1.4 Weather file | 🔨 BUILD | 🟢 **v1 Done** | AI | 2012 AMY EPW files generated via `diyepw` for Atlanta (WMO 722190) and Birmingham (WMO 722280). Saved to `Weather_Data_raw/Baseline/`. App weather generator tab also functional. |
 | ↳ 1.5 File upload UX | 🔨 BUILD | ⬜ Not Started | AI | "Straightforward request to the AI" |

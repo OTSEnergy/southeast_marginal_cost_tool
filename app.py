@@ -36,6 +36,8 @@ from config import (
 )
 from visualizations import (
     build_weekly_overlay_chart,
+    build_weekly_load_and_temp_chart,
+    build_weekly_grid_economics_chart,
     build_annual_avoided_cost_chart,
     build_stacked_components_chart,
     build_lifetime_npv_chart,
@@ -422,7 +424,10 @@ st.sidebar.markdown("### 📂 Input File Paths")
 use_custom_cwft = st.sidebar.checkbox("Use Custom CWFT CSV File", value=True)
 cwft_filepath = st.sidebar.text_input("CWFT CSV File Path", value="CWFT.csv")
 # Load profiles path options
-if os.path.exists("Load_Profiles_raw") and len(glob.glob(os.path.join("Load_Profiles_raw", "*.csv"))) > 0:
+has_raw_profiles = os.path.exists("Load_Profiles_raw") and any(
+    len(glob.glob(os.path.join("Load_Profiles_raw", f"*{ext}"))) > 0 for ext in [".csv", ".xlsx", ".xls"]
+)
+if has_raw_profiles:
     default_load_idx = 0
 else:
     default_load_idx = 1
@@ -431,7 +436,7 @@ selected_load_option = st.sidebar.selectbox(
     "Load Profiles Source",
     options=["📁 Load_Profiles_raw (BEopt / EnergyPlus raw models)", "📄 load_profiles.csv (Default synthetic)", "✏️ Custom Path..."],
     index=default_load_idx,
-    help="Supports raw BEopt / EnergyPlus output CSVs, custom 8760 CSVs, or entire directories."
+    help="Supports raw BEopt / EnergyPlus output CSVs, custom 8760 CSVs or Excel files, or entire directories."
 )
 
 if "Custom Path" in selected_load_option:
@@ -448,46 +453,77 @@ try:
     profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
     
     st.sidebar.markdown("#### 🏠 Select Model Cases")
-    if os.path.isdir(load_profiles_filepath):
-        st.sidebar.caption(f"📁 **Folder Mode:** Found {len(profile_columns)} raw model file(s) in `{os.path.basename(load_profiles_filepath)}`.")
-    else:
-        st.sidebar.caption(f"📄 **File Mode:** Found {len(profile_columns)} profile column(s) in `{os.path.basename(load_profiles_filepath)}`.")
+    is_folder_mode = os.path.isdir(load_profiles_filepath)
+    file_basename = os.path.basename(load_profiles_filepath)
 
-    # Smart default indices
-    default_base_idx = 0
-    default_prop_idx = 1 if len(profile_columns) > 1 else 0
-    for idx, p in enumerate(profile_columns):
-        p_low = p.lower()
-        if any(k in p_low for k in ["erheat", "baseline", "standard", "electricresistance"]):
-            default_base_idx = idx
-        elif any(k in p_low for k in ["heatpump", "proposed", "highefficiency", "hp"]):
-            default_prop_idx = idx
+    if is_folder_mode:
+        st.sidebar.caption(f"📁 **Folder Mode:** Found {len(profile_columns)} load profile case(s) in `{file_basename}`.")
+        
+        # Smart default indices for folder mode
+        default_base_idx = 0
+        default_prop_idx = 1 if len(profile_columns) > 1 else 0
+        for idx, p in enumerate(profile_columns):
+            p_low = p.lower()
+            if any(k in p_low for k in ["erheat", "baseline", "standard", "electricresistance", "no tes", "no_tes", "notes"]):
+                default_base_idx = idx
+            elif any(k in p_low for k in ["heatpump", "proposed", "highefficiency", "hp", "tes"]) and not any(k in p_low for k in ["no tes", "no_tes", "notes"]):
+                default_prop_idx = idx
 
-    if dr_mode:
-        baseline_col = st.sidebar.selectbox(
-            "Baseline Profile (for DR)",
-            options=profile_columns,
-            index=default_base_idx,
-            help="Select which building model or column represents the baseline load profile prior to Demand Response curtailment."
-        )
-        proposed_col = baseline_col
-        st.sidebar.caption("⚡ *DR Mode Active:* Proposed profile is calculated dynamically as Baseline − DR curtailment.")
+        if dr_mode:
+            baseline_col = st.sidebar.selectbox(
+                "Baseline Model Case (for DR)",
+                options=profile_columns,
+                index=default_base_idx,
+                help="Select which building model or column represents the baseline load profile prior to Demand Response curtailment."
+            )
+            proposed_col = baseline_col
+            st.sidebar.caption("⚡ *DR Mode Active:* Proposed profile is calculated dynamically as Baseline − DR curtailment.")
+        else:
+            baseline_col = st.sidebar.selectbox(
+                "Baseline Model Case",
+                options=profile_columns,
+                index=default_base_idx,
+                help="Select the building model file or column to use as the Baseline load profile."
+            )
+            proposed_col = st.sidebar.selectbox(
+                "Proposed Model Case",
+                options=profile_columns,
+                index=default_prop_idx,
+                help="Select the building model file or column to use as the Proposed load profile."
+            )
     else:
-        baseline_col = st.sidebar.selectbox(
-            "Baseline Case (e.g., Electric Resistance)",
-            options=profile_columns,
-            index=default_base_idx,
-            help="Select the building model file or column to use as the Baseline load profile."
-        )
-        proposed_col = st.sidebar.selectbox(
-            "Proposed Case (e.g., Heat Pump)",
-            options=profile_columns,
-            index=default_prop_idx,
-            help="Select the building model file or column to use as the Proposed load profile."
-        )
+        # Single File Mode: Explicit column picker asking "which column?" without keyword guessing
+        st.sidebar.caption(f"📄 **Single File Mode:** Select which column in `{file_basename}` represents each case.")
+        
+        # Positional defaults for single file mode (1st column = Baseline, 2nd column = Proposed if available)
+        default_base_idx = 0
+        default_prop_idx = 1 if len(profile_columns) > 1 else 0
+
+        if dr_mode:
+            baseline_col = st.sidebar.selectbox(
+                f"Which column in '{file_basename}' is the Baseline load?",
+                options=profile_columns,
+                index=default_base_idx,
+                help="Select the column in your file representing baseline hourly demand before DR curtailment."
+            )
+            proposed_col = baseline_col
+            st.sidebar.caption("⚡ *DR Mode Active:* Proposed load profile is Baseline − DR curtailment.")
+        else:
+            baseline_col = st.sidebar.selectbox(
+                f"Which column in '{file_basename}' is the Baseline load?",
+                options=profile_columns,
+                index=default_base_idx,
+                help=f"Select which numeric column from '{file_basename}' contains the Baseline load profile."
+            )
+            proposed_col = st.sidebar.selectbox(
+                f"Which column in '{file_basename}' is the Proposed load?",
+                options=profile_columns,
+                index=default_prop_idx,
+                help=f"Select which numeric column from '{file_basename}' contains the Proposed load profile."
+            )
         
     if baseline_col == proposed_col and not dr_mode and len(profile_columns) > 1:
-        st.sidebar.warning("⚠️ Baseline and Proposed profiles are identical. Select two different models for savings calculations.")
+        st.sidebar.warning("⚠️ Baseline and Proposed profiles are identical. Select two different columns for savings calculations.")
 
 except Exception as e:
     st.sidebar.error(f"Error loading profiles: {e}")
@@ -1017,23 +1053,45 @@ else:
                 
                 st.dataframe(df_val, use_container_width=True, hide_index=True)
                 
-                # Overlay Chart for selected week
-                st.markdown("#### 🕒 Weekly Profile Load reduction & Grid costs")
-                st.markdown("Review how load reduction aligns with wholesale hourly avoided cost peaks.")
+                # Enhanced Weekly Analysis Charts
+                st.markdown("---")
+                st.markdown("### 🕒 Weekly Hourly Analysis: Building Load, Weather & Grid Economics")
+                st.markdown("Analyze how building heating/cooling demand correlates with outdoor temperature, and examine hourly grid avoided costs piece-by-piece.")
                 
-                selected_week = st.selectbox("Select Week Window", options=list(WEEK_WINDOWS.keys()), index=0)
+                selected_week = st.selectbox("Select Analysis Week Window", options=list(WEEK_WINDOWS.keys()), index=0)
                 start_h, end_h = WEEK_WINDOWS[selected_week]
                 
                 dt_slice = datetime_series.iloc[start_h:end_h]
-                cost_slice = results_df['Total_Avoided_Cost_MWh'].iloc[start_h:end_h]
+                baseline_slice = baseline_load[start_h:end_h]
+                proposed_slice = proposed_load[start_h:end_h]
+                reduction_slice = load_reduction[start_h:end_h]
+                temp_slice = results_df['Temperature_F'].iloc[start_h:end_h].to_numpy()
                 
-                fig_calc_overlay = build_weekly_overlay_chart(
-                    dt_slice, cost_slice,
-                    baseline_load[start_h:end_h],
-                    proposed_load[start_h:end_h],
-                    load_reduction[start_h:end_h]
+                # Chart 1: Building Load & Temperature Correlation
+                st.markdown("#### 1. Building Demand vs. Outdoor Air Temperature (°F)")
+                fig_load_temp = build_weekly_load_and_temp_chart(
+                    dt_slice, baseline_slice, proposed_slice, temp_slice
                 )
-                st.plotly_chart(fig_calc_overlay, use_container_width=True)
+                st.plotly_chart(fig_load_temp, use_container_width=True)
+                
+                # Chart 2: Grid Avoided Cost Economics, Load Reduction & Hourly Cost Delta
+                st.markdown("#### 2. Hourly Grid Avoided Cost Economics, Load Reduction & Cost Delta ($/hr)")
+                econ_view_mode = st.radio(
+                    "Grid Economics View Mode",
+                    options=["Stacked Components", "Individual Component Lines", "Total Marginal Cost ($/MWh)"],
+                    horizontal=True,
+                    help="Switch between stacked component areas, individual cost lines, or total marginal avoided cost."
+                )
+                
+                slice_df = results_df.iloc[start_h:end_h].copy()
+                slice_df['Load_Reduction_kW'] = reduction_slice
+                slice_df['Hourly_Savings_hr'] = (reduction_slice / 1000.0) * slice_df['Total_Avoided_Cost_MWh']
+                
+                fig_grid_econ = build_weekly_grid_economics_chart(slice_df, mode=econ_view_mode)
+                st.plotly_chart(fig_grid_econ, use_container_width=True)
+                
+                total_week_savings = slice_df['Hourly_Savings_hr'].sum()
+                st.caption(f"💰 **Total Grid Avoided Cost Value Created for `{selected_week}`:** **${total_week_savings:,.2f}**")
                 
             # ------------------------------------------------------------------
             # TAB 3: GRID AVOIDED COSTS

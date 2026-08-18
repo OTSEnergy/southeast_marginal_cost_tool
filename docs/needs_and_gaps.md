@@ -59,15 +59,17 @@ Before cataloguing gaps, here is what the tool **does** have working today:
   - **Discounted Payback Period (Years)**
 - **Demand Response dispatch mode** (CWFT-ranked curtailment with daily call limits)
 - **Dynamic NREL Cambium column mapping** (handles variant column names)
-- **BEopt / EnergyPlus Raw Output Ingestion**:
+- **BEopt / EnergyPlus & Custom Excel/CSV Ingestion**:
   - Auto-detects `ELECTRICITY:UNIT_1 [J](Hourly)` or `Electricity:Facility` headers
   - Converts Joules `[J]` $\to$ kW ($\div 3,600,000$)
-  - Folder scanning mode (`Load_Profiles_raw/`) to merge multiple model runs into selectable baseline/proposed dropdowns
+  - Multi-format support for `.csv`, `.xlsx`, and `.xls` files with automatic Date/Time column stripping
+  - Ingests multi-column case comparison files (e.g. Date + `Total TES` + `Total No TES`)
+  - Folder scanning mode (`Load_Profiles_raw/`) to merge all model runs and custom case files into selectable baseline/proposed dropdowns
 - **Weather file support** (EPW and CSV import, synthetic fallback, extreme weather shifting)
 - **AMY weather generator** (`diyepw` integration for NOAA-sourced EPW files; 2012 EPWs generated for Atlanta & Birmingham)
 - **8-tab dashboard** (scorecard, RIM/TRC/PCT tables, grid charts, weather diagnostics, NPV/scenarios, debugger, calibration guide, weather generator)
 - **Scenario save/compare** (in-session side-by-side run comparison)
-- **Automated Pytest Suite** (49 unit & integration tests covering all math, billing, config, viz, pipeline, and BEopt ingestion)
+- **Automated Pytest Suite** (52 unit & integration tests covering all math, billing, config, viz, pipeline, BEopt, load profile ingestion, and dual weekly charts)
 - **CSV export** of top stress hours
 
 ### ⚠️ Partially Implemented
@@ -471,6 +473,7 @@ All default values (capacity scalar $100/kW-yr, T&D $15/kW-yr, carbon $30/ton, e
 14. **Resolve `app_annotated.py` sync strategy**
 15. **Improve error handling** in data ingestion pipeline
 16. **Clarify role of `southeast_avoided_costs_AL_GA.csv`** (unused file)
+17. **Revisit load profile column selection UX** — ✅ **Resolved 2026-08-10** (Single File Mode explicitly prompts "Which column in [file] is Baseline/Proposed?" without keyword guessing).
 
 ---
 

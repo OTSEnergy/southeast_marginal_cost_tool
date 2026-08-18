@@ -40,6 +40,190 @@ from plotly.subplots import make_subplots
 from config import GRID_COMPONENTS, COLORS
 
 
+def build_weekly_load_and_temp_chart(datetime_slice, baseline_slice, proposed_slice, temp_slice):
+    """
+    Build a dual-axis chart comparing Baseline vs Proposed load profiles (kW)
+    on the left Y-axis with Outdoor Air Temperature (°F) on the right Y-axis.
+
+    Parameters
+    ----------
+    datetime_slice : pd.Series
+        Datetime values for the selected window.
+    baseline_slice : np.ndarray
+        Baseline load profile (kW).
+    proposed_slice : np.ndarray
+        Proposed load profile (kW).
+    temp_slice : np.ndarray
+        Outdoor air temperature (°F).
+
+    Returns
+    -------
+    go.Figure
+        Dual-axis Plotly figure with kW demand on left Y-axis and °F on right Y-axis.
+    """
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig.add_trace(
+        go.Scatter(
+            x=datetime_slice, y=baseline_slice,
+            name="Baseline Load (kW)",
+            line=dict(color=COLORS["red"], width=2)
+        ),
+        secondary_y=False
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=datetime_slice, y=proposed_slice,
+            name="Proposed Load (kW)",
+            line=dict(color=COLORS["teal"], width=2)
+        ),
+        secondary_y=False
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=datetime_slice, y=temp_slice,
+            name="Outdoor Air Temp (°F)",
+            line=dict(color=COLORS["blue"], width=1.5, dash='dot'),
+            opacity=0.85
+        ),
+        secondary_y=True
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        height=380,
+        margin=dict(l=40, r=40, t=30, b=40),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    fig.update_yaxes(title_text="Building Demand (kW)", secondary_y=False)
+    fig.update_yaxes(title_text="Outdoor Air Temp (°F)", secondary_y=True)
+
+    return fig
+
+
+def build_weekly_grid_economics_chart(slice_df, mode="Stacked Components"):
+    """
+    Build a 3-row subplot figure for weekly grid avoided cost analysis:
+    - Row 1: Grid Avoided Cost Economics ($/MWh) — configurable as stacked components,
+             individual component lines, or total marginal cost.
+    - Row 2: Standalone Load Reduction panel (kW) aligned on the exact same X-axis.
+    - Row 3: Hourly Operating Cost Delta ($/hr) — value created per hour ($/hr).
+
+    Parameters
+    ----------
+    slice_df : pd.DataFrame
+        DataFrame slice containing 'Datetime', all grid component columns, 'Load_Reduction_kW',
+        and optionally 'Hourly_Savings_hr'.
+    mode : str
+        One of "Stacked Components", "Individual Component Lines", "Total Marginal Cost ($/MWh)".
+
+    Returns
+    -------
+    go.Figure
+        3-row subplot figure with Grid Economics on Row 1, Load Reduction on Row 2,
+        and Hourly Cost Delta ($/hr) on Row 3.
+    """
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.07,
+        row_heights=[0.46, 0.27, 0.27],
+        subplot_titles=(
+            "Wholesale Grid Avoided Cost Economics ($/MWh)",
+            "Standalone Load Reduction (kW)",
+            "Hourly Operating Cost Delta ($/hr) — Grid Value Created"
+        )
+    )
+
+    # Row 1: Grid Economics
+    if mode == "Total Marginal Cost ($/MWh)":
+        fig.add_trace(
+            go.Scatter(
+                x=slice_df['Datetime'], y=slice_df['Total_Avoided_Cost_MWh'],
+                mode='lines', name='Total Avoided Cost ($/MWh)',
+                line=dict(color=COLORS["purple"], width=2.5)
+            ),
+            row=1, col=1
+        )
+    elif mode == "Individual Component Lines":
+        for col_name, label, color in GRID_COMPONENTS:
+            fig.add_trace(
+                go.Scatter(
+                    x=slice_df['Datetime'], y=slice_df[col_name],
+                    mode='lines', name=label,
+                    line=dict(color=color, width=1.8)
+                ),
+                row=1, col=1
+            )
+        fig.add_trace(
+            go.Scatter(
+                x=slice_df['Datetime'], y=slice_df['Total_Avoided_Cost_MWh'],
+                mode='lines', name='Total Avoided Cost ($/MWh)',
+                line=dict(color=COLORS["purple"], width=2, dash='dash')
+            ),
+            row=1, col=1
+        )
+    else:  # Default: "Stacked Components"
+        for col_name, label, color in GRID_COMPONENTS:
+            fig.add_trace(
+                go.Scatter(
+                    x=slice_df['Datetime'], y=slice_df[col_name],
+                    mode='lines', name=label, stackgroup='one',
+                    line=dict(color=color, width=0.5)
+                ),
+                row=1, col=1
+            )
+
+    # Row 2: Standalone Load Reduction Panel
+    if 'Load_Reduction_kW' in slice_df.columns:
+        reduction_vals = slice_df['Load_Reduction_kW']
+    else:
+        reduction_vals = np.zeros(len(slice_df))
+
+    fig.add_trace(
+        go.Scatter(
+            x=slice_df['Datetime'], y=reduction_vals,
+            mode='lines', name='Load Reduction (kW)',
+            fill='tozeroy',
+            line=dict(color=COLORS["amber"], width=2),
+            fillcolor="rgba(245, 158, 11, 0.25)"
+        ),
+        row=2, col=1
+    )
+
+    # Row 3: Hourly Operating Cost Delta ($/hr)
+    if 'Hourly_Savings_hr' in slice_df.columns:
+        hourly_savings = slice_df['Hourly_Savings_hr']
+    else:
+        hourly_savings = (reduction_vals / 1000.0) * slice_df['Total_Avoided_Cost_MWh']
+
+    fig.add_trace(
+        go.Scatter(
+            x=slice_df['Datetime'], y=hourly_savings,
+            mode='lines', name='Grid Value Delta ($/hr)',
+            fill='tozeroy',
+            line=dict(color=COLORS["green"], width=2),
+            fillcolor="rgba(16, 185, 129, 0.25)"
+        ),
+        row=3, col=1
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        height=680,
+        margin=dict(l=40, r=40, t=30, b=40),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    fig.update_yaxes(title_text="Avoided Cost ($/MWh)", row=1, col=1)
+    fig.update_yaxes(title_text="Reduction (kW)", row=2, col=1)
+    fig.update_yaxes(title_text="Cost Delta ($/hr)", row=3, col=1)
+    fig.update_xaxes(title_text="Date", row=3, col=1)
+
+    return fig
+
+
 def build_weekly_overlay_chart(datetime_slice, cost_slice, baseline_slice,
                                proposed_slice, reduction_slice):
     """

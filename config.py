@@ -34,8 +34,8 @@ TESTED BY:
 # ==============================================================================
 
 SCENARIO_OPTIONS = [
-    "HighDemandGrowth",
     "MidCase",
+    "HighDemandGrowth",
     "LowCarbonConstraint",
     "LowDemandGrowth",
 ]
@@ -185,6 +185,35 @@ div[data-testid="metric-container"]:hover {
     border: 1px solid #E2E8F0;
     border-radius: 12px;
     overflow: hidden;
+}
+/* Enable responsive wrapping & smooth horizontal scrolling for Streamlit tabs */
+div[data-testid="stTabs"] {
+    overflow-x: auto !important;
+}
+div[data-baseweb="tab-list"] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    border-bottom: 2px solid #E2E8F0 !important;
+    padding-bottom: 6px !important;
+}
+div[data-baseweb="tab"] {
+    height: auto !important;
+    padding: 8px 16px !important;
+    border-radius: 8px !important;
+    white-space: nowrap !important;
+    background-color: #F8FAFC !important;
+    border: 1px solid #CBD5E1 !important;
+    margin-right: 2px !important;
+}
+div[data-baseweb="tab"][aria-selected="true"] {
+    background-color: #0D9488 !important;
+    color: #FFFFFF !important;
+    border-color: #0D9488 !important;
+    font-weight: 700 !important;
+}
+div[data-baseweb="tab"][aria-selected="true"] span,
+div[data-baseweb="tab"][aria-selected="true"] p {
+    color: #FFFFFF !important;
 }
 .badge {
     display: inline-block;
