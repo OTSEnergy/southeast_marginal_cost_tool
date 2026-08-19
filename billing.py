@@ -217,3 +217,53 @@ def calculate_urdb_bill(load_kw, datetime_series, rate_json):
         monthly_bills.append(m_bill)
 
     return total_bill, np.array(monthly_bills)
+
+
+def get_hourly_energy_rate(datetime_series, rate_json):
+    """
+    Return the marginal (first-tier) retail energy rate ($/kWh) for every
+    hour in datetime_series, based on a URDB-format rate structure's
+    weekday/weekend period mapping.
+
+    NOTE: This is a simplified diagnostic helper intended for hourly charts
+    (e.g. weekly customer operating cost visualizations). It ignores
+    monthly cumulative-usage tiering — which requires full-month billing
+    context — and always returns the first tier's rate for the hour's
+    mapped period. For actual bill totals, use calculate_urdb_bill().
+
+    Parameters
+    ----------
+    datetime_series : pd.Series
+        Datetime series (must have .dt accessor for month/hour/dayofweek).
+    rate_json : dict
+        URDB-format rate structure (see GP_R31_URDB for an example).
+
+    Returns
+    -------
+    np.ndarray
+        Hourly marginal energy rate ($/kWh), same length as datetime_series.
+        Returns all zeros if the rate structure has no energy schedule.
+    """
+    energy_wd = rate_json.get("energyweekdayschedule", rate_json.get("energyratewindow"))
+    energy_we = rate_json.get("energyweekendschedule", rate_json.get("energyratewindow"))
+    energy_structure = rate_json.get("energyratestructure")
+
+    n = len(datetime_series)
+    rates = np.zeros(n)
+
+    if energy_structure is None or energy_wd is None or energy_we is None:
+        return rates
+
+    months = datetime_series.dt.month.to_numpy()
+    hours = datetime_series.dt.hour.to_numpy()
+    dayofweek = datetime_series.dt.dayofweek.to_numpy()
+
+    for i in range(n):
+        m = months[i] - 1
+        hr = hours[i]
+        period_idx = energy_we[m][hr] if dayofweek[i] >= 5 else energy_wd[m][hr]
+        if period_idx < len(energy_structure) and energy_structure[period_idx]:
+            first_tier = energy_structure[period_idx][0]
+            rates[i] = first_tier.get("rate", 0.0) + first_tier.get("adj", 0.0)
+
+    return rates

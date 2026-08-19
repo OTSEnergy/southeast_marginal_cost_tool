@@ -50,7 +50,37 @@ WEATHER_CASE_OPTIONS = [
 ]
 
 STATE_OPTIONS = ["AL", "GA", "FL", "TN", "MS", "NC", "SC"]
-DEFAULT_STATES = ["AL", "GA"]
+DEFAULT_STATES = ["AL"]
+
+
+# ==============================================================================
+# EXAMPLE BUILDING LIBRARY (pick-and-view sandbox)
+# ==============================================================================
+# Pre-configured, real BEopt building models a user can pick from instead of
+# manually wiring up load profile paths/columns. Each entry locks the Weather
+# Alignment Metadata to the model's documented weather year, since the building
+# simulation and its weather file are a matched pair.
+#
+# Add new entries here as more example models become available (see
+# docs/roadmap.md M4.3). "baseline_col"/"proposed_col" must match the column
+# names produced by data_loaders.load_load_profiles_from_csv() for
+# Load_Profiles_raw/ (folder mode names columns "<filename>_kW").
+
+EXAMPLE_BUILDINGS = [
+    {
+        "label": "Birmingham, AL \u2014 Electric Resistance Heat vs. Heat Pump (BEopt, 2012)",
+        "description": (
+            "Single-family home in Birmingham, AL. Baseline uses electric resistance "
+            "heating; Proposed replaces it with an air-source heat pump. Both simulated "
+            "in BEopt on the same 2012 AMY weather year."
+        ),
+        "load_profiles_path": "Load_Profiles_raw",
+        "baseline_col": "ERHeatBeOptModel_Birmingham2012_kW",
+        "proposed_col": "HeatPumpBeOptModel_Birmingham2012_kW",
+        "weather_year": "2012",
+        "state": "AL",
+    },
+]
 
 
 # ==============================================================================
@@ -153,6 +183,27 @@ TARIFF_OPTIONS = [
 
 
 # ==============================================================================
+# STANDARDIZED KPI RATIO CARD HELPER
+# ==============================================================================
+# Several ratio-style KPIs (TRC, PCT, RIM) need color-coded pass/fail styling
+# that st.metric() doesn't natively support. This helper builds HTML matching
+# the same visual style as native st.metric() cards (see .kpi-card CSS below),
+# so ratio cards and native metric cards look consistent side-by-side.
+
+def ratio_card_html(label, value, sublabel, passing):
+    """
+    Returns an HTML snippet for a color-coded ratio KPI card (e.g. TRC, PCT, RIM),
+    styled to match native st.metric() cards. `passing` controls green/red color.
+    """
+    color = "#15803d" if passing else "#b91c1c"
+    return f"""<div class="kpi-card">
+<div class="kpi-card-label">{label}</div>
+<div class="kpi-card-value" style="color: {color};">{value}</div>
+<div class="kpi-card-sublabel">{sublabel}</div>
+</div>"""
+
+
+# ==============================================================================
 # CUSTOM CSS STYLING
 # ==============================================================================
 
@@ -180,6 +231,28 @@ div[data-testid="metric-container"]:hover {
     transform: translateY(-2px);
     box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05);
 }
+/* Standardized ratio KPI cards (TRC/PCT/RIM) — matches native st.metric() cards */
+.kpi-card {
+    background-color: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    padding: 15px 18px;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+}
+.kpi-card-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #4B5563;
+}
+.kpi-card-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+.kpi-card-sublabel {
+    font-size: 0.8rem;
+    color: #64748B;
+}
 /* Style tables and graphs */
 [data-testid="stDataFrame"] {
     border: 1px solid #E2E8F0;
@@ -190,9 +263,36 @@ div[data-testid="metric-container"]:hover {
 div[data-testid="stTabs"] {
     overflow-x: auto !important;
 }
+div[data-testid="stTabs"] [role="tablist"] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    border-bottom: 2px solid #E2E8F0 !important;
+    padding-bottom: 6px !important;
+}
+div[data-testid="stTabs"] button[role="tab"] {
+    height: auto !important;
+    padding: 8px 16px !important;
+    border-radius: 8px !important;
+    white-space: nowrap !important;
+    background-color: #F8FAFC !important;
+    border: 1px solid #CBD5E1 !important;
+    margin-right: 4px !important;
+}
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+    background-color: #0D9488 !important;
+    color: #FFFFFF !important;
+    border-color: #0D9488 !important;
+    font-weight: 700 !important;
+}
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] span,
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p,
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] div {
+    color: #FFFFFF !important;
+}
+/* Fallback selectors for older Streamlit/BaseWeb DOM structures */
 div[data-baseweb="tab-list"] {
     flex-wrap: wrap !important;
-    gap: 6px !important;
+    gap: 8px !important;
     border-bottom: 2px solid #E2E8F0 !important;
     padding-bottom: 6px !important;
 }
@@ -203,7 +303,7 @@ div[data-baseweb="tab"] {
     white-space: nowrap !important;
     background-color: #F8FAFC !important;
     border: 1px solid #CBD5E1 !important;
-    margin-right: 2px !important;
+    margin-right: 4px !important;
 }
 div[data-baseweb="tab"][aria-selected="true"] {
     background-color: #0D9488 !important;

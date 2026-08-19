@@ -33,6 +33,7 @@ from config import (
     TARIFF_OPTIONS, GRID_COMPONENTS, WEEK_WINDOWS, COLORS,
     WEATHER_SENSITIVITY_STRONG, WEATHER_SENSITIVITY_MODERATE,
     get_weather_sensitivity_style,
+    EXAMPLE_BUILDINGS, ratio_card_html,
 )
 from visualizations import (
     build_weekly_overlay_chart,
@@ -41,6 +42,7 @@ from visualizations import (
     build_annual_avoided_cost_chart,
     build_stacked_components_chart,
     build_lifetime_npv_chart,
+    build_temp_power_cost_bubble_chart,
 )
 from calculations import (
     calculate_avoided_costs,
@@ -85,7 +87,7 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 # Run: python -m pytest
 # ==============================================================================
 from calculations import calculate_avoided_costs, dispatch_dr_program
-from billing import calculate_urdb_bill, GP_R31_URDB, AL_FD_URDB
+from billing import calculate_urdb_bill, get_hourly_energy_rate, GP_R31_URDB, AL_FD_URDB
 from data_loaders import (
     INPUT_DIRECTORY,
     generate_default_cwft_file,
@@ -154,7 +156,7 @@ load_and_aggregate_data = st.cache_data(load_and_aggregate_data)
 
 
 def render_weather_generator(key_suffix: str):
-    st.markdown("### 🌩️ AMY EPW Weather Generator (`diyepw`)")
+    st.markdown("### AMY EPW Weather Generator (`diyepw`)")
     st.markdown(
         """This utility automates the generation of **Actual Meteorological Year (AMY) EPW weather files** 
 using PNNL's `diyepw` tool. It automatically downloads observations from the NOAA Integrated Surface Database (ISD),
@@ -162,7 +164,7 @@ interpolates missing points, and builds a customized `.epw` file using NREL's TM
     )
     
     st.info(
-        "💡 **Requirements:** Generating files requires an active internet connection to download "
+        "**Requirements:** Generating files requires an active internet connection to download "
         "NOAA observations (~1MB per station/year) and NREL TMY3 templates. The process may take 1-2 minutes."
     )
     
@@ -195,7 +197,7 @@ interpolates missing points, and builds a customized `.epw` file using NREL's TM
         
         st.write("") # spacing
         st.write("")
-        generate_button = st.button("⚡ Generate AMY Weather File", type="primary", use_container_width=True, key=f"generate_btn_{key_suffix}")
+        generate_button = st.button("Generate AMY Weather File", type="primary", use_container_width=True, key=f"generate_btn_{key_suffix}")
     
     if generate_button:
         try:
@@ -215,21 +217,21 @@ interpolates missing points, and builds a customized `.epw` file using NREL's TM
                     allow_downloads=True,
                     amy_epw_dir=target_dir
                 )
-            st.success(f"🎉 Success! AMY EPW file generated and saved to: `Weather_Data_raw/{weather_destination}/`")
+            st.success(f"Success! AMY EPW file generated and saved to: `Weather_Data_raw/{weather_destination}/`")
             st.balloons()
             
         except ImportError:
             st.error(
-                "❌ **Missing Library:** The `diyepw` package is not installed. "
+                "**Missing Library:** The `diyepw` package is not installed. "
                 "Please run `pip install diyepw` in your environment to use this generator."
             )
         except Exception as e:
-            st.error(f"❌ **Error generating EPW file:** {str(e)}")
+            st.error(f"**Error generating EPW file:** {str(e)}")
             st.info("Check that the WMO ID is valid and that you have a stable internet connection.")
 
     # WMO ID lookup instructions and Citation references
     st.write("") # spacing
-    with st.expander("❓ How to find your weather station's WMO Station ID"):
+    with st.expander("How to find your weather station's WMO Station ID"):
         st.markdown(
             """**World Meteorological Organization (WMO) Station IDs** are 6-digit numeric codes representing weather stations.
             
@@ -240,7 +242,7 @@ You can find WMO IDs for your location in two ways:
 *Note: The generator defaults to `722300` (Birmingham Shuttlesworth International Airport, AL). Other local examples: Atlanta Hartsfield-Jackson, GA is `722190`.*"""
         )
         
-    with st.expander("📖 Citation & About diyepw"):
+    with st.expander("Citation & About diyepw"):
         st.markdown(
             """The AMY weather file generator uses PNNL's open-source `diyepw` tool.
             
@@ -262,283 +264,312 @@ If you use these generated files in a research paper, model, or report, please c
 st.sidebar.markdown(
     """<div style="text-align: center; margin-bottom: 20px;">
 <h2 style="margin: 0; color: #1E293B; font-weight: 700;">Region & Scenario Settings</h2>
-<p style="margin: 5px 0 0 0; color: #64748B; font-size: 0.85rem;">Configure wholesale and retail inputs below</p>
+<p style="margin: 5px 0 0 0; color: #64748B; font-size: 0.85rem;">Configure inputs below, grouped by topic</p>
 </div>""",
     unsafe_allow_html=True
 )
 
 # 1. Weather & Scenario Selectors
-st.sidebar.markdown("### 🌤️ Grid Weather & Scenario")
-selected_scenario = st.sidebar.selectbox(
-    "NREL Future Scenario",
-    options=SCENARIO_OPTIONS,
-    index=0
-)
-
-planning_year = st.sidebar.selectbox(
-    "NREL Planning Year",
-    options=PLANNING_YEAR_OPTIONS,
-    index=DEFAULT_PLANNING_YEAR_INDEX,
-    help="Select the target grid planning year for valuation."
-)
-
-weather_case = st.sidebar.selectbox(
-    "Grid Weather Case",
-    options=WEATHER_CASE_OPTIONS,
-    index=0,
-    help="Alters temperatures, pushes peaks, and shifts reliability CWFT risk."
-)
-
-target_states = st.sidebar.multiselect(
-    "Target States",
-    options=STATE_OPTIONS,
-    default=DEFAULT_STATES
-)
-
-# 2. Split Capacity Values
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 💸 Grid Valuation Scalars")
-cap_value = st.sidebar.number_input(
-    "Gen Capacity Value ($/kW-year)",
-    min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1], value=DEFAULT_CAP_VALUE, step=CAP_VALUE_RANGE[2], format="%.2f"
-)
-
-trans_value = st.sidebar.number_input(
-    "Transmission Deferral ($/kW-year)",
-    min_value=TRANS_VALUE_RANGE[0], max_value=TRANS_VALUE_RANGE[1], value=DEFAULT_TRANS_VALUE, step=TRANS_VALUE_RANGE[2], format="%.2f"
-)
-
-dist_value = st.sidebar.number_input(
-    "Distribution Deferral ($/kW-year)",
-    min_value=DIST_VALUE_RANGE[0], max_value=DIST_VALUE_RANGE[1], value=DEFAULT_DIST_VALUE, step=DIST_VALUE_RANGE[2], format="%.2f"
-)
-
-carbon_tax = st.sidebar.slider(
-    "Carbon Penalty ($/metric ton)",
-    min_value=CARBON_TAX_RANGE[0], max_value=CARBON_TAX_RANGE[1], value=DEFAULT_CARBON_TAX, step=CARBON_TAX_RANGE[2], format="$%.2f"
-)
-
-# 3. Retail Tariff & URDB Selector
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🔌 Retail Tariff (NREL URDB)")
-tariff_type = st.sidebar.selectbox(
-    "Retail Utility Tariff Type",
-    options=TARIFF_OPTIONS,
-    index=0,
-    help="Define customer bill impact using packaged rates, pasting URDB JSONs, or querying the OpenEI API."
-)
-
-retail_escalation_rate = st.sidebar.number_input(
-    "Retail Price Escalation (%)",
-    min_value=-5.0, max_value=15.0, value=DEFAULT_RETAIL_ESCALATION, step=0.5, format="%.1f"
-)
-
-active_tariff_json = None
-custom_rate_kwh = 0.12
-custom_demand_charge_kw = 0.0
-
-if tariff_type == "Georgia Power - Schedule R-31 (Residential)":
-    active_tariff_json = GP_R31_URDB
-elif tariff_type == "Alabama Power - Rate FD (Family Dwelling)":
-    active_tariff_json = AL_FD_URDB
-elif tariff_type == "Import from NREL URDB (API Label)":
-    urdb_label = st.sidebar.text_input(
-        "URDB Rate Label", 
-        value="5d4b00595457a3e73a0e6988", 
-        help="OpenEI unique tariff label (e.g. 5d4b00595457a3e73a0e6988)"
+with st.sidebar.expander("Grid Scenario & Region", expanded=True):
+    selected_scenario = st.selectbox(
+        "NREL Future Scenario",
+        options=SCENARIO_OPTIONS,
+        index=0
     )
-    with st.sidebar.expander("❓ How to get the Rate Label"):
-        st.markdown(
-            """1. Go to NREL's [Utility Rate Database](https://openei.org/wiki/Utility_Rate_Database).
+
+    planning_year = st.selectbox(
+        "NREL Planning Year",
+        options=PLANNING_YEAR_OPTIONS,
+        index=DEFAULT_PLANNING_YEAR_INDEX,
+        help="Select the target grid planning year for valuation."
+    )
+
+    weather_case = st.selectbox(
+        "Grid Weather Case",
+        options=WEATHER_CASE_OPTIONS,
+        index=0,
+        help="Alters temperatures, pushes peaks, and shifts reliability CWFT risk."
+    )
+
+    target_states = st.multiselect(
+        "State(s)",
+        options=STATE_OPTIONS,
+        default=DEFAULT_STATES,
+        help="Which state's Cambium grid price data to value against. Selecting more than one averages their hourly prices together into a single blended series."
+    )
+    if len(target_states) > 1:
+        st.caption(f"Averaging grid prices across {len(target_states)} states: {', '.join(target_states)}.")
+
+# 2. Demand Response toggle (kept ahead of Building & Load Data below, since the
+# load profile column logic branches on dr_mode).
+with st.sidebar.expander("Demand Response (Optional)", expanded=False):
+    dr_mode = st.toggle(
+        "Enable DR Program Mode",
+        value=False,
+        help="Curbs load reduction dynamically during high-stress hours subject to call limits."
+    )
+
+    dr_hours_per_year = DEFAULT_DR_HOURS_PER_YEAR
+    dr_season = DEFAULT_DR_SEASON
+    dr_max_hours_per_day = DEFAULT_DR_MAX_HOURS_PER_DAY
+    dr_capacity_kw = DEFAULT_DR_CAPACITY_KW
+
+    if dr_mode:
+        dr_hours_per_year = st.number_input("DR Call Hours per Year", min_value=1, max_value=8760, value=DEFAULT_DR_HOURS_PER_YEAR, step=5)
+        dr_season = st.selectbox("DR Season of Applicability", DR_SEASON_OPTIONS)
+        dr_max_hours_per_day = st.slider("Max Daily Call Hours", min_value=1, max_value=24, value=DEFAULT_DR_MAX_HOURS_PER_DAY)
+        dr_capacity_kw = st.number_input("DR Curtailment Capacity (kW)", min_value=0.1, value=DEFAULT_DR_CAPACITY_KW, step=0.5, format="%.2f")
+
+# 3. Building / Technology & Load Data (8760-hour input) + Example Library
+with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
+    st.caption(
+        "This defines \"the technology\" being evaluated: its Baseline and Proposed "
+        "(or DR-curtailed) hourly electricity demand shape, one full year (8,760 hours)."
+    )
+
+    example_labels = ["Use my own load data"] + [b["label"] for b in EXAMPLE_BUILDINGS]
+    selected_example_label = st.selectbox(
+        "Try an Example Building",
+        options=example_labels,
+        index=0,
+        help="Pick a pre-configured real building model to explore the tool without preparing your own files. More examples will be added over time."
+    )
+    selected_example = next((b for b in EXAMPLE_BUILDINGS if b["label"] == selected_example_label), None)
+
+    if selected_example:
+        st.info(selected_example["description"])
+        load_profiles_filepath = selected_example["load_profiles_path"]
+        if selected_example["state"] not in target_states:
+            st.caption(f"Tip: this example represents {selected_example['state']}. Consider adding it under Grid Scenario & Region above.")
+    else:
+        # Load profiles path options
+        has_raw_profiles = os.path.exists("Load_Profiles_raw") and any(
+            len(glob.glob(os.path.join("Load_Profiles_raw", f"*{ext}"))) > 0 for ext in [".csv", ".xlsx", ".xls"]
+        )
+        default_load_idx = 0 if has_raw_profiles else 1
+
+        selected_load_option = st.selectbox(
+            "Load Profiles Source",
+            options=["Load_Profiles_raw folder (BEopt / EnergyPlus raw models)", "load_profiles.csv (default synthetic)", "Custom path..."],
+            index=default_load_idx,
+            help="Supports raw BEopt / EnergyPlus output CSVs, custom 8760 CSVs or Excel files, or entire directories."
+        )
+
+        if "Custom path" in selected_load_option:
+            load_profiles_filepath = st.text_input("Custom Load Profiles Path", value="load_profiles.csv")
+        elif "Load_Profiles_raw" in selected_load_option:
+            load_profiles_filepath = "Load_Profiles_raw"
+        else:
+            load_profiles_filepath = "load_profiles.csv"
+
+    # Load profile case selection (Baseline vs Proposed)
+    try:
+        generate_default_load_profiles_file(load_profiles_filepath if load_profiles_filepath != "Load_Profiles_raw" else "load_profiles.csv")
+        load_profiles_df = load_load_profiles_from_csv(load_profiles_filepath)
+        profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
+
+        is_folder_mode = os.path.isdir(load_profiles_filepath)
+        file_basename = os.path.basename(load_profiles_filepath)
+
+        if selected_example:
+            baseline_col = selected_example["baseline_col"] if selected_example["baseline_col"] in profile_columns else profile_columns[0]
+            default_prop = profile_columns[1] if len(profile_columns) > 1 else profile_columns[0]
+            proposed_col = selected_example["proposed_col"] if selected_example["proposed_col"] in profile_columns else default_prop
+            if dr_mode:
+                proposed_col = baseline_col
+            st.caption(f"Baseline: `{baseline_col}` | Proposed: `{proposed_col}` (auto-selected by example)")
+        elif is_folder_mode:
+            st.caption(f"Folder mode: found {len(profile_columns)} load profile case(s) in `{file_basename}`.")
+
+            # Smart default indices for folder mode
+            default_base_idx = 0
+            default_prop_idx = 1 if len(profile_columns) > 1 else 0
+            for idx, p in enumerate(profile_columns):
+                p_low = p.lower()
+                if any(k in p_low for k in ["erheat", "baseline", "standard", "electricresistance", "no tes", "no_tes", "notes"]):
+                    default_base_idx = idx
+                elif any(k in p_low for k in ["heatpump", "proposed", "highefficiency", "hp", "tes"]) and not any(k in p_low for k in ["no tes", "no_tes", "notes"]):
+                    default_prop_idx = idx
+
+            if dr_mode:
+                baseline_col = st.selectbox(
+                    "Baseline Model Case (for DR)",
+                    options=profile_columns,
+                    index=default_base_idx,
+                    help="Select which building model or column represents the baseline load profile prior to Demand Response curtailment."
+                )
+                proposed_col = baseline_col
+                st.caption("DR Mode Active: Proposed profile is calculated dynamically as Baseline − DR curtailment.")
+            else:
+                baseline_col = st.selectbox(
+                    "Baseline Model Case",
+                    options=profile_columns,
+                    index=default_base_idx,
+                    help="Select the building model file or column to use as the Baseline load profile."
+                )
+                proposed_col = st.selectbox(
+                    "Proposed Model Case",
+                    options=profile_columns,
+                    index=default_prop_idx,
+                    help="Select the building model file or column to use as the Proposed load profile."
+                )
+        else:
+            # Single File Mode: Explicit column picker asking "which column?" without keyword guessing
+            st.caption(f"Single file mode: select which column in `{file_basename}` represents each case.")
+
+            # Positional defaults for single file mode (1st column = Baseline, 2nd column = Proposed if available)
+            default_base_idx = 0
+            default_prop_idx = 1 if len(profile_columns) > 1 else 0
+
+            if dr_mode:
+                baseline_col = st.selectbox(
+                    f"Which column in '{file_basename}' is the Baseline load?",
+                    options=profile_columns,
+                    index=default_base_idx,
+                    help="Select the column in your file representing baseline hourly demand before DR curtailment."
+                )
+                proposed_col = baseline_col
+                st.caption("DR Mode Active: Proposed load profile is Baseline − DR curtailment.")
+            else:
+                baseline_col = st.selectbox(
+                    f"Which column in '{file_basename}' is the Baseline load?",
+                    options=profile_columns,
+                    index=default_base_idx,
+                    help=f"Select which numeric column from '{file_basename}' contains the Baseline load profile."
+                )
+                proposed_col = st.selectbox(
+                    f"Which column in '{file_basename}' is the Proposed load?",
+                    options=profile_columns,
+                    index=default_prop_idx,
+                    help=f"Select which numeric column from '{file_basename}' contains the Proposed load profile."
+                )
+
+        if baseline_col == proposed_col and not dr_mode and len(profile_columns) > 1:
+            st.warning("Baseline and Proposed profiles are identical. Select two different columns for savings calculations.")
+
+    except Exception as e:
+        st.error(f"Error loading profiles: {e}")
+        profile_columns = []
+        baseline_col = None
+        proposed_col = None
+
+    st.markdown("---")
+    st.caption("Weather Alignment Metadata — the weather year each input file represents, used to check alignment across CWFT, Cambium grid data, and this load file.")
+    if selected_example:
+        lock_year = selected_example["weather_year"]
+        meta_load_weather = st.text_input("Load Profile Weather Year", value=lock_year, disabled=True)
+        meta_cambium_weather = st.text_input("Cambium Weather Year", value=lock_year, disabled=True)
+        meta_cwft_weather = st.text_input("CWFT Weather Year", value=lock_year, disabled=True)
+        st.caption(f"Locked to {lock_year} by the selected example building (matching weather file).")
+    else:
+        meta_load_weather = st.text_input("Load Profile Weather Year", value="2012")
+        meta_cambium_weather = st.text_input("Cambium Weather Year", value="2012")
+        meta_cwft_weather = st.text_input("CWFT Weather Year", value="2012")
+
+# 4. Grid Valuation Scalars
+with st.sidebar.expander("Grid Valuation Assumptions", expanded=False):
+    cap_value = st.number_input(
+        "Gen Capacity Value ($/kW-year)",
+        min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1], value=DEFAULT_CAP_VALUE, step=CAP_VALUE_RANGE[2], format="%.2f"
+    )
+
+    trans_value = st.number_input(
+        "Transmission Deferral ($/kW-year)",
+        min_value=TRANS_VALUE_RANGE[0], max_value=TRANS_VALUE_RANGE[1], value=DEFAULT_TRANS_VALUE, step=TRANS_VALUE_RANGE[2], format="%.2f"
+    )
+
+    dist_value = st.number_input(
+        "Distribution Deferral ($/kW-year)",
+        min_value=DIST_VALUE_RANGE[0], max_value=DIST_VALUE_RANGE[1], value=DEFAULT_DIST_VALUE, step=DIST_VALUE_RANGE[2], format="%.2f"
+    )
+
+    carbon_tax = st.slider(
+        "Carbon Penalty ($/metric ton)",
+        min_value=CARBON_TAX_RANGE[0], max_value=CARBON_TAX_RANGE[1], value=DEFAULT_CARBON_TAX, step=CARBON_TAX_RANGE[2], format="$%.2f"
+    )
+
+# 5. Retail Tariff & URDB Selector
+with st.sidebar.expander("Retail Tariff (NREL URDB)", expanded=True):
+    tariff_type = st.selectbox(
+        "Retail Utility Tariff Type",
+        options=TARIFF_OPTIONS,
+        index=0,
+        help="Define customer bill impact using packaged rates, pasting URDB JSONs, or querying the OpenEI API."
+    )
+
+    retail_escalation_rate = st.number_input(
+        "Retail Price Escalation (%)",
+        min_value=-5.0, max_value=15.0, value=DEFAULT_RETAIL_ESCALATION, step=0.5, format="%.1f"
+    )
+
+    active_tariff_json = None
+    custom_rate_kwh = 0.12
+    custom_demand_charge_kw = 0.0
+
+    if tariff_type == "Georgia Power - Schedule R-31 (Residential)":
+        active_tariff_json = GP_R31_URDB
+    elif tariff_type == "Alabama Power - Rate FD (Family Dwelling)":
+        active_tariff_json = AL_FD_URDB
+    elif tariff_type == "Import from NREL URDB (API Label)":
+        urdb_label = st.text_input(
+            "URDB Rate Label", 
+            value="5d4b00595457a3e73a0e6988", 
+            help="OpenEI unique tariff label (e.g. 5d4b00595457a3e73a0e6988)"
+        )
+        with st.expander("How to get the Rate Label"):
+            st.markdown(
+                """1. Go to NREL's [Utility Rate Database](https://openei.org/wiki/Utility_Rate_Database).
 2. Search for your utility (e.g., *Georgia Power*) and select the target rate plan.
 3. In the rate details page URL, copy the final segment (e.g., `5d4b00595457a3e73a0e6988` from `https://openei.org/apps/USURDB/rate/view/5d4b00595457a3e73a0e6988`)."""
-        )
-    urdb_api_key = st.sidebar.text_input("OpenEI API Key", value="DEMO_KEY", type="password")
-    
-    if st.sidebar.button("📥 Fetch Tariff Structure", use_container_width=True):
-        with st.spinner("Downloading rate from NREL OpenEI..."):
+            )
+        urdb_api_key = st.text_input("OpenEI API Key", value="DEMO_KEY", type="password")
+
+        if st.button("Fetch Tariff Structure", use_container_width=True):
+            with st.spinner("Downloading rate from NREL OpenEI..."):
+                try:
+                    fetched_rate = fetch_urdb_rate(urdb_label, urdb_api_key)
+                    st.session_state['fetched_urdb_json'] = fetched_rate
+                    st.success(f"Connected! Loaded: {fetched_rate.get('name', 'Rate')}")
+                except Exception as e:
+                    st.error(f"Failed to fetch rate: {str(e)}")
+
+        if 'fetched_urdb_json' in st.session_state:
+            active_tariff_json = st.session_state['fetched_urdb_json']
+            st.caption(f"Active: *{active_tariff_json.get('name', 'Fetched Tariff')}*")
+        else:
+            st.warning("Click Fetch to load tariff details.")
+
+    elif tariff_type == "Paste Custom URDB V3 JSON":
+        raw_pasted_json = st.text_area("Paste URDB JSON here", height=150, help="Paste a full NREL V3 utility rate JSON response.")
+        if raw_pasted_json:
             try:
-                fetched_rate = fetch_urdb_rate(urdb_label, urdb_api_key)
-                st.session_state['fetched_urdb_json'] = fetched_rate
-                st.sidebar.success(f"✓ Connected! Loaded: {fetched_rate.get('name', 'Rate')}")
+                active_tariff_json = json.loads(raw_pasted_json)
+                st.success(f"Valid JSON! Loaded: {active_tariff_json.get('name', 'Pasted Rate')}")
             except Exception as e:
-                st.sidebar.error(f"Failed to fetch rate: {str(e)}")
-                
-    if 'fetched_urdb_json' in st.session_state:
-        active_tariff_json = st.session_state['fetched_urdb_json']
-        st.sidebar.caption(f"Active: *{active_tariff_json.get('name', 'Fetched Tariff')}*")
-    else:
-        st.sidebar.warning("Click Fetch to load tariff details.")
-        
-elif tariff_type == "Paste Custom URDB V3 JSON":
-    raw_pasted_json = st.sidebar.text_area("Paste URDB JSON here", height=150, help="Paste a full NREL V3 utility rate JSON response.")
-    if raw_pasted_json:
-        try:
-            active_tariff_json = json.loads(raw_pasted_json)
-            st.sidebar.success(f"✓ Valid JSON! Loaded: {active_tariff_json.get('name', 'Pasted Rate')}")
-        except Exception as e:
-            st.sidebar.error(f"Invalid JSON: {str(e)}")
-            
-elif tariff_type == "Custom Flat Rate / Demand":
-    custom_rate_kwh = st.sidebar.number_input("Custom Energy ($/kWh)", min_value=0.0, value=0.12, step=0.01, format="%.3f")
-    custom_demand_charge_kw = st.sidebar.number_input("Custom Demand ($/kW-month)", min_value=0.0, value=0.00, step=1.00, format="%.2f")
+                st.error(f"Invalid JSON: {str(e)}")
 
-# 4. Demand Response Program Toggle
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📶 Demand Response (DR) Mode")
-dr_mode = st.sidebar.toggle(
-    "Enable DR Program Mode",
-    value=False,
-    help="Curbs load reduction dynamically during high-stress hours subject to call limits."
-)
+    elif tariff_type == "Custom Flat Rate / Demand":
+        custom_rate_kwh = st.number_input("Custom Energy ($/kWh)", min_value=0.0, value=0.12, step=0.01, format="%.3f")
+        custom_demand_charge_kw = st.number_input("Custom Demand ($/kW-month)", min_value=0.0, value=0.00, step=1.00, format="%.2f")
 
-dr_hours_per_year = DEFAULT_DR_HOURS_PER_YEAR
-dr_season = DEFAULT_DR_SEASON
-dr_max_hours_per_day = DEFAULT_DR_MAX_HOURS_PER_DAY
-dr_capacity_kw = DEFAULT_DR_CAPACITY_KW
+# 6. Financial Assumptions (Asset Lifetime, NPV & Measure/Program Costs)
+with st.sidebar.expander("Financial Assumptions", expanded=False):
+    asset_life = st.number_input("Asset Lifetime (Years)", min_value=1, max_value=50, value=DEFAULT_ASSET_LIFE, step=1)
+    discount_rate = st.number_input("Discount Rate / WACC (%)", min_value=0.0, max_value=25.0, value=DEFAULT_DISCOUNT_RATE, step=0.5, format="%.1f")
+    escalation_rate = st.number_input("Grid Price Escalation (%)", min_value=-5.0, max_value=15.0, value=DEFAULT_ESCALATION_RATE, step=0.5, format="%.1f")
+    degradation_rate = st.number_input("Annual Efficiency Decay (%)", min_value=0.0, max_value=10.0, value=DEFAULT_DEGRADATION_RATE, step=0.1, format="%.1f")
 
-if dr_mode:
-    dr_hours_per_year = st.sidebar.number_input("DR Call Hours per Year", min_value=1, max_value=8760, value=DEFAULT_DR_HOURS_PER_YEAR, step=5)
-    dr_season = st.sidebar.selectbox("DR Season of Applicability", DR_SEASON_OPTIONS)
-    dr_max_hours_per_day = st.sidebar.slider("Max Daily Call Hours", min_value=1, max_value=24, value=DEFAULT_DR_MAX_HOURS_PER_DAY)
-    dr_capacity_kw = st.sidebar.number_input("DR Curtailment Capacity (kW)", min_value=0.1, value=DEFAULT_DR_CAPACITY_KW, step=0.5, format="%.2f")
+    st.markdown("---")
+    gross_measure_cost = st.number_input("Gross Installed Measure Cost ($)", min_value=0.0, value=DEFAULT_GROSS_MEASURE_COST, step=250.0, format="%.2f", help="Total upfront equipment, materials, and installation labor cost.")
+    utility_incentive = st.number_input("Utility Rebate / Incentive ($)", min_value=0.0, value=DEFAULT_UTILITY_INCENTIVE, step=50.0, format="%.2f", help="Customer rebate or financial incentive provided by utility.")
+    utility_admin_cost = st.number_input("Utility Admin & Marketing Cost ($)", min_value=0.0, value=DEFAULT_UTILITY_ADMIN_COST, step=25.0, format="%.2f", help="Utility administrative, marketing, and processing costs per participant.")
 
-# 5. Financial Lifetime & NPV Adjustments
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ⏳ Asset Lifetime & NPV")
-asset_life = st.sidebar.number_input("Asset Lifetime (Years)", min_value=1, max_value=50, value=DEFAULT_ASSET_LIFE, step=1)
-discount_rate = st.sidebar.number_input("Discount Rate / WACC (%)", min_value=0.0, max_value=25.0, value=DEFAULT_DISCOUNT_RATE, step=0.5, format="%.1f")
-escalation_rate = st.sidebar.number_input("Grid Price Escalation (%)", min_value=-5.0, max_value=15.0, value=DEFAULT_ESCALATION_RATE, step=0.5, format="%.1f")
-degradation_rate = st.sidebar.number_input("Annual Efficiency Decay (%)", min_value=0.0, max_value=10.0, value=DEFAULT_DEGRADATION_RATE, step=0.1, format="%.1f")
+# 7. Advanced: Custom CWFT File Path
+with st.sidebar.expander("Advanced: Custom Data Files", expanded=False):
+    use_custom_cwft = st.checkbox("Use Custom CWFT CSV File", value=True)
+    cwft_filepath = st.text_input("CWFT CSV File Path", value="CWFT.csv")
 
-# 5b. Measure & Program Costs
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 💰 Measure & Program Costs")
-gross_measure_cost = st.sidebar.number_input("Gross Installed Measure Cost ($)", min_value=0.0, value=DEFAULT_GROSS_MEASURE_COST, step=250.0, format="%.2f", help="Total upfront equipment, materials, and installation labor cost.")
-utility_incentive = st.sidebar.number_input("Utility Rebate / Incentive ($)", min_value=0.0, value=DEFAULT_UTILITY_INCENTIVE, step=50.0, format="%.2f", help="Customer rebate or financial incentive provided by utility.")
-utility_admin_cost = st.sidebar.number_input("Utility Admin & Marketing Cost ($)", min_value=0.0, value=DEFAULT_UTILITY_ADMIN_COST, step=25.0, format="%.2f", help="Utility administrative, marketing, and processing costs per participant.")
-
-# 6. File Input Paths
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📂 Input File Paths")
-use_custom_cwft = st.sidebar.checkbox("Use Custom CWFT CSV File", value=True)
-cwft_filepath = st.sidebar.text_input("CWFT CSV File Path", value="CWFT.csv")
-# Load profiles path options
-has_raw_profiles = os.path.exists("Load_Profiles_raw") and any(
-    len(glob.glob(os.path.join("Load_Profiles_raw", f"*{ext}"))) > 0 for ext in [".csv", ".xlsx", ".xls"]
-)
-if has_raw_profiles:
-    default_load_idx = 0
-else:
-    default_load_idx = 1
-
-selected_load_option = st.sidebar.selectbox(
-    "Load Profiles Source",
-    options=["📁 Load_Profiles_raw (BEopt / EnergyPlus raw models)", "📄 load_profiles.csv (Default synthetic)", "✏️ Custom Path..."],
-    index=default_load_idx,
-    help="Supports raw BEopt / EnergyPlus output CSVs, custom 8760 CSVs or Excel files, or entire directories."
-)
-
-if "Custom Path" in selected_load_option:
-    load_profiles_filepath = st.sidebar.text_input("Custom Load Profiles Path", value="load_profiles.csv")
-elif "Load_Profiles_raw" in selected_load_option:
-    load_profiles_filepath = "Load_Profiles_raw"
-else:
-    load_profiles_filepath = "load_profiles.csv"
-
-# Load profile case selection (Baseline vs Proposed)
-try:
-    generate_default_load_profiles_file(load_profiles_filepath if load_profiles_filepath != "Load_Profiles_raw" else "load_profiles.csv")
-    load_profiles_df = load_load_profiles_from_csv(load_profiles_filepath)
-    profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
-    
-    st.sidebar.markdown("#### 🏠 Select Model Cases")
-    is_folder_mode = os.path.isdir(load_profiles_filepath)
-    file_basename = os.path.basename(load_profiles_filepath)
-
-    if is_folder_mode:
-        st.sidebar.caption(f"📁 **Folder Mode:** Found {len(profile_columns)} load profile case(s) in `{file_basename}`.")
-        
-        # Smart default indices for folder mode
-        default_base_idx = 0
-        default_prop_idx = 1 if len(profile_columns) > 1 else 0
-        for idx, p in enumerate(profile_columns):
-            p_low = p.lower()
-            if any(k in p_low for k in ["erheat", "baseline", "standard", "electricresistance", "no tes", "no_tes", "notes"]):
-                default_base_idx = idx
-            elif any(k in p_low for k in ["heatpump", "proposed", "highefficiency", "hp", "tes"]) and not any(k in p_low for k in ["no tes", "no_tes", "notes"]):
-                default_prop_idx = idx
-
-        if dr_mode:
-            baseline_col = st.sidebar.selectbox(
-                "Baseline Model Case (for DR)",
-                options=profile_columns,
-                index=default_base_idx,
-                help="Select which building model or column represents the baseline load profile prior to Demand Response curtailment."
-            )
-            proposed_col = baseline_col
-            st.sidebar.caption("⚡ *DR Mode Active:* Proposed profile is calculated dynamically as Baseline − DR curtailment.")
-        else:
-            baseline_col = st.sidebar.selectbox(
-                "Baseline Model Case",
-                options=profile_columns,
-                index=default_base_idx,
-                help="Select the building model file or column to use as the Baseline load profile."
-            )
-            proposed_col = st.sidebar.selectbox(
-                "Proposed Model Case",
-                options=profile_columns,
-                index=default_prop_idx,
-                help="Select the building model file or column to use as the Proposed load profile."
-            )
-    else:
-        # Single File Mode: Explicit column picker asking "which column?" without keyword guessing
-        st.sidebar.caption(f"📄 **Single File Mode:** Select which column in `{file_basename}` represents each case.")
-        
-        # Positional defaults for single file mode (1st column = Baseline, 2nd column = Proposed if available)
-        default_base_idx = 0
-        default_prop_idx = 1 if len(profile_columns) > 1 else 0
-
-        if dr_mode:
-            baseline_col = st.sidebar.selectbox(
-                f"Which column in '{file_basename}' is the Baseline load?",
-                options=profile_columns,
-                index=default_base_idx,
-                help="Select the column in your file representing baseline hourly demand before DR curtailment."
-            )
-            proposed_col = baseline_col
-            st.sidebar.caption("⚡ *DR Mode Active:* Proposed load profile is Baseline − DR curtailment.")
-        else:
-            baseline_col = st.sidebar.selectbox(
-                f"Which column in '{file_basename}' is the Baseline load?",
-                options=profile_columns,
-                index=default_base_idx,
-                help=f"Select which numeric column from '{file_basename}' contains the Baseline load profile."
-            )
-            proposed_col = st.sidebar.selectbox(
-                f"Which column in '{file_basename}' is the Proposed load?",
-                options=profile_columns,
-                index=default_prop_idx,
-                help=f"Select which numeric column from '{file_basename}' contains the Proposed load profile."
-            )
-        
-    if baseline_col == proposed_col and not dr_mode and len(profile_columns) > 1:
-        st.sidebar.warning("⚠️ Baseline and Proposed profiles are identical. Select two different columns for savings calculations.")
-
-except Exception as e:
-    st.sidebar.error(f"Error loading profiles: {e}")
-    profile_columns = []
-    baseline_col = None
-    proposed_col = None
-
-st.sidebar.markdown("---")
-# Metadata Tracker inputs
-st.sidebar.markdown("### 🏷️ Weather Alignment Metadata")
-meta_load_weather = st.sidebar.text_input("Load Profile Weather Year", value="2012")
-meta_cambium_weather = st.sidebar.text_input("Cambium Weather Year", value="2012")
-meta_cwft_weather = st.sidebar.text_input("CWFT Weather Year", value="2012")
-
-run_simulation = st.sidebar.button("🚀 Run Valuation Engine", type="primary", use_container_width=True)
+run_simulation = st.sidebar.button("Run Valuation Engine", type="primary", use_container_width=True)
 
 if 'simulation_executed' not in st.session_state:
     st.session_state['simulation_executed'] = False
@@ -552,72 +583,55 @@ if run_simulation:
 # MAIN PANEL
 # ==============================================================================
 if not st.session_state['simulation_executed']:
-    st.info("💡 **Welcome:** Verify your setting panels in the sidebar and click **Run Valuation Engine** to execute calculations.")
+    st.info("**Welcome:** Verify your setting panels in the sidebar and click **Run Valuation Engine** to execute calculations.")
     
     welcome_tab_instruct, welcome_tab_weather_gen = st.tabs([
-        "📋 Instructions & Setup",
-        "🌩️ AMY Weather Generator"
+        "Instructions & Setup",
+        "AMY Weather Generator"
     ])
     
     with welcome_tab_instruct:
+        st.markdown("##### Before you run, check three things:")
         st.markdown(
-            """<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 30px; border-radius: 12px; margin-top: 10px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05); font-family: sans-serif;">
-<h3 style="margin-top: 0; color: #1E3A8A; font-weight: 700; border-bottom: 2px solid #DBEAFE; padding-bottom: 8px;">
-📋 Instructions: Preparing Inputs for Energy & Capacity Valuation
-</h3>
-<p style="color: #475569; line-height: 1.6; font-size: 1.05rem;">
-To calculate both <strong>Energy Avoided Cost Savings</strong> and <strong>Capacity Deferral Savings (from CWFT)</strong> in a single run, the calculator requires two chronologically synchronized CSV files.
-</p>
-<h4 style="color: #0F766E; margin-top: 20px; font-weight: 600;">1. Load Profiles Input (<code>load_profiles.csv</code>)</h4>
-<p style="color: #475569; line-height: 1.6; margin-bottom: 8px;">
-This file contains the hourly electricity consumption (kW) for your baseline and proposed systems (e.g. standard vs. high-efficiency heat pump), typically simulated in EnergyPlus.
-</p>
-<ul style="padding-left: 20px; color: #475569; line-height: 1.6;">
-<li><strong>Format:</strong> Must contain exactly <strong>8,760 rows</strong> of hourly data.</li>
-<li><strong>Columns:</strong> An <code>Hour</code> index column (1 to 8760) and at least one load profile column (e.g. <code>Standard_Heat_Pump_kW</code>). You can include multiple columns to evaluate several systems side-by-side.</li>
-<li><strong>Units:</strong> Electric demand must be in <strong>kilowatts (kW)</strong>.</li>
-</ul>
-<h4 style="color: #0F766E; margin-top: 20px; font-weight: 600;">2. Capacity Worth Factor Table Input (<code>CWFT.csv</code>)</h4>
-<p style="color: #475569; line-height: 1.6; margin-bottom: 8px;">
-This file allocates fixed annual generation capacity value ($/kW-yr) into hourly weights based on grid reliability risk.
-</p>
-<ul style="padding-left: 20px; color: #475569; line-height: 1.6;">
-<li><strong>Format:</strong> Must contain exactly <strong>8,760 rows</strong>.</li>
-<li><strong>Columns:</strong> An <code>Hour</code> index column (1 to 8760) and a <code>CWFT</code> column containing the allocation weights.</li>
-<li><strong>Constraint:</strong> The sum of the <code>CWFT</code> column <strong>MUST equal exactly 1.0 (100%)</strong> so that the annual capacity value is precisely recovered.</li>
-</ul>
-<h4 style="color: #0F766E; margin-top: 20px; font-weight: 600;">🔑 How to Find an NREL URDB Rate Label</h4>
-<p style="color: #475569; line-height: 1.6; margin-bottom: 8px;">
-To import custom tariffs dynamically from NREL's OpenEI database:
-</p>
-<ol style="padding-left: 20px; color: #475569; line-height: 1.6;">
-<li>Go to the <a href="https://openei.org/wiki/Utility_Rate_Database" target="_blank" style="color: #0D9488; font-weight: 600; text-decoration: underline;">NREL Utility Rate Database (URDB)</a>.</li>
-<li>Search for your utility company (e.g., <em>"Georgia Power Co"</em>) and select your target rate plan.</li>
-<li>Look at the URL in your browser address bar. The <strong>Rate Label</strong> is the final segment of the URL (e.g., in <code>https://openei.org/apps/USURDB/rate/view/5d4b00595457a3e73a0e6988</code>, the label is <code>5d4b00595457a3e73a0e6988</code>).</li>
-</ol>
-<h4 style="color: #B45309; margin-top: 25px; border-top: 1px solid #FED7AA; padding-top: 15px; font-weight: 600;">
-⚠️ Critical Alignment Rules to Satisfy Both Calculations
-</h4>
-<p style="color: #475569; line-height: 1.6; margin-bottom: 8px;">
-Because grid risk and heat pump loads are highly non-linear and temperature-coincident, your files must align:
-</p>
-<ol style="padding-left: 20px; color: #475569; line-height: 1.6;">
-<li><strong>Weather Year Match:</strong> Both the building load shape (E+ output) and the grid risk shape (CWFT) must represent the <strong>same historical weather year</strong> (e.g., 2012 AMY).</li>
-<li><strong>Calendar Match:</strong> Both files must start on the same day of the week (e.g., if 2012 started on Sunday, Hour 1 must be Sunday for both load and CWFT).</li>
-<li><strong>Local Standard Time:</strong> Disable daylight savings offsets in your building simulations to ensure hours 1 to 8760 line up exactly.</li>
-</ol>
-<p style="color: #64748B; font-style: italic; margin-top: 20px; border-top: 1px solid #E2E8F0; padding-top: 15px;">
-💡 <b>Note:</b> A default mock setup (dual-peak 2012 weather profile for AL/GA) will be written to <code>CWFT.csv</code> and <code>load_profiles.csv</code> automatically in your main directory if the files are not found on execution.
-</p>
-</div>""",
-            unsafe_allow_html=True
+            "1. **Load profile CSV** — 8,760 hourly rows; baseline + proposed columns (kW)\n"
+            "2. **CWFT.csv** — 8,760 rows; capacity-risk weights that sum to 1.0\n"
+            "3. **Weather years match** — load data, Cambium grid data, and CWFT all use the same year"
         )
-        
+        st.caption("No files yet? A default example is generated automatically the first time you run.")
+
+        with st.expander("File format details (Load Profiles & CWFT)"):
+            st.markdown(
+                """**Load Profiles (`load_profiles.csv`)** — hourly electricity consumption (kW) for your baseline and proposed systems (e.g. standard vs. high-efficiency heat pump), typically simulated in EnergyPlus.
+- **Format:** exactly 8,760 rows of hourly data.
+- **Columns:** an `Hour` index column (1–8760) plus at least one load profile column (e.g. `Standard_Heat_Pump_kW`). Multiple columns can be included to compare several systems.
+- **Units:** kilowatts (kW).
+
+**Capacity Worth Factor Table (`CWFT.csv`)** — allocates fixed annual generation capacity value ($/kW-yr) into hourly weights based on grid reliability risk.
+- **Format:** exactly 8,760 rows.
+- **Columns:** an `Hour` index column (1–8760) and a `CWFT` column of allocation weights.
+- **Constraint:** the `CWFT` column must sum to exactly 1.0 (100%) so annual capacity value is recovered precisely."""
+            )
+
+        with st.expander("How to find an NREL URDB rate label"):
+            st.markdown(
+                """1. Go to the [NREL Utility Rate Database (URDB)](https://openei.org/wiki/Utility_Rate_Database).
+2. Search for your utility (e.g. *"Georgia Power Co"*) and select your target rate plan.
+3. The **Rate Label** is the last segment of the URL — e.g. in `https://openei.org/apps/USURDB/rate/view/5d4b00595457a3e73a0e6988`, the label is `5d4b00595457a3e73a0e6988`."""
+            )
+
+        with st.expander("Why file alignment matters"):
+            st.markdown(
+                """Grid risk and building loads are both temperature-driven, so your files must line up hour-for-hour:
+1. **Weather year match:** the building load shape (E+ output) and the grid risk shape (CWFT) must represent the same historical weather year (e.g. 2012 AMY).
+2. **Calendar match:** both files must start on the same day of the week.
+3. **Local standard time:** disable daylight savings in building simulations so hours 1–8760 line up exactly."""
+            )
+
     with welcome_tab_weather_gen:
         render_weather_generator("welcome")
 else:
     if not target_states:
-        st.warning("⚠️ **Selection Required:** Please choose at least one state in the sidebar multi-select.")
+        st.warning("**Selection Required:** Please choose at least one state in the sidebar multi-select.")
     else:
         try:
             # 1. Load profiles and grid aggregated data
@@ -682,6 +696,14 @@ else:
                 tariff_name_label = f"Custom Flat Rate (${custom_rate_kwh:.3f}/kWh)"
                 
             annual_lost_revenue = ann_bill_baseline - ann_bill_proposed
+            
+            # Hourly Customer Retail Rate & Cost (for the Graphs tab's weekly charts)
+            hourly_retail_rate = get_hourly_energy_rate(
+                datetime_series,
+                active_tariff_json if active_tariff_json is not None else fallback_rate_json
+            )
+            baseline_cost_hr = hourly_retail_rate * baseline_load
+            proposed_cost_hr = hourly_retail_rate * proposed_load
             
             # 3. Grid Avoided Cost Calculations
             reduction_mwh = load_reduction / 1000.0
@@ -807,8 +829,6 @@ else:
             max_corr = max(abs(heat_corr), abs(cool_corr))
             ws_style = get_weather_sensitivity_style(max_corr)
             weather_sensitivity_status = ws_style["label"]
-            weather_color = ws_style["bg_color"]
-            weather_text_color = ws_style["text_color"]
                 
             weather_aligned = (meta_load_weather == meta_cambium_weather == meta_cwft_weather)
             alignment_status = f"{weather_sensitivity_status} | User Label: {'Aligned' if weather_aligned else 'Mixed'}"
@@ -816,32 +836,56 @@ else:
             # ==================================================================
             # TABS DISPLAY
             # ==================================================================
-            tab_summary, tab_calculator, tab_grid, tab_weather_diag, tab_scenarios, tab_top_hours, tab_guide, tab_weather_gen = st.tabs([
-                "📊 Overview Scorecard",
-                "🔌 Retail lost revenue & RIM",
-                "📅 Wholesale Grid avoided costs",
-                "🌡️ Weather & peak coincidence",
-                "⏳ Lifetime NPV & Scenario manager",
-                "🔍 Debugger & top hours",
-                "📖 EPW Calibration guide",
-                "🌩️ AMY Weather Generator"
+            tab_setup, tab_summary, tab_calculator, tab_charts, tab_weather_diag, tab_scenarios, tab_diagnostics = st.tabs([
+                "Calibration Check",
+                "Overview Scorecard",
+                "Cost-Effectiveness Table",
+                "Charts",
+                "Weather & Peak Diagnostics",
+                "Scenario Manager",
+                "Diagnostics & Top Hours"
             ])
-            
+
             # ------------------------------------------------------------------
-            # TAB 1: EXECUTIVE SUMMARY
+            # TAB 1: CALIBRATION CHECK (does the weather actually line up?)
+            # ------------------------------------------------------------------
+            with tab_setup:
+                if weather_aligned:
+                    st.success(
+                        f"**Weather Year Alignment: PASS** \u2014 Load, Cambium grid, and CWFT data are all documented as **{meta_load_weather}**."
+                    )
+                else:
+                    st.error(
+                        f"**Weather Year Alignment: MISMATCH** \u2014 Load = **{meta_load_weather}**, Cambium Grid = **{meta_cambium_weather}**, "
+                        f"CWFT = **{meta_cwft_weather}**. Capacity coincidence values may be skewed. Align these in the sidebar's "
+                        "Building/Technology section."
+                    )
+
+                st.markdown(f"**Temperature Sensitivity Check:** {weather_sensitivity_status} (max $r$ = {max_corr:.2f})")
+                st.caption(f"Heating season correlation: {heat_corr:.2f}  |  Cooling season correlation: {cool_corr:.2f}")
+                st.caption("Confirms the load profile responds to temperature as expected \u2014 this is a sanity check, not a substitute for the year-alignment check above.")
+
+                with st.expander("Alignment rules & how to fix a mismatch"):
+                    st.markdown(
+                        """To conduct a valid Marginal Cost study for electric heat pumps, water heaters, or battery storage,
+the simulated hourly demand shapes must line up with the grid dataset chronologically.
+
+1. **Weather Year Sync:** Ensure your building simulator uses the same AMY (Actual Meteorological Year) as the Cambium grid data (e.g. 2012). Mismatched years displace winter cold snaps, skewing the capacity coincidence value.
+2. **Calendar Shift:** Verify both files start on the same day of the week so weekend occupied patterns align with Cambium grid weekday rate periods.
+3. **Standard Time:** Standardize on Local Standard Time (LST) year-round. Mismatched daylight savings transitions displace load spikes by 1 hour, incorrectly zeroing out capacity savings."""
+                    )
+
+                with st.expander("Need a different weather year? Generate an AMY EPW file"):
+                    render_weather_generator("results")
+
+            # ------------------------------------------------------------------
+            # TAB 2: EXECUTIVE SUMMARY
             # ------------------------------------------------------------------
             with tab_summary:
-                # Weather Sensitivity and Year Alignment Row
-                st.markdown(
-                    f"""<div style="background-color: {weather_color}; border: 1px solid {ws_style['border_color']}; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.95rem; color: {weather_text_color};">
-<b>Weather Sensitivity Check (NOT year alignment):</b> <b>{weather_sensitivity_status}</b> (Max $r = {max_corr:.2f}$)<br>
-• Heating Season Correlation: <b>{heat_corr:.2f}</b> | • Cooling Season Correlation: <b>{cool_corr:.2f}</b><br>
-• Documented Weather Years: Load = <b>{meta_load_weather}</b> | Cambium Grid = <b>{meta_cambium_weather}</b> | CWFT = <b>{meta_cwft_weather}</b> {'(Aligned)' if weather_aligned else '(Mixed)'}<br>
-<i>ℹ️ Note: This check confirms temperature-driven responsiveness of the load profile, NOT perfect chronological synchronization with Cambium weather. Users must still ensure matching weather years (e.g. 2012) are loaded for both.</i>
-</div>""",
-                    unsafe_allow_html=True
-                )
-                
+                # Full weather sensitivity + year-alignment check now lives in the Calibration Check tab.
+                if not weather_aligned:
+                    st.warning("Weather years are not aligned across Load/Cambium/CWFT \u2014 see the **Calibration Check** tab for details.")
+
                 # Main KPI row
                 col1, col2, col3, col4, col5 = st.columns(5)
                 with col1:
@@ -851,13 +895,8 @@ else:
                         delta=f"Avoided - Lost Rev"
                     )
                 with col2:
-                    badge_style = "color: #15803d; font-weight: bold;" if rim_ratio >= 1.0 else "color: #b91c1c; font-weight: bold;"
                     st.markdown(
-                        f"""<div data-testid="metric-container">
-<div data-testid="stMetricLabel">Ratepayer Impact Measure (RIM)</div>
-<div style="font-size: 1.8rem; font-weight: 700; {badge_style}">{rim_ratio:.3f}</div>
-<div style="font-size: 0.8rem; color: #64748B;">NPV Benefit / NPV Cost</div>
-</div>""",
+                        ratio_card_html("Ratepayer Impact Measure (RIM)", f"{rim_ratio:.3f}", "NPV Benefit / NPV Cost", rim_ratio >= 1.0),
                         unsafe_allow_html=True
                     )
                 with col3:
@@ -877,36 +916,21 @@ else:
                         help="Effective Peak Contribution (EPC) reduction. Calculated as sum(Load Reduction * CWFT). This drives 100% of the Generation Capacity deferral savings value."
                     )
                     
-                st.markdown("### 📊 Standard Practice Manual (SPM) & Customer Payback")
+                st.markdown("### Standard Practice Manual (SPM) & Customer Payback")
                 ce_col1, ce_col2, ce_col3, ce_col4, ce_col5 = st.columns(5)
                 with ce_col1:
-                    trc_color = "color: #15803d; font-weight: bold;" if trc_ratio >= 1.0 else "color: #b91c1c; font-weight: bold;"
                     st.markdown(
-                        f"""<div data-testid="metric-container">
-<div data-testid="stMetricLabel">Total Resource Cost (TRC)</div>
-<div style="font-size: 1.8rem; font-weight: 700; {trc_color}">{trc_ratio:.3f}</div>
-<div style="font-size: 0.8rem; color: #64748B;">NPV Grid / (Measure + Admin)</div>
-</div>""",
+                        ratio_card_html("Total Resource Cost (TRC)", f"{trc_ratio:.3f}", "NPV Grid / (Measure + Admin)", trc_ratio >= 1.0),
                         unsafe_allow_html=True
                     )
                 with ce_col2:
-                    pct_color = "color: #15803d; font-weight: bold;" if pct_ratio >= 1.0 else "color: #b91c1c; font-weight: bold;"
                     st.markdown(
-                        f"""<div data-testid="metric-container">
-<div data-testid="stMetricLabel">Participant Cost Test (PCT)</div>
-<div style="font-size: 1.8rem; font-weight: 700; {pct_color}">{pct_ratio:.3f}</div>
-<div style="font-size: 0.8rem; color: #64748B;">(Bill Savings + Rebate) / Measure</div>
-</div>""",
+                        ratio_card_html("Participant Cost Test (PCT)", f"{pct_ratio:.3f}", "(Bill Savings + Rebate) / Measure", pct_ratio >= 1.0),
                         unsafe_allow_html=True
                     )
                 with ce_col3:
-                    rim_color = "color: #15803d; font-weight: bold;" if rim_ratio >= 1.0 else "color: #b91c1c; font-weight: bold;"
                     st.markdown(
-                        f"""<div data-testid="metric-container">
-<div data-testid="stMetricLabel">Rate Impact Measure (RIM)</div>
-<div style="font-size: 1.8rem; font-weight: 700; {rim_color}">{rim_ratio:.3f}</div>
-<div style="font-size: 0.8rem; color: #64748B;">NPV Grid / (Lost Rev + Program)</div>
-</div>""",
+                        ratio_card_html("Rate Impact Measure (RIM)", f"{rim_ratio:.3f}", "NPV Grid / (Lost Rev + Program)", rim_ratio >= 1.0),
                         unsafe_allow_html=True
                     )
                 with ce_col4:
@@ -924,7 +948,7 @@ else:
                         help="Years to break even considering customer retail price escalation and discount rate."
                     )
                     
-                st.markdown("### ⚡ Capacity Contribution Metrics")
+                st.markdown("### Capacity Contribution Metrics")
                 c1, c2, c3 = st.columns(3)
                 c1.metric(
                     label="EPC Reduction (kW)",
@@ -947,7 +971,7 @@ else:
                 # Quick Details
                 col_info1, col_info2 = st.columns(2)
                 with col_info1:
-                    st.markdown("#### 🔋 Valuation Run Settings")
+                    st.markdown("#### Valuation Run Settings")
                     st.markdown(
                         f"""- **Customer Retail Tariff:** `{tariff_name_label}`
 - **NREL Wholesale Scenario:** `{selected_scenario}`
@@ -957,7 +981,7 @@ else:
 - **Analysis Asset Horizon:** `{asset_life} years` (discount rate: {discount_rate}%)"""
                     )
                 with col_info2:
-                    st.markdown("#### 📉 Capacity & Value Reduction Summary")
+                    st.markdown("#### Capacity & Value Reduction Summary")
                     st.markdown(
                         f"""- **Baseline Profile:** `{baseline_col}` (EPC: **{epc_baseline:.2f} kW**, ELCC: **{elcc_baseline * 100:.1f}%**)
 - **Proposed Profile:** `{"DR Optimised Schedule" if dr_mode else proposed_col}` (EPC: **{epc_proposed:.2f} kW**, ELCC: **{elcc_proposed * 100:.1f}%**)
@@ -968,10 +992,10 @@ else:
                     )
                     
             # ------------------------------------------------------------------
-            # TAB 2: RETAIL CALCULATOR & RIM
+            # TAB 3: COST-EFFECTIVENESS TABLE
             # ------------------------------------------------------------------
             with tab_calculator:
-                st.markdown("### 🔌 Two-Sided Cost Effectiveness Table")
+                st.markdown("### Two-Sided Cost Effectiveness Table")
                 st.markdown("Annual breakdown comparing retail bill reduction (cost to utility) against wholesale grid cost deferrals (benefit to utility).")
                 
                 # Compute energy vs demand split for lost revenue
@@ -1053,76 +1077,125 @@ else:
                 
                 st.dataframe(df_val, use_container_width=True, hide_index=True)
                 
-                # Enhanced Weekly Analysis Charts
-                st.markdown("---")
-                st.markdown("### 🕒 Weekly Hourly Analysis: Building Load, Weather & Grid Economics")
-                st.markdown("Analyze how building heating/cooling demand correlates with outdoor temperature, and examine hourly grid avoided costs piece-by-piece.")
-                
+            # ------------------------------------------------------------------
+            # TAB 4: CHARTS (ordered simplest/most relatable → most technical)
+            # ------------------------------------------------------------------
+            with tab_charts:
+                st.markdown("### Charts")
+                st.caption("All grid, cost, and building-load visualizations for this run, ordered from the building level up to the full financial picture.")
+
+                # --- Shared week selector (used by the first two chart groups below) ---
                 selected_week = st.selectbox("Select Analysis Week Window", options=list(WEEK_WINDOWS.keys()), index=0)
                 start_h, end_h = WEEK_WINDOWS[selected_week]
-                
+
                 dt_slice = datetime_series.iloc[start_h:end_h]
                 baseline_slice = baseline_load[start_h:end_h]
                 proposed_slice = proposed_load[start_h:end_h]
                 reduction_slice = load_reduction[start_h:end_h]
                 temp_slice = results_df['Temperature_F'].iloc[start_h:end_h].to_numpy()
-                
-                # Chart 1: Building Load & Temperature Correlation
-                st.markdown("#### 1. Building Demand vs. Outdoor Air Temperature (°F)")
+
+                st.markdown("---")
+                # --- Group 1: Customer & Building Load (simplest, most relatable) ---
+                st.markdown("#### Customer & Building Load — Weekly Demand vs. Outdoor Temperature")
+                st.caption(f"Building heating/cooling demand vs. outdoor air temperature (°F) for `{selected_week}`.")
                 fig_load_temp = build_weekly_load_and_temp_chart(
                     dt_slice, baseline_slice, proposed_slice, temp_slice
                 )
                 st.plotly_chart(fig_load_temp, use_container_width=True)
-                
-                # Chart 2: Grid Avoided Cost Economics, Load Reduction & Hourly Cost Delta
-                st.markdown("#### 2. Hourly Grid Avoided Cost Economics, Load Reduction & Cost Delta ($/hr)")
+
+                st.markdown("---")
+                # --- Group 2: Weekly Grid Economics (one layer deeper — dollars, still weekly) ---
+                st.markdown("#### Weekly Grid Avoided Cost Economics")
+                st.caption(f"Hourly grid avoided-cost value and customer bill impact for `{selected_week}`.")
+
                 econ_view_mode = st.radio(
                     "Grid Economics View Mode",
                     options=["Stacked Components", "Individual Component Lines", "Total Marginal Cost ($/MWh)"],
                     horizontal=True,
                     help="Switch between stacked component areas, individual cost lines, or total marginal avoided cost."
                 )
-                
+
                 slice_df = results_df.iloc[start_h:end_h].copy()
                 slice_df['Load_Reduction_kW'] = reduction_slice
                 slice_df['Hourly_Savings_hr'] = (reduction_slice / 1000.0) * slice_df['Total_Avoided_Cost_MWh']
-                
+                slice_df['Customer_Cost_Baseline_hr'] = baseline_cost_hr[start_h:end_h]
+                slice_df['Customer_Cost_Proposed_hr'] = proposed_cost_hr[start_h:end_h]
+                slice_df['Retail_Rate_kWh'] = hourly_retail_rate[start_h:end_h]
+
                 fig_grid_econ = build_weekly_grid_economics_chart(slice_df, mode=econ_view_mode)
                 st.plotly_chart(fig_grid_econ, use_container_width=True)
-                
+
                 total_week_savings = slice_df['Hourly_Savings_hr'].sum()
-                st.caption(f"💰 **Total Grid Avoided Cost Value Created for `{selected_week}`:** **${total_week_savings:,.2f}**")
-                
-            # ------------------------------------------------------------------
-            # TAB 3: GRID AVOIDED COSTS
-            # ------------------------------------------------------------------
-            with tab_grid:
-                st.markdown("### 📅 Hourly wholesale avoided cost distribution")
-                st.markdown("Distribution of the wholesale energy, generation capacity (CWFT), transmission & distribution (PCAF), and emissions value.")
-                
+                total_week_customer_savings = (slice_df['Customer_Cost_Baseline_hr'] - slice_df['Customer_Cost_Proposed_hr']).sum()
+                col_g1, col_g2 = st.columns(2)
+                col_g1.caption(f"Total Grid Avoided Cost Value Created for `{selected_week}`: **${total_week_savings:,.2f}**")
+                col_g2.caption(f"Total Customer Retail Bill Savings for `{selected_week}`: **${total_week_customer_savings:,.2f}**")
+
+                st.markdown("---")
+                # --- Group 3: Utility Cost Tests (deeper — full year, component decomposition) ---
+                st.markdown("#### Utility Cost Tests — Annual Wholesale Avoided Cost Distribution")
+                st.caption("Distribution of the wholesale energy, generation capacity (CWFT), transmission & distribution (PCAF), and emissions value.")
+
                 fig_grid_full = build_annual_avoided_cost_chart(results_df)
                 st.plotly_chart(fig_grid_full, use_container_width=True)
-                
-                # Stacked components for peak weeks
+
                 col_st1, col_st2 = st.columns(2)
                 with col_st1:
-                    st.markdown("#### ❄️ Winter morning peak details (Jan 1-7)")
+                    st.markdown("##### Winter morning peak details (Jan 1-7)")
                     winter_slice = results_df.iloc[0:168]
                     fig_w_stack = build_stacked_components_chart(winter_slice, show_legend=True)
                     st.plotly_chart(fig_w_stack, use_container_width=True)
-                    
+
                 with col_st2:
-                    st.markdown("#### ☀️ Summer afternoon peak details (Jul 15-21)")
+                    st.markdown("##### Summer afternoon peak details (Jul 15-21)")
                     summer_slice = results_df.iloc[4680:4848]
                     fig_s_stack = build_stacked_components_chart(summer_slice, show_legend=False)
                     st.plotly_chart(fig_s_stack, use_container_width=True)
-                    
+
+                st.markdown("---")
+                # --- Group 4: Overall Scorecard (most technical — lifetime discounted cash flow) ---
+                st.markdown("#### Overall Scorecard — Lifetime Cash Flow")
+                projected_grid_nominal = annual_grid_savings * grid_esc_factors * deg_factors
+                projected_grid_disc = annual_grid_savings * grid_pv_multipliers
+                projected_lost_disc = annual_lost_revenue * retail_pv_multipliers
+
+                fig_lifetime = build_lifetime_npv_chart(
+                    years, projected_grid_nominal, projected_grid_disc, projected_lost_disc
+                )
+                st.plotly_chart(fig_lifetime, use_container_width=True)
+
             # ------------------------------------------------------------------
-            # TAB 4: WEATHER & PEAK COINCIDENCE DIAGNOSTICS
+            # TAB 5: WEATHER & PEAK COINCIDENCE DIAGNOSTICS
             # ------------------------------------------------------------------
             with tab_weather_diag:
-                st.markdown("### 🌡️ Temperature & grid coincidence diagnostics")
-                
+                st.markdown("### Temperature & grid coincidence diagnostics")
+
+                # Hourly grid avoided-cost value ($/hr) of serving Baseline vs. Proposed load,
+                # used as the bubble-size dimension below.
+                baseline_grid_cost_hr = (baseline_load / 1000.0) * results_df['Total_Avoided_Cost_MWh'].to_numpy()
+                proposed_grid_cost_hr = (proposed_load / 1000.0) * results_df['Total_Avoided_Cost_MWh'].to_numpy()
+
+                st.markdown("#### Temperature vs. Cost vs. Power")
+                st.caption("Each dot is one hour of the year. X = outdoor temperature, Y = grid avoided cost ($/hr) of serving that hour, bubble size = building power demand (kW).")
+                bubble_front = st.radio(
+                    "Bring to front",
+                    options=["Proposed", "Baseline"],
+                    horizontal=True,
+                    help="The selected case is drawn on top at full opacity; the other case is faded into the background."
+                )
+                fig_temp_power_cost = build_temp_power_cost_bubble_chart(
+                    temp_vals=results_df['Temperature_F'].to_numpy(),
+                    baseline_load=baseline_load,
+                    proposed_load=proposed_load,
+                    baseline_cost_hr=baseline_grid_cost_hr,
+                    proposed_cost_hr=proposed_grid_cost_hr,
+                    datetime_vals=results_df['Datetime'],
+                    front=bubble_front,
+                )
+                st.plotly_chart(fig_temp_power_cost, use_container_width=True)
+
+                st.markdown("<hr>", unsafe_allow_html=True)
+
                 # Extreme temperature statistics
                 temp_vals = results_df['Temperature_F'].to_numpy()
                 min_t = temp_vals.min()
@@ -1137,7 +1210,7 @@ else:
                 avg_cwft_coldest = cwft_array[coldest_20_idx].mean()
                 avg_cwft_hottest = cwft_array[hottest_20_idx].mean()
                 
-                st.markdown("#### 🌨️ Temperature distribution check")
+                st.markdown("#### Temperature distribution check")
                 col_diag1, col_diag2, col_diag3, col_diag4, col_diag5 = st.columns(5)
                 with col_diag1:
                     st.metric("Minimum temp", f"{min_t:.1f} °F")
@@ -1157,7 +1230,7 @@ else:
                     st.metric("Avg CWFT during hottest 20 hours", f"{avg_cwft_hottest:.6f}")
                     
                 st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown("#### ⚡ Peak coincidence metrics")
+                st.markdown("#### Peak coincidence metrics")
                 st.markdown("Displays the share (%) of annual electricity energy consumption that occurs during critical high-stress grid hours.")
                 
                 coinc_table = {
@@ -1191,10 +1264,10 @@ else:
                     ]
                 }
                 st.dataframe(pd.DataFrame(coinc_table), use_container_width=True, hide_index=True)
-                st.info("💡 **ELCC & EPC Note:** EPC is the weighted average load during peak risk hours: `sum(Load * CWFT)`. The ELCC proxy represents the percentage of peak demand that contributes to capacity: `EPC / Peak Load` (or `EPC / Baseline Peak` for the load reduction resource).")
+                st.info("**ELCC & EPC Note:** EPC is the weighted average load during peak risk hours: `sum(Load * CWFT)`. The ELCC proxy represents the percentage of peak demand that contributes to capacity: `EPC / Peak Load` (or `EPC / Baseline Peak` for the load reduction resource).")
                 
                 st.markdown("<br>", unsafe_allow_html=True)
-                st.markdown("#### 📊 Peak vs. Off-Peak Demand Diagnostics (Top 100 CWFT Hours)")
+                st.markdown("#### Peak vs. Off-Peak Demand Diagnostics (Top 100 CWFT Hours)")
                 st.markdown("Quantifies electricity demand behavior during the Top 100 reliability constraint hours vs. the rest of the year.")
                 
                 demand_diag_table = {
@@ -1222,10 +1295,11 @@ else:
                 st.dataframe(pd.DataFrame(demand_diag_table), use_container_width=True, hide_index=True)
 
             # ------------------------------------------------------------------
-            # TAB 5: LIFETIME NPV & SCENARIO MANAGER
+            # TAB 6: SCENARIO MANAGER (save/compare runs)
             # ------------------------------------------------------------------
             with tab_scenarios:
-                st.markdown("### ⏳ Lifetime NPV Discounting & Case manager")
+                st.markdown("### Scenario Manager")
+                st.caption("Save the current run's key results under a name, then compare multiple runs side by side.")
                 
                 # Save scenario current run section
                 col_save1, col_save2 = st.columns([3, 1])
@@ -1233,7 +1307,7 @@ else:
                     scenario_run_name = st.text_input("Enter Scenario Run name to save", value="Base Run")
                 with col_save2:
                     st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                    if st.button("💾 Save Current Run", type="secondary", use_container_width=True):
+                    if st.button("Save Current Run", type="secondary", use_container_width=True):
                         new_run = {
                             "Name": scenario_run_name,
                             "Grid Scenario": selected_scenario,
@@ -1252,7 +1326,7 @@ else:
                         
                 # Table of saved runs
                 if st.session_state['saved_runs']:
-                    st.markdown("#### 📊 Side-by-side run comparisons")
+                    st.markdown("#### Side-by-side run comparisons")
                     runs_df = pd.DataFrame(st.session_state['saved_runs'])
                     
                     st.dataframe(
@@ -1266,61 +1340,49 @@ else:
                         use_container_width=True, hide_index=True
                     )
                     
-                    if st.button("🗑️ Clear saved runs"):
+                    if st.button("Clear saved runs"):
                         st.session_state['saved_runs'] = []
                         st.rerun()
                 else:
                     st.info("No saved runs. Give your current configuration a name and click **Save Current Run** to build a comparison database.")
-                    
-                st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown("#### 📈 Discounted cash flow streams")
-                # Cash Flow Plotly Bar Chart
-                projected_grid_nominal = annual_grid_savings * grid_esc_factors * deg_factors
-                projected_grid_disc = annual_grid_savings * grid_pv_multipliers
-                
-                projected_lost_nominal = annual_lost_revenue * retail_esc_factors * deg_factors
-                projected_lost_disc = annual_lost_revenue * retail_pv_multipliers
-                
-                fig_lifetime = build_lifetime_npv_chart(
-                    years, projected_grid_nominal, projected_grid_disc, projected_lost_disc
-                )
-                st.plotly_chart(fig_lifetime, use_container_width=True)
 
             # ------------------------------------------------------------------
-            # TAB 6: DEBUGGER & TOP VALUE HOURS EXPORT
+            # TAB 7: DIAGNOSTICS & TOP HOURS EXPORT
             # ------------------------------------------------------------------
-            with tab_top_hours:
-                st.markdown("### 🔍 Validation and top avoided cost constraint hours")
-                
-                # Check validation items
-                cwft_sum = cwft_array.sum()
-                capacity_math_ok = np.isclose(annual_gen_cap_savings, cap_value * (load_reduction * cwft_array).sum(), atol=1e-2)
-                shape_length_ok = (len(baseline_load) == 8760) and (len(proposed_load) == 8760)
-                
-                st.markdown("#### ⚙️ Validation checks")
-                col_chk1, col_chk2, col_chk3, col_chk4 = st.columns(4)
-                with col_chk1:
-                    if np.isclose(cwft_sum, 1.0, atol=1e-3):
-                        st.success(f"✓ Sum(CWFT) = {cwft_sum:.4f}")
-                    else:
-                        st.error(f"✗ Sum(CWFT) = {cwft_sum:.4f}")
-                with col_chk2:
-                    if capacity_math_ok:
-                        st.success(f"✓ Capacity ECC x EPC matches")
-                    else:
-                        st.warning(f"⚠ Capacity ECC x EPC warning")
-                with col_chk3:
-                    if shape_length_ok:
-                        st.success(f"✓ Shapes match 8760 hrs")
-                    else:
-                        st.error(f"✗ Shapes mismatch 8760 hrs")
-                with col_chk4:
-                    st.info(f"⚡ Mapped: Energy $\\rightarrow$ `{mapped_e_col}`, Carbon $\\rightarrow$ `{mapped_c_col}`")
-                        
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.markdown("#### 🧮 Capacity avoided cost mathematical trace")
-                st.markdown(
-                    f"""This trace proves the causality between building load shape reduction and capacity credits.
+            with tab_diagnostics:
+                st.markdown("### Top avoided cost constraint hours")
+                st.markdown("Exposes hours with highest value to verify temperature coincidences and clean calendar shifts.")
+
+                with st.expander("Validation checks & capacity math trace", expanded=False):
+                    # Check validation items
+                    cwft_sum = cwft_array.sum()
+                    capacity_math_ok = np.isclose(annual_gen_cap_savings, cap_value * (load_reduction * cwft_array).sum(), atol=1e-2)
+                    shape_length_ok = (len(baseline_load) == 8760) and (len(proposed_load) == 8760)
+
+                    st.markdown("#### Validation checks")
+                    col_chk1, col_chk2, col_chk3, col_chk4 = st.columns(4)
+                    with col_chk1:
+                        if np.isclose(cwft_sum, 1.0, atol=1e-3):
+                            st.success(f"Sum(CWFT) = {cwft_sum:.4f}")
+                        else:
+                            st.error(f"Sum(CWFT) = {cwft_sum:.4f}")
+                    with col_chk2:
+                        if capacity_math_ok:
+                            st.success("Capacity ECC x EPC matches")
+                        else:
+                            st.warning("Capacity ECC x EPC warning")
+                    with col_chk3:
+                        if shape_length_ok:
+                            st.success("Shapes match 8760 hrs")
+                        else:
+                            st.error("Shapes mismatch 8760 hrs")
+                    with col_chk4:
+                        st.info(f"Mapped: Energy $\\rightarrow$ `{mapped_e_col}`, Carbon $\\rightarrow$ `{mapped_c_col}`")
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown("#### Capacity avoided cost mathematical trace")
+                    st.markdown(
+                        f"""This trace proves the causality between building load shape reduction and capacity credits.
 - **Generation Capacity avoided costs:**
   $$\\text{{Capacity Credit}} = \\text{{ECC}} \\times \\text{{EPC Reduction}} = \\${cap_value:,.2f}/\\text{{kW-yr}} \\times {epc_reduction:.4f}\\text{{ kW}} = \\mathbf{{\\${cap_value * epc_reduction:,.2f}/\\text{{yr}}}}$$
   *(Matches Gen Capacity Avoided Costs: **${annual_gen_cap_savings:,.2f}/yr**)*
@@ -1331,13 +1393,8 @@ else:
   $$\\text{{Distribution Credit}} = \\text{{Distribution Scalar}} \\times \\text{{Peak Avg Reduction}} = \\${dist_value:,.2f}/\\text{{kW-yr}} \\times {avg_reduct_pcaf:.4f}\\text{{ kW}} = \\mathbf{{\\${dist_value * avg_reduct_pcaf:,.2f}/\\text{{yr}}}}$$
   *(Matches Distribution Deferral Avoided Costs: **${annual_dist_savings:,.2f}/yr**)*
 """
-                )
-                st.markdown("<hr>", unsafe_allow_html=True)
-                
-                # Top value hours selection
-                st.markdown("#### 🔑 Top avoided cost constraint hours")
-                st.markdown("Exposes hours with highest value to verify temperature coincidences and clean calendar shifts.")
-                
+                    )
+
                 top_limit = st.slider("Select number of peak hours to export", min_value=10, max_value=100, value=50, step=10)
                 
                 sort_col = st.selectbox("Sort top hours by:", ["Total avoided cost rate ($/MWh)", "CWFT weight", "Wholesale marginal energy price ($/MWh)"])
@@ -1379,36 +1436,13 @@ else:
                 
                 debug_csv = top_hours.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label=f"📥 Download Top {top_limit} Stress Hours CSV",
+                    label=f"Download Top {top_limit} Stress Hours CSV",
                     data=debug_csv,
                     file_name=f"top_{top_limit}_stress_hours.csv",
                     mime="text/csv",
                     use_container_width=True
                 )
 
-            # ------------------------------------------------------------------
-            # TAB 7: CALIBRATION GUIDE
-            # ------------------------------------------------------------------
-            with tab_guide:
-                st.markdown("### 🌡️ EPW & Weather Calibration Guide")
-                st.markdown(
-                    """To conduct a valid Marginal Cost study for electric heat pumps, water heaters, or battery storage, 
-the simulated hourly demand shapes must line up with the grid dataset chronologically."""
-                )
-                
-                st.warning(
-                    "⚠️ **CRITICAL ALIGNMENT RULES:**\n\n"
-                    "1. **Weather Year Sync:** Ensure your building simulator uses the **2012 AMY (Actual Meteorological Year)** weather file (`.epw`). Mismatched years displace winter cold snaps, skewing the capacity coincidence value.\n\n"
-                    "2. **Calendar Shift:** 2012 began on a **Sunday**. Ensure your load simulation starts on a Sunday so weekend occupied patterns align with Cambium grid weekday rate periods.\n\n"
-                    "3. **Standard Time:** Standardize on **Local Standard Time (LST)** year-round. Mismatched daylight savings transitions displace load spikes by 1 hour, incorrectly zeroing out capacity savings."
-                )
-
-            # ------------------------------------------------------------------
-            # TAB 8: AMY WEATHER GENERATOR (diyepw)
-            # ------------------------------------------------------------------
-            with tab_weather_gen:
-                render_weather_generator("results")
-
         except Exception as e:
-            st.error(f"❌ **Data Processing/CSV Parsing Error:** {str(e)}")
+            st.error(f"**Data Processing/CSV Parsing Error:** {str(e)}")
             st.info("Check your inputs and file paths. Ensure files represent exactly 8760 hours.")
