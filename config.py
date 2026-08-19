@@ -50,7 +50,7 @@ WEATHER_CASE_OPTIONS = [
 ]
 
 STATE_OPTIONS = ["AL", "GA", "FL", "TN", "MS", "NC", "SC"]
-DEFAULT_STATES = ["AL", "GA"]
+DEFAULT_STATES = ["AL"]
 
 
 # ==============================================================================
@@ -263,9 +263,36 @@ div[data-testid="metric-container"]:hover {
 div[data-testid="stTabs"] {
     overflow-x: auto !important;
 }
+div[data-testid="stTabs"] [role="tablist"] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    border-bottom: 2px solid #E2E8F0 !important;
+    padding-bottom: 6px !important;
+}
+div[data-testid="stTabs"] button[role="tab"] {
+    height: auto !important;
+    padding: 8px 16px !important;
+    border-radius: 8px !important;
+    white-space: nowrap !important;
+    background-color: #F8FAFC !important;
+    border: 1px solid #CBD5E1 !important;
+    margin-right: 4px !important;
+}
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+    background-color: #0D9488 !important;
+    color: #FFFFFF !important;
+    border-color: #0D9488 !important;
+    font-weight: 700 !important;
+}
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] span,
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p,
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] div {
+    color: #FFFFFF !important;
+}
+/* Fallback selectors for older Streamlit/BaseWeb DOM structures */
 div[data-baseweb="tab-list"] {
     flex-wrap: wrap !important;
-    gap: 6px !important;
+    gap: 8px !important;
     border-bottom: 2px solid #E2E8F0 !important;
     padding-bottom: 6px !important;
 }
@@ -276,7 +303,7 @@ div[data-baseweb="tab"] {
     white-space: nowrap !important;
     background-color: #F8FAFC !important;
     border: 1px solid #CBD5E1 !important;
-    margin-right: 2px !important;
+    margin-right: 4px !important;
 }
 div[data-baseweb="tab"][aria-selected="true"] {
     background-color: #0D9488 !important;

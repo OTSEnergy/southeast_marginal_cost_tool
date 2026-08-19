@@ -34,6 +34,7 @@ TESTED BY:
 """
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -462,3 +463,103 @@ def build_lifetime_npv_chart(years, projected_grid_nominal,
                     xanchor="right", x=1)
     )
     return fig
+
+
+def build_temp_power_cost_bubble_chart(temp_vals, baseline_load, proposed_load,
+                                        baseline_cost_hr, proposed_cost_hr,
+                                        datetime_vals=None, front="Proposed"):
+    """
+    Build a bubble chart of hourly grid avoided cost ($/hr) vs. Outdoor Air
+    Temperature (°F), with bubble size representing hourly Building Demand
+    (kW) — so hours with high cost AND high demand stand out as large
+    bubbles high on the chart. Both Baseline and Proposed cases are
+    plotted; the case NOT selected as `front` is drawn faded in the
+    background so the other stands out.
+
+    Parameters
+    ----------
+    temp_vals : np.ndarray
+        Outdoor air temperature (°F) for all 8760 hours.
+    baseline_load : np.ndarray
+        Baseline hourly load (kW).
+    proposed_load : np.ndarray
+        Proposed hourly load (kW).
+    baseline_cost_hr : np.ndarray
+        Hourly grid avoided-cost value ($/hr, actual dollars) of the baseline load.
+    proposed_cost_hr : np.ndarray
+        Hourly grid avoided-cost value ($/hr, actual dollars) of the proposed load.
+    datetime_vals : array-like of datetime, optional
+        Timestamp for each hour, used to show a short "day-of-week, date,
+        hour" label in the hover tooltip (e.g. "Wed 08/19 14:00").
+    front : str
+        Which case to draw on top at full opacity: "Baseline" or "Proposed".
+        The other case is drawn first, faded into the background.
+
+    Returns
+    -------
+    go.Figure
+        Scattergl bubble chart, X = temperature, Y = hourly cost, size = demand.
+    """
+    series = {
+        "Baseline": dict(y=baseline_cost_hr, size=baseline_load, color=COLORS["red"]),
+        "Proposed": dict(y=proposed_cost_hr, size=proposed_load, color=COLORS["teal"]),
+    }
+    front = front if front in series else "Proposed"
+    back = "Baseline" if front == "Proposed" else "Proposed"
+
+    # Non-negative bubble sizes (load values shouldn't be negative in
+    # practice, but clip defensively so Plotly never receives a negative size).
+    max_load = max(
+        np.clip(baseline_load, 0, None).max(),
+        np.clip(proposed_load, 0, None).max(),
+        1e-9,
+    )
+
+    # Short-form "day-of-week date hour" label for the hover tooltip, e.g. "Wed 08/19 14:00".
+    if datetime_vals is not None:
+        date_labels = pd.to_datetime(pd.Series(datetime_vals)).dt.strftime('%a %m/%d %H:%M').to_numpy()
+    else:
+        date_labels = np.full(len(temp_vals), "")
+
+    hover_template = (
+        "%{customdata[0]}<br>"
+        "Temp: %{x:.1f} °F<br>"
+        "Cost: $%{y:.1f}/hr<br>"
+        "Power: %{customdata[1]:.1f} kW<extra>%{fullData.name}</extra>"
+    )
+
+    fig = go.Figure()
+    for name in (back, front):
+        d = series[name]
+        is_front = (name == front)
+        size_vals = np.clip(d["size"], 0, None)
+        customdata = np.column_stack([date_labels, size_vals])
+        fig.add_trace(go.Scattergl(
+            x=temp_vals, y=d["y"],
+            mode="markers",
+            name=f"{name} Load",
+            customdata=customdata,
+            hovertemplate=hover_template,
+            marker=dict(
+                size=size_vals,
+                sizemode="area",
+                sizeref=2.0 * max_load / (38.0 ** 2),
+                sizemin=2,
+                color=d["color"],
+                opacity=0.85 if is_front else 0.22,
+                line=dict(width=0),
+            ),
+        ))
+
+    fig.update_layout(
+        title=f"Temperature vs. Hourly Cost (bubble = building demand) — {front} in front",
+        template="plotly_white",
+        height=480,
+        margin=dict(l=40, r=40, t=40, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    fig.update_xaxes(title_text="Outdoor Air Temperature (°F)")
+    fig.update_yaxes(title_text="Grid Avoided Cost ($/hr)")
+
+    return fig
+

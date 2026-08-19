@@ -42,6 +42,7 @@ from visualizations import (
     build_annual_avoided_cost_chart,
     build_stacked_components_chart,
     build_lifetime_npv_chart,
+    build_temp_power_cost_bubble_chart,
 )
 from calculations import (
     calculate_avoided_costs,
@@ -291,10 +292,13 @@ with st.sidebar.expander("Grid Scenario & Region", expanded=True):
     )
 
     target_states = st.multiselect(
-        "Target States",
+        "State(s)",
         options=STATE_OPTIONS,
-        default=DEFAULT_STATES
+        default=DEFAULT_STATES,
+        help="Which state's Cambium grid price data to value against. Selecting more than one averages their hourly prices together into a single blended series."
     )
+    if len(target_states) > 1:
+        st.caption(f"Averaging grid prices across {len(target_states)} states: {', '.join(target_states)}.")
 
 # 2. Demand Response toggle (kept ahead of Building & Load Data below, since the
 # load profile column logic branches on dr_mode).
@@ -587,59 +591,42 @@ if not st.session_state['simulation_executed']:
     ])
     
     with welcome_tab_instruct:
+        st.markdown("##### Before you run, check three things:")
         st.markdown(
-            """<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 30px; border-radius: 12px; margin-top: 10px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05); font-family: sans-serif;">
-<h3 style="margin-top: 0; color: #1E3A8A; font-weight: 700; border-bottom: 2px solid #DBEAFE; padding-bottom: 8px;">
-Instructions: Preparing Inputs for Energy & Capacity Valuation
-</h3>
-<p style="color: #475569; line-height: 1.6; font-size: 1.05rem;">
-To calculate both <strong>Energy Avoided Cost Savings</strong> and <strong>Capacity Deferral Savings (from CWFT)</strong> in a single run, the calculator requires two chronologically synchronized CSV files.
-</p>
-<h4 style="color: #0F766E; margin-top: 20px; font-weight: 600;">1. Load Profiles Input (<code>load_profiles.csv</code>)</h4>
-<p style="color: #475569; line-height: 1.6; margin-bottom: 8px;">
-This file contains the hourly electricity consumption (kW) for your baseline and proposed systems (e.g. standard vs. high-efficiency heat pump), typically simulated in EnergyPlus.
-</p>
-<ul style="padding-left: 20px; color: #475569; line-height: 1.6;">
-<li><strong>Format:</strong> Must contain exactly <strong>8,760 rows</strong> of hourly data.</li>
-<li><strong>Columns:</strong> An <code>Hour</code> index column (1 to 8760) and at least one load profile column (e.g. <code>Standard_Heat_Pump_kW</code>). You can include multiple columns to evaluate several systems side-by-side.</li>
-<li><strong>Units:</strong> Electric demand must be in <strong>kilowatts (kW)</strong>.</li>
-</ul>
-<h4 style="color: #0F766E; margin-top: 20px; font-weight: 600;">2. Capacity Worth Factor Table Input (<code>CWFT.csv</code>)</h4>
-<p style="color: #475569; line-height: 1.6; margin-bottom: 8px;">
-This file allocates fixed annual generation capacity value ($/kW-yr) into hourly weights based on grid reliability risk.
-</p>
-<ul style="padding-left: 20px; color: #475569; line-height: 1.6;">
-<li><strong>Format:</strong> Must contain exactly <strong>8,760 rows</strong>.</li>
-<li><strong>Columns:</strong> An <code>Hour</code> index column (1 to 8760) and a <code>CWFT</code> column containing the allocation weights.</li>
-<li><strong>Constraint:</strong> The sum of the <code>CWFT</code> column <strong>MUST equal exactly 1.0 (100%)</strong> so that the annual capacity value is precisely recovered.</li>
-</ul>
-<h4 style="color: #0F766E; margin-top: 20px; font-weight: 600;">How to Find an NREL URDB Rate Label</h4>
-<p style="color: #475569; line-height: 1.6; margin-bottom: 8px;">
-To import custom tariffs dynamically from NREL's OpenEI database:
-</p>
-<ol style="padding-left: 20px; color: #475569; line-height: 1.6;">
-<li>Go to the <a href="https://openei.org/wiki/Utility_Rate_Database" target="_blank" style="color: #0D9488; font-weight: 600; text-decoration: underline;">NREL Utility Rate Database (URDB)</a>.</li>
-<li>Search for your utility company (e.g., <em>"Georgia Power Co"</em>) and select your target rate plan.</li>
-<li>Look at the URL in your browser address bar. The <strong>Rate Label</strong> is the final segment of the URL (e.g., in <code>https://openei.org/apps/USURDB/rate/view/5d4b00595457a3e73a0e6988</code>, the label is <code>5d4b00595457a3e73a0e6988</code>).</li>
-</ol>
-<h4 style="color: #B45309; margin-top: 25px; border-top: 1px solid #FED7AA; padding-top: 15px; font-weight: 600;">
-Critical Alignment Rules to Satisfy Both Calculations
-</h4>
-<p style="color: #475569; line-height: 1.6; margin-bottom: 8px;">
-Because grid risk and heat pump loads are highly non-linear and temperature-coincident, your files must align:
-</p>
-<ol style="padding-left: 20px; color: #475569; line-height: 1.6;">
-<li><strong>Weather Year Match:</strong> Both the building load shape (E+ output) and the grid risk shape (CWFT) must represent the <strong>same historical weather year</strong> (e.g., 2012 AMY).</li>
-<li><strong>Calendar Match:</strong> Both files must start on the same day of the week (e.g., if 2012 started on Sunday, Hour 1 must be Sunday for both load and CWFT).</li>
-<li><strong>Local Standard Time:</strong> Disable daylight savings offsets in your building simulations to ensure hours 1 to 8760 line up exactly.</li>
-</ol>
-<p style="color: #64748B; font-style: italic; margin-top: 20px; border-top: 1px solid #E2E8F0; padding-top: 15px;">
-<b>Note:</b> A default mock setup (dual-peak 2012 weather profile for AL/GA) will be written to <code>CWFT.csv</code> and <code>load_profiles.csv</code> automatically in your main directory if the files are not found on execution.
-</p>
-</div>""",
-            unsafe_allow_html=True
+            "1. **Load profile CSV** — 8,760 hourly rows; baseline + proposed columns (kW)\n"
+            "2. **CWFT.csv** — 8,760 rows; capacity-risk weights that sum to 1.0\n"
+            "3. **Weather years match** — load data, Cambium grid data, and CWFT all use the same year"
         )
-        
+        st.caption("No files yet? A default example is generated automatically the first time you run.")
+
+        with st.expander("File format details (Load Profiles & CWFT)"):
+            st.markdown(
+                """**Load Profiles (`load_profiles.csv`)** — hourly electricity consumption (kW) for your baseline and proposed systems (e.g. standard vs. high-efficiency heat pump), typically simulated in EnergyPlus.
+- **Format:** exactly 8,760 rows of hourly data.
+- **Columns:** an `Hour` index column (1–8760) plus at least one load profile column (e.g. `Standard_Heat_Pump_kW`). Multiple columns can be included to compare several systems.
+- **Units:** kilowatts (kW).
+
+**Capacity Worth Factor Table (`CWFT.csv`)** — allocates fixed annual generation capacity value ($/kW-yr) into hourly weights based on grid reliability risk.
+- **Format:** exactly 8,760 rows.
+- **Columns:** an `Hour` index column (1–8760) and a `CWFT` column of allocation weights.
+- **Constraint:** the `CWFT` column must sum to exactly 1.0 (100%) so annual capacity value is recovered precisely."""
+            )
+
+        with st.expander("How to find an NREL URDB rate label"):
+            st.markdown(
+                """1. Go to the [NREL Utility Rate Database (URDB)](https://openei.org/wiki/Utility_Rate_Database).
+2. Search for your utility (e.g. *"Georgia Power Co"*) and select your target rate plan.
+3. The **Rate Label** is the last segment of the URL — e.g. in `https://openei.org/apps/USURDB/rate/view/5d4b00595457a3e73a0e6988`, the label is `5d4b00595457a3e73a0e6988`."""
+            )
+
+        with st.expander("Why file alignment matters"):
+            st.markdown(
+                """Grid risk and building loads are both temperature-driven, so your files must line up hour-for-hour:
+1. **Weather year match:** the building load shape (E+ output) and the grid risk shape (CWFT) must represent the same historical weather year (e.g. 2012 AMY).
+2. **Calendar match:** both files must start on the same day of the week.
+3. **Local standard time:** disable daylight savings in building simulations so hours 1–8760 line up exactly."""
+            )
+
     with welcome_tab_weather_gen:
         render_weather_generator("welcome")
 else:
@@ -842,8 +829,6 @@ else:
             max_corr = max(abs(heat_corr), abs(cool_corr))
             ws_style = get_weather_sensitivity_style(max_corr)
             weather_sensitivity_status = ws_style["label"]
-            weather_color = ws_style["bg_color"]
-            weather_text_color = ws_style["text_color"]
                 
             weather_aligned = (meta_load_weather == meta_cambium_weather == meta_cwft_weather)
             alignment_status = f"{weather_sensitivity_status} | User Label: {'Aligned' if weather_aligned else 'Mixed'}"
@@ -852,7 +837,7 @@ else:
             # TABS DISPLAY
             # ==================================================================
             tab_setup, tab_summary, tab_calculator, tab_charts, tab_weather_diag, tab_scenarios, tab_diagnostics = st.tabs([
-                "Setup & Calibration Guide",
+                "Calibration Check",
                 "Overview Scorecard",
                 "Cost-Effectiveness Table",
                 "Charts",
@@ -862,41 +847,45 @@ else:
             ])
 
             # ------------------------------------------------------------------
-            # TAB 1: SETUP & CALIBRATION GUIDE (moved to front — setup-stage tools)
+            # TAB 1: CALIBRATION CHECK (does the weather actually line up?)
             # ------------------------------------------------------------------
             with tab_setup:
-                st.markdown("### EPW & Weather Calibration Guide")
-                st.markdown(
-                    """To conduct a valid Marginal Cost study for electric heat pumps, water heaters, or battery storage, 
-the simulated hourly demand shapes must line up with the grid dataset chronologically."""
-                )
+                if weather_aligned:
+                    st.success(
+                        f"**Weather Year Alignment: PASS** \u2014 Load, Cambium grid, and CWFT data are all documented as **{meta_load_weather}**."
+                    )
+                else:
+                    st.error(
+                        f"**Weather Year Alignment: MISMATCH** \u2014 Load = **{meta_load_weather}**, Cambium Grid = **{meta_cambium_weather}**, "
+                        f"CWFT = **{meta_cwft_weather}**. Capacity coincidence values may be skewed. Align these in the sidebar's "
+                        "Building/Technology section."
+                    )
 
-                st.warning(
-                    "**Critical alignment rules:**\n\n"
-                    "1. **Weather Year Sync:** Ensure your building simulator uses the **2012 AMY (Actual Meteorological Year)** weather file (`.epw`). Mismatched years displace winter cold snaps, skewing the capacity coincidence value.\n\n"
-                    "2. **Calendar Shift:** 2012 began on a **Sunday**. Ensure your load simulation starts on a Sunday so weekend occupied patterns align with Cambium grid weekday rate periods.\n\n"
-                    "3. **Standard Time:** Standardize on **Local Standard Time (LST)** year-round. Mismatched daylight savings transitions displace load spikes by 1 hour, incorrectly zeroing out capacity savings."
-                )
+                st.markdown(f"**Temperature Sensitivity Check:** {weather_sensitivity_status} (max $r$ = {max_corr:.2f})")
+                st.caption(f"Heating season correlation: {heat_corr:.2f}  |  Cooling season correlation: {cool_corr:.2f}")
+                st.caption("Confirms the load profile responds to temperature as expected \u2014 this is a sanity check, not a substitute for the year-alignment check above.")
 
-                st.markdown("---")
-                st.markdown("### AMY Weather Generator (`diyepw`)")
-                render_weather_generator("results")
+                with st.expander("Alignment rules & how to fix a mismatch"):
+                    st.markdown(
+                        """To conduct a valid Marginal Cost study for electric heat pumps, water heaters, or battery storage,
+the simulated hourly demand shapes must line up with the grid dataset chronologically.
+
+1. **Weather Year Sync:** Ensure your building simulator uses the same AMY (Actual Meteorological Year) as the Cambium grid data (e.g. 2012). Mismatched years displace winter cold snaps, skewing the capacity coincidence value.
+2. **Calendar Shift:** Verify both files start on the same day of the week so weekend occupied patterns align with Cambium grid weekday rate periods.
+3. **Standard Time:** Standardize on Local Standard Time (LST) year-round. Mismatched daylight savings transitions displace load spikes by 1 hour, incorrectly zeroing out capacity savings."""
+                    )
+
+                with st.expander("Need a different weather year? Generate an AMY EPW file"):
+                    render_weather_generator("results")
 
             # ------------------------------------------------------------------
             # TAB 2: EXECUTIVE SUMMARY
             # ------------------------------------------------------------------
             with tab_summary:
-                # Weather Sensitivity and Year Alignment Row
-                st.markdown(
-                    f"""<div style="background-color: {weather_color}; border: 1px solid {ws_style['border_color']}; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.95rem; color: {weather_text_color};">
-<b>Weather Sensitivity Check (NOT year alignment):</b> <b>{weather_sensitivity_status}</b> (Max $r = {max_corr:.2f}$)<br>
-• Heating Season Correlation: <b>{heat_corr:.2f}</b> | • Cooling Season Correlation: <b>{cool_corr:.2f}</b><br>
-• Documented Weather Years: Load = <b>{meta_load_weather}</b> | Cambium Grid = <b>{meta_cambium_weather}</b> | CWFT = <b>{meta_cwft_weather}</b> {'(Aligned)' if weather_aligned else '(Mixed)'}<br>
-<i>Note: This check confirms temperature-driven responsiveness of the load profile, NOT perfect chronological synchronization with Cambium weather. Users must still ensure matching weather years (e.g. 2012) are loaded for both.</i>
-</div>""",
-                    unsafe_allow_html=True
-                )
-                
+                # Full weather sensitivity + year-alignment check now lives in the Calibration Check tab.
+                if not weather_aligned:
+                    st.warning("Weather years are not aligned across Load/Cambium/CWFT \u2014 see the **Calibration Check** tab for details.")
+
                 # Main KPI row
                 col1, col2, col3, col4, col5 = st.columns(5)
                 with col1:
@@ -1089,45 +1078,13 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 st.dataframe(df_val, use_container_width=True, hide_index=True)
                 
             # ------------------------------------------------------------------
-            # TAB 4: CHARTS (all visualizations, grouped by audience)
+            # TAB 4: CHARTS (ordered simplest/most relatable → most technical)
             # ------------------------------------------------------------------
             with tab_charts:
                 st.markdown("### Charts")
-                st.caption("All grid, cost, and building-load visualizations for this run, grouped by audience.")
+                st.caption("All grid, cost, and building-load visualizations for this run, ordered from the building level up to the full financial picture.")
 
-                # --- Group 1: Overall Scorecard ---
-                st.markdown("#### Overall Scorecard — Lifetime Cash Flow")
-                projected_grid_nominal = annual_grid_savings * grid_esc_factors * deg_factors
-                projected_grid_disc = annual_grid_savings * grid_pv_multipliers
-                projected_lost_disc = annual_lost_revenue * retail_pv_multipliers
-
-                fig_lifetime = build_lifetime_npv_chart(
-                    years, projected_grid_nominal, projected_grid_disc, projected_lost_disc
-                )
-                st.plotly_chart(fig_lifetime, use_container_width=True)
-
-                st.markdown("---")
-                # --- Group 2: Utility Cost Tests ---
-                st.markdown("#### Utility Cost Tests — Annual Wholesale Avoided Cost Distribution")
-                st.caption("Distribution of the wholesale energy, generation capacity (CWFT), transmission & distribution (PCAF), and emissions value.")
-
-                fig_grid_full = build_annual_avoided_cost_chart(results_df)
-                st.plotly_chart(fig_grid_full, use_container_width=True)
-
-                col_st1, col_st2 = st.columns(2)
-                with col_st1:
-                    st.markdown("##### Winter morning peak details (Jan 1-7)")
-                    winter_slice = results_df.iloc[0:168]
-                    fig_w_stack = build_stacked_components_chart(winter_slice, show_legend=True)
-                    st.plotly_chart(fig_w_stack, use_container_width=True)
-
-                with col_st2:
-                    st.markdown("##### Summer afternoon peak details (Jul 15-21)")
-                    summer_slice = results_df.iloc[4680:4848]
-                    fig_s_stack = build_stacked_components_chart(summer_slice, show_legend=False)
-                    st.plotly_chart(fig_s_stack, use_container_width=True)
-
-                st.markdown("##### Weekly Grid Avoided Cost Economics")
+                # --- Shared week selector (used by the first two chart groups below) ---
                 selected_week = st.selectbox("Select Analysis Week Window", options=list(WEEK_WINDOWS.keys()), index=0)
                 start_h, end_h = WEEK_WINDOWS[selected_week]
 
@@ -1136,6 +1093,20 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 proposed_slice = proposed_load[start_h:end_h]
                 reduction_slice = load_reduction[start_h:end_h]
                 temp_slice = results_df['Temperature_F'].iloc[start_h:end_h].to_numpy()
+
+                st.markdown("---")
+                # --- Group 1: Customer & Building Load (simplest, most relatable) ---
+                st.markdown("#### Customer & Building Load — Weekly Demand vs. Outdoor Temperature")
+                st.caption(f"Building heating/cooling demand vs. outdoor air temperature (°F) for `{selected_week}`.")
+                fig_load_temp = build_weekly_load_and_temp_chart(
+                    dt_slice, baseline_slice, proposed_slice, temp_slice
+                )
+                st.plotly_chart(fig_load_temp, use_container_width=True)
+
+                st.markdown("---")
+                # --- Group 2: Weekly Grid Economics (one layer deeper — dollars, still weekly) ---
+                st.markdown("#### Weekly Grid Avoided Cost Economics")
+                st.caption(f"Hourly grid avoided-cost value and customer bill impact for `{selected_week}`.")
 
                 econ_view_mode = st.radio(
                     "Grid Economics View Mode",
@@ -1161,20 +1132,70 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 col_g2.caption(f"Total Customer Retail Bill Savings for `{selected_week}`: **${total_week_customer_savings:,.2f}**")
 
                 st.markdown("---")
-                # --- Group 3: Customer & Building Load ---
-                st.markdown("#### Customer & Building Load — Weekly Demand vs. Outdoor Temperature")
-                st.caption(f"Building heating/cooling demand vs. outdoor air temperature (°F) for `{selected_week}`.")
-                fig_load_temp = build_weekly_load_and_temp_chart(
-                    dt_slice, baseline_slice, proposed_slice, temp_slice
+                # --- Group 3: Utility Cost Tests (deeper — full year, component decomposition) ---
+                st.markdown("#### Utility Cost Tests — Annual Wholesale Avoided Cost Distribution")
+                st.caption("Distribution of the wholesale energy, generation capacity (CWFT), transmission & distribution (PCAF), and emissions value.")
+
+                fig_grid_full = build_annual_avoided_cost_chart(results_df)
+                st.plotly_chart(fig_grid_full, use_container_width=True)
+
+                col_st1, col_st2 = st.columns(2)
+                with col_st1:
+                    st.markdown("##### Winter morning peak details (Jan 1-7)")
+                    winter_slice = results_df.iloc[0:168]
+                    fig_w_stack = build_stacked_components_chart(winter_slice, show_legend=True)
+                    st.plotly_chart(fig_w_stack, use_container_width=True)
+
+                with col_st2:
+                    st.markdown("##### Summer afternoon peak details (Jul 15-21)")
+                    summer_slice = results_df.iloc[4680:4848]
+                    fig_s_stack = build_stacked_components_chart(summer_slice, show_legend=False)
+                    st.plotly_chart(fig_s_stack, use_container_width=True)
+
+                st.markdown("---")
+                # --- Group 4: Overall Scorecard (most technical — lifetime discounted cash flow) ---
+                st.markdown("#### Overall Scorecard — Lifetime Cash Flow")
+                projected_grid_nominal = annual_grid_savings * grid_esc_factors * deg_factors
+                projected_grid_disc = annual_grid_savings * grid_pv_multipliers
+                projected_lost_disc = annual_lost_revenue * retail_pv_multipliers
+
+                fig_lifetime = build_lifetime_npv_chart(
+                    years, projected_grid_nominal, projected_grid_disc, projected_lost_disc
                 )
-                st.plotly_chart(fig_load_temp, use_container_width=True)
+                st.plotly_chart(fig_lifetime, use_container_width=True)
 
             # ------------------------------------------------------------------
             # TAB 5: WEATHER & PEAK COINCIDENCE DIAGNOSTICS
             # ------------------------------------------------------------------
             with tab_weather_diag:
                 st.markdown("### Temperature & grid coincidence diagnostics")
-                
+
+                # Hourly grid avoided-cost value ($/hr) of serving Baseline vs. Proposed load,
+                # used as the bubble-size dimension below.
+                baseline_grid_cost_hr = (baseline_load / 1000.0) * results_df['Total_Avoided_Cost_MWh'].to_numpy()
+                proposed_grid_cost_hr = (proposed_load / 1000.0) * results_df['Total_Avoided_Cost_MWh'].to_numpy()
+
+                st.markdown("#### Temperature vs. Cost vs. Power")
+                st.caption("Each dot is one hour of the year. X = outdoor temperature, Y = grid avoided cost ($/hr) of serving that hour, bubble size = building power demand (kW).")
+                bubble_front = st.radio(
+                    "Bring to front",
+                    options=["Proposed", "Baseline"],
+                    horizontal=True,
+                    help="The selected case is drawn on top at full opacity; the other case is faded into the background."
+                )
+                fig_temp_power_cost = build_temp_power_cost_bubble_chart(
+                    temp_vals=results_df['Temperature_F'].to_numpy(),
+                    baseline_load=baseline_load,
+                    proposed_load=proposed_load,
+                    baseline_cost_hr=baseline_grid_cost_hr,
+                    proposed_cost_hr=proposed_grid_cost_hr,
+                    datetime_vals=results_df['Datetime'],
+                    front=bubble_front,
+                )
+                st.plotly_chart(fig_temp_power_cost, use_container_width=True)
+
+                st.markdown("<hr>", unsafe_allow_html=True)
+
                 # Extreme temperature statistics
                 temp_vals = results_df['Temperature_F'].to_numpy()
                 min_t = temp_vals.min()
