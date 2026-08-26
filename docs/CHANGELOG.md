@@ -2,6 +2,26 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-08-21] — Weather & Peak Diagnostics: Reframed Coincidence Metrics as Peak-to-Average Ratios
+
+### Context
+Reviewed the "Peak coincidence metrics" table on the Weather & Peak Diagnostics tab with John. The old "% of annual energy in top N CWFT/price hours" framing was mathematically correct but unintuitive — it conflated genuine peak concentration with the fact that top-N hours are inherently a tiny slice of the year (e.g., 100/8760 ≈ 1.14%), making even a "peaky" load look negligible (~1-3%). The adjacent "Peak vs. Off-Peak Demand Diagnostics" table's ratio framing (average demand during peak hours vs. the rest of the year) read far more intuitively. Decided to standardize on a **peak-to-average ratio** — average demand during the peak window ÷ average demand across the **full year** (not just the "off-peak" remainder) — which behaves like an industry-recognizable coincidence/peaking factor.
+
+### Added / Updated
+- **`app.py`:**
+  - Replaced the "energy share" calculations (`coinc_50_base`, `coinc_100_base`, `coinc_price_base`, and their `_prop`/`_reduct` counterparts) with peak-to-average ratio calculations (`ratio_50_*`, `ratio_100_*`, `ratio_price_*`) via a new `_peak_to_avg_ratio()` helper: `mean(Load in top-N window) / mean(Load, full year)`.
+  - Removed the separate "Peak vs. Off-Peak Demand Diagnostics" table (`demand_diag_table`) — its off-peak-denominator ratio concept is now superseded by the full-year-denominator ratios above, applied across all three peak windows (top-50 CWFT, top-100 CWFT, top-100 price) instead of just one.
+  - Merged what were two tables into a single **Peak coincidence metrics** table with columns: peak-to-avg ratio (Top 50 CWFT, ~2 days), peak-to-avg ratio (Top 100 CWFT, ~4 days), peak-to-avg ratio (Top 100 price hours, ~4 days), EPC, and ELCC proxy — one row per resource (Baseline / Proposed / Load reduction).
+  - Added hover tooltips (via `st.column_config.TextColumn(help=...)`) on every metric column explaining the exact formula, replacing the old static `st.info()` note.
+- **`docs/glossary.md`:** Rewrote the "Coincidence" and "Peak-to-Off-Peak Ratio" (now "Peak-to-Average Ratio") entries to reflect the full-year-average denominator and the reasoning for abandoning the "% of annual energy" framing.
+- **`docs/app_code_tour.md`:** Updated the Weather & Peak Diagnostics tab description (§ The 7 Tab Views, item 5) to describe the new merged ratio table instead of "top 50/100 CWFT coincidence percentages ... peak-to-off-peak demand ratios."
+
+### Verification
+- `python -m pytest`: **55/55 passing**, no regressions (all touched variables were local to the Weather & Peak Diagnostics tab's display block; no test or other tab referenced the removed `coinc_*`/`avg_offpeak_*`/`ratio_base` names).
+- Static analysis (`get_errors`) clean on `app.py` after edits.
+
+---
+
 ## [2026-08-18] — Sidebar Reorganization, Example Building Library & Tab Consolidation
 
 ### Added / Updated

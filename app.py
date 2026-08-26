@@ -771,38 +771,44 @@ else:
             # User adjustment: elcc_reduction is relative to baseline_peak_load
             elcc_reduction = epc_reduction / baseline_load.max() if baseline_load.max() > 0 else 0.0
             
-            # Peak coincidence
+            # Peak-to-average coincidence ratios: average demand during the highest-stress
+            # hours, divided by the average demand across the full year. A ratio of 2.0
+            # means the load draws twice as much power during those hours as it does normally.
+            # For the Load reduction resource, a ratio isn't meaningful (the "load" being
+            # measured is itself a difference), so it's expressed instead as the % cut in
+            # demand during that window, relative to baseline demand in that same window.
             top_50_cwft_indices = np.argsort(-cwft_array)[:50]
             top_100_cwft_indices = np.argsort(-cwft_array)[:100]
             
             top_100_price_cutoff = results_df['Cambium_Energy_MWh'].nlargest(100).min()
             top_100_price_indices = np.where(results_df['Cambium_Energy_MWh'] >= top_100_price_cutoff)[0]
             
-            coinc_50_base = baseline_load[top_50_cwft_indices].sum() / baseline_load.sum()
-            coinc_50_prop = proposed_load[top_50_cwft_indices].sum() / proposed_load.sum()
-            coinc_50_reduct = load_reduction[top_50_cwft_indices].sum() / load_reduction.sum() if load_reduction.sum() > 0 else 0.0
+            avg_full_base = baseline_load.mean()
+            avg_full_prop = proposed_load.mean()
             
-            coinc_100_base = baseline_load[top_100_cwft_indices].sum() / baseline_load.sum()
-            coinc_100_reduct = load_reduction[top_100_cwft_indices].sum() / load_reduction.sum() if load_reduction.sum() > 0 else 0.0
+            def _peak_to_avg_ratio(load_arr, peak_indices, full_avg):
+                if full_avg <= 0:
+                    return 0.0
+                return load_arr[peak_indices].mean() / full_avg
             
-            coinc_price_base = baseline_load[top_100_price_indices].sum() / baseline_load.sum()
-            coinc_price_reduct = load_reduction[top_100_price_indices].sum() / load_reduction.sum() if load_reduction.sum() > 0 else 0.0
+            def _pct_reduction_in_window(base_arr, reduct_arr, peak_indices):
+                window_base_avg = base_arr[peak_indices].mean()
+                if window_base_avg <= 0:
+                    return 0.0
+                return reduct_arr[peak_indices].mean() / window_base_avg * 100.0
             
-            # Peak vs Off-peak Average demand (Top 100 CWFT hours)
-            peak_mask_100 = np.zeros(8760, dtype=bool)
-            peak_mask_100[top_100_cwft_indices] = True
+            ratio_50_base = _peak_to_avg_ratio(baseline_load, top_50_cwft_indices, avg_full_base)
+            ratio_50_prop = _peak_to_avg_ratio(proposed_load, top_50_cwft_indices, avg_full_prop)
+            pct_reduct_50 = _pct_reduction_in_window(baseline_load, load_reduction, top_50_cwft_indices)
             
-            avg_peak_base = baseline_load[peak_mask_100].mean()
-            avg_peak_prop = proposed_load[peak_mask_100].mean()
-            avg_peak_reduct = load_reduction[peak_mask_100].mean()
+            ratio_100_base = _peak_to_avg_ratio(baseline_load, top_100_cwft_indices, avg_full_base)
+            ratio_100_prop = _peak_to_avg_ratio(proposed_load, top_100_cwft_indices, avg_full_prop)
+            pct_reduct_100 = _pct_reduction_in_window(baseline_load, load_reduction, top_100_cwft_indices)
             
-            avg_offpeak_base = baseline_load[~peak_mask_100].mean()
-            avg_offpeak_prop = proposed_load[~peak_mask_100].mean()
-            avg_offpeak_reduct = load_reduction[~peak_mask_100].mean()
+            ratio_price_base = _peak_to_avg_ratio(baseline_load, top_100_price_indices, avg_full_base)
+            ratio_price_prop = _peak_to_avg_ratio(proposed_load, top_100_price_indices, avg_full_prop)
+            pct_reduct_price = _pct_reduction_in_window(baseline_load, load_reduction, top_100_price_indices)
             
-            ratio_base = avg_peak_base / avg_offpeak_base if avg_offpeak_base > 0 else 0.0
-            ratio_prop = avg_peak_prop / avg_offpeak_prop if avg_offpeak_prop > 0 else 0.0
-            ratio_reduct = avg_peak_reduct / avg_offpeak_reduct if avg_offpeak_reduct > 0 else 0.0
             
             # Statistical Temperature-Load Weather Sensitivity Correlation Check
             months_arr = datetime_series.dt.month.to_numpy()
@@ -1231,68 +1237,116 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     
                 st.markdown("<hr>", unsafe_allow_html=True)
                 st.markdown("#### Peak coincidence metrics")
-                st.markdown("Displays the share (%) of annual electricity energy consumption that occurs during critical high-stress grid hours.")
-                
-                coinc_table = {
-                    "Coincidence Metric": [
-                        "Energy share in top 50 CWFT hours (%)",
-                        "Energy share in top 100 CWFT hours (%)",
-                        "Energy share in highest 100 price hours (%)",
-                        "Effective Peak Contribution (EPC) (kW)",
-                        "Effective load carrying capability proxy (%)"
-                    ],
-                    "Baseline load": [
-                        f"{coinc_50_base * 100:.2f}%",
-                        f"{coinc_100_base * 100:.2f}%",
-                        f"{coinc_price_base * 100:.2f}%",
+                st.markdown(
+                    "For Baseline/Proposed load, compares average demand during the year's highest-stress hours to average demand across "
+                    "the whole year (a ratio of **2.0x** means the load draws twice as much power during those hours as it does normally). "
+                    "For Load reduction, shows the **% cut in demand** during that same window, relative to baseline demand in that window. "
+                    "Hover the ⓘ next to each row label for the exact formula."
+                )
+
+                # Compute window averages for display: show peak-window avg with annual avg in parens
+                base_peak50 = baseline_load[top_50_cwft_indices].mean()
+                prop_peak50 = proposed_load[top_50_cwft_indices].mean()
+                red_peak50 = load_reduction[top_50_cwft_indices].mean()
+
+                base_peak100 = baseline_load[top_100_cwft_indices].mean()
+                prop_peak100 = proposed_load[top_100_cwft_indices].mean()
+                red_peak100 = load_reduction[top_100_cwft_indices].mean()
+
+                base_price100 = baseline_load[top_100_price_indices].mean()
+                prop_price100 = proposed_load[top_100_price_indices].mean()
+                red_price100 = load_reduction[top_100_price_indices].mean()
+
+                coinc_rows = [
+                    (
+                        "Top 50 CWFT hrs (~2 days) \u2014 the peakiest capacity-risk hours",
+                        "Average demand during the 50 hours with the highest capacity-risk weighting (CWFT). Display: window avg (annual avg). Reduction shows % of baseline window avg.",
+                        f"{base_peak50:.2f} kW ({avg_full_base:.2f} kW)",
+                        f"{prop_peak50:.2f} kW ({avg_full_prop:.2f} kW)",
+                        (f"{pct_reduct_50:.1f}% ({avg_full_base:.2f} kW ann avg)" if load_reduction.sum() > 0 else "0.0%")
+                    ),
+                    (
+                        "Top 100 CWFT hrs (~4 days) \u2014 the peakiest capacity-risk hours",
+                        "Average demand during the 100 hours with the highest capacity-risk weighting (CWFT). Display: window avg (annual avg). Reduction shows % of baseline window avg.",
+                        f"{base_peak100:.2f} kW ({avg_full_base:.2f} kW)",
+                        f"{prop_peak100:.2f} kW ({avg_full_prop:.2f} kW)",
+                        (f"{pct_reduct_100:.1f}% ({avg_full_base:.2f} kW ann avg)" if load_reduction.sum() > 0 else "0.0%")
+                    ),
+                    (
+                        "Top 100 price hrs (~4 days) \u2014 highest wholesale energy prices",
+                        "Average demand during the 100 hours with the highest wholesale energy prices. Display: window avg (annual avg). Reduction shows % of baseline window avg.",
+                        f"{base_price100:.2f} kW ({avg_full_base:.2f} kW)",
+                        f"{prop_price100:.2f} kW ({avg_full_prop:.2f} kW)",
+                        (f"{pct_reduct_price:.1f}% ({avg_full_base:.2f} kW ann avg)" if load_reduction.sum() > 0 else "0.0%")
+                    ),
+                    (
+                        "Effective Peak Contribution (EPC)",
+                        "Weighted average load during peak-risk hours: sum(Load \u00d7 CWFT). This single kW value drives the generation capacity avoided-cost calculation used elsewhere in the tool.",
                         f"{epc_baseline:.2f} kW",
-                        f"{elcc_baseline * 100:.1f}%"
-                    ],
-                    "Proposed load": [
-                        f"{coinc_50_prop * 100:.2f}%",
-                        f"{proposed_load[top_100_cwft_indices].sum() / proposed_load.sum() * 100:.2f}%",
-                        f"{proposed_load[top_100_price_indices].sum() / proposed_load.sum() * 100:.2f}%",
                         f"{epc_proposed:.2f} kW",
-                        f"{elcc_proposed * 100:.1f}%"
-                    ],
-                    "Load reduction": [
-                        f"{coinc_50_reduct * 100:.2f}%" if load_reduction.sum() > 0 else "0.00%",
-                        f"{coinc_100_reduct * 100:.2f}%" if load_reduction.sum() > 0 else "0.00%",
-                        f"{coinc_price_reduct * 100:.2f}%" if load_reduction.sum() > 0 else "0.00%",
-                        f"{epc_reduction:.2f} kW",
-                        f"{elcc_reduction * 100:.1f}%" if load_reduction.max() > 0 else "0.00%"
-                    ]
-                }
-                st.dataframe(pd.DataFrame(coinc_table), use_container_width=True, hide_index=True)
-                st.info("**ELCC & EPC Note:** EPC is the weighted average load during peak risk hours: `sum(Load * CWFT)`. The ELCC proxy represents the percentage of peak demand that contributes to capacity: `EPC / Peak Load` (or `EPC / Baseline Peak` for the load reduction resource).")
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.markdown("#### Peak vs. Off-Peak Demand Diagnostics (Top 100 CWFT Hours)")
-                st.markdown("Quantifies electricity demand behavior during the Top 100 reliability constraint hours vs. the rest of the year.")
-                
-                demand_diag_table = {
-                    "Demand Metric": [
-                        "Average Demand during Top 100 CWFT Peaks (kW)",
-                        "Average Demand during Off-Peak Hours (kW)",
-                        "Peak-to-Off-Peak Demand Ratio"
-                    ],
-                    "Baseline load": [
-                        f"{avg_peak_base:.3f} kW",
-                        f"{avg_offpeak_base:.3f} kW",
-                        f"{ratio_base:.3f}"
-                    ],
-                    "Proposed load": [
-                        f"{avg_peak_prop:.3f} kW",
-                        f"{avg_offpeak_prop:.3f} kW",
-                        f"{ratio_prop:.3f}"
-                    ],
-                    "Load reduction": [
-                        f"{avg_peak_reduct:.3f} kW",
-                        f"{avg_offpeak_reduct:.3f} kW",
-                        f"{ratio_reduct:.3f}"
-                    ]
-                }
-                st.dataframe(pd.DataFrame(demand_diag_table), use_container_width=True, hide_index=True)
+                        f"{epc_reduction:.2f} kW"
+                    ),
+                    (
+                        "ELCC proxy",
+                        "EPC expressed as a share of peak demand: EPC \u00f7 Peak Load (or EPC \u00f7 Baseline Peak for the Load reduction resource). Approximates how much of this resource counts toward system capacity needs.",
+                        f"{elcc_baseline * 100:.1f}%",
+                        f"{elcc_proposed * 100:.1f}%",
+                        (f"{elcc_reduction * 100:.1f}%" if load_reduction.max() > 0 else "0.0%")
+                    ),
+                ]
+
+                coinc_rows_html = "".join(
+                    f"<tr>"
+                    f"<td style='padding:6px 10px; border-bottom:1px solid rgba(128,128,128,0.3); text-align:left;'>"
+                    f"<span title=\"{tooltip}\" style='cursor:help;'>{label} \u24d8</span></td>"
+                    f"<td style='padding:6px 10px; border-bottom:1px solid rgba(128,128,128,0.3); text-align:center;'>{base_val}</td>"
+                    f"<td style='padding:6px 10px; border-bottom:1px solid rgba(128,128,128,0.3); text-align:center;'>{prop_val}</td>"
+                    f"<td style='padding:6px 10px; border-bottom:1px solid rgba(128,128,128,0.3); text-align:center;'>{reduct_val}</td>"
+                    f"</tr>"
+                    for label, tooltip, base_val, prop_val, reduct_val in coinc_rows
+                )
+                coinc_table_html = f"""
+                <table style='width:100%; border-collapse:collapse;'>
+                    <thead>
+                        <tr>
+                            <th style='padding:6px 10px; border-bottom:2px solid rgba(128,128,128,0.5); text-align:left;'>Metric</th>
+                            <th style='padding:6px 10px; border-bottom:2px solid rgba(128,128,128,0.5); text-align:center;'>Baseline load</th>
+                            <th style='padding:6px 10px; border-bottom:2px solid rgba(128,128,128,0.5); text-align:center;'>Proposed load</th>
+                            <th style='padding:6px 10px; border-bottom:2px solid rgba(128,128,128,0.5); text-align:center;'>Load reduction</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {coinc_rows_html}
+                    </tbody>
+                </table>
+                """
+                st.markdown(coinc_table_html, unsafe_allow_html=True)
+                # Debug expander showing raw averages used to compute reduction %s
+                with st.expander("Debug: window averages & reductions", expanded=False):
+                    dbg = pd.DataFrame({
+                        "Window": ["Top50_CWFT", "Top100_CWFT", "Top100_Price"],
+                        "Baseline avg (kW)": [
+                            baseline_load[top_50_cwft_indices].mean(),
+                            baseline_load[top_100_cwft_indices].mean(),
+                            baseline_load[top_100_price_indices].mean()
+                        ],
+                        "Proposed avg (kW)": [
+                            proposed_load[top_50_cwft_indices].mean(),
+                            proposed_load[top_100_cwft_indices].mean(),
+                            proposed_load[top_100_price_indices].mean()
+                        ],
+                        "Reduction avg (kW)": [
+                            load_reduction[top_50_cwft_indices].mean(),
+                            load_reduction[top_100_cwft_indices].mean(),
+                            load_reduction[top_100_price_indices].mean()
+                        ],
+                        "% Reduction of baseline": [
+                            pct_reduct_50,
+                            pct_reduct_100,
+                            pct_reduct_price
+                        ]
+                    })
+                    st.table(dbg.round(4))
 
             # ------------------------------------------------------------------
             # TAB 6: SCENARIO MANAGER (save/compare runs)

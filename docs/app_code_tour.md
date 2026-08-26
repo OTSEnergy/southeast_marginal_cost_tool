@@ -220,7 +220,7 @@ When the user clicks **Run Valuation Engine**, the app executes financial calcul
 2.  **Overview Scorecard**: Top-level KPI metrics (Net NPV, RIM Ratio, Grid Savings, Customer Bill Savings, EPC Reduction), temperature responsiveness checks, and the TRC/PCT/RIM ratio cards (now rendered via the shared `ratio_card_html()` helper in `config.py` for a consistent style).
 3.  **Cost-Effectiveness Table**: Side-by-side cost-effectiveness comparison table (wholesale grid savings vs. retail lost revenue vs. RIM ratio).
 4.  **Charts**: All chart/plot content consolidated into one tab with three logical groups: **Overall Scorecard** (lifetime discounted cash flow chart), **Utility Cost Tests** (annual wholesale avoided cost distribution, winter/summer stacked component charts, weekly grid economics chart), and **Customer & Building Load** (weekly building demand vs. outdoor temperature chart).
-5.  **Weather & Peak Diagnostics**: Statistical correlations, temperature extremes, top 50/100 CWFT coincidence percentages, and peak-to-off-peak demand ratios.
+5.  **Weather & Peak Diagnostics**: Statistical correlations, temperature extremes, and a peak coincidence table showing peak-to-average demand ratios (top 50/100 CWFT hours and top 100 price hours) with hover tooltips explaining each formula, plus EPC and ELCC proxy.
 6.  **Scenario Manager**: Save runs and compare scenarios side-by-side in a table (the lifetime NPV chart itself moved to the Charts tab).
 7.  **Diagnostics & Top Hours**: Validation checks and the capacity avoided-cost math trace are now tucked into a collapsed expander at the top; the Top Stress Hours table + CSV export is the main visible content.
 

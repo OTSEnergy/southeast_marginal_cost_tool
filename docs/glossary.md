@@ -46,8 +46,8 @@
 | **ELCC (Effective Load Carrying Capability)** | The additional load a resource can reliably serve without degrading system reliability. In this tool, approximated as a proxy: `ELCC Proxy (%) = EPC / Peak Load`. Full ELCC requires probabilistic LOLP modeling. |
 | **LOLP (Loss of Load Probability)** | The probability that the electric grid will be unable to meet demand during a given period. CWFT weights are ideally derived from LOLP distributions. Not directly calculated in the current tool. |
 | **PCAF (Peak Capacity Allocation Factor)** | Distributes localized T&D deferral costs across the top grid stress hours. In the tool, the top 100 highest-priced hours receive equal weight (1/100 = 0.01 each). Sum = 1.0. |
-| **Coincidence** | The degree to which a load resource's demand overlaps with grid peak/stress hours. High coincidence = the load draws heavily during the most expensive/risky hours. Measured as "% of annual energy consumed during top N CWFT hours." |
-| **Peak-to-Off-Peak Ratio** | Average demand during top 100 CWFT hours divided by average demand during all other hours. A ratio > 1.0 means the load is "peaky" — it draws disproportionately during stress hours. |
+| **Coincidence** | The degree to which a load resource's demand overlaps with grid peak/stress hours. High coincidence = the load draws heavily during the most expensive/risky hours. Measured in this tool as a **peak-to-average ratio**: average demand during the top N stress hours ÷ average demand across the full year. |
+| **Peak-to-Average Ratio** | Average demand during a defined set of high-stress hours (e.g., top 50/100 CWFT hours, or top 100 highest-price hours) divided by average demand across the **full year**. A ratio of 2.0x means the load draws twice as much power during those hours as it does normally. Replaces the earlier "% of annual energy" framing, which was mathematically correct but unintuitive (it conflated concentration with the small time-window size). |
 
 ---
 

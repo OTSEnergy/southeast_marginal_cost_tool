@@ -176,8 +176,17 @@ def _read_profile_file(filepath):
     ext = os.path.splitext(filepath)[1].lower()
     if ext in ['.xlsx', '.xls']:
         return pd.read_excel(filepath)
-    else:
-        return pd.read_csv(filepath)
+
+    with open(filepath, 'r', encoding='utf-8-sig', errors='ignore') as f:
+        first_line = f.readline().strip()
+
+    if first_line.lower().startswith('wxdvfileheaderver'):
+        # Native BEopt hourly CSV export: version line, then column headers,
+        # then two index rows (0.5 / 1.0) and a units row before the 8760
+        # hourly data rows.
+        return pd.read_csv(filepath, skiprows=[0, 2, 3, 4])
+
+    return pd.read_csv(filepath)
 
 
 def _is_date_or_time_col(col_name):

@@ -80,6 +80,21 @@ EXAMPLE_BUILDINGS = [
         "weather_year": "2012",
         "state": "AL",
     },
+    {
+        "label": "Birmingham, AL — No Battery vs. 10 kWh Battery (BEopt, 2012)",
+        "description": (
+            "Single-family home in Birmingham, AL (default BEopt building model). Baseline "
+            "has no battery; Proposed adds a 10 kWh battery with a seasonal charge/discharge "
+            "strategy — winter (Dec/Jan/Feb) charges 12PM–4PM and discharges 5AM–9AM; "
+            "summer (Jun/Jul/Aug) charges 2AM–6AM and discharges 4PM–8PM. Both simulated "
+            "in BEopt on the same 2012 AMY weather year."
+        ),
+        "load_profiles_path": "Load_Profiles_raw",
+        "baseline_col": "BEOptExample_NoBattery_Birmingham2012_kW",
+        "proposed_col": "BEOptExample_Battery_Birmingham2012_kW",
+        "weather_year": "2012",
+        "state": "AL",
+    },
 ]
 
 
