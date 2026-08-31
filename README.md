@@ -82,13 +82,21 @@ The application's ingestion engine will automatically:
 
 ## 📂 Project Structure
 
-- `app.py`: The core Streamlit application containing the avoided cost calculation engine, custom rate schedules (Alabama Power FD, Georgia Power R), and dashboard visualizations.
+The app is split into `app.py` (Streamlit UI/orchestration only) plus five pure-Python modules with no Streamlit dependency, so they can be tested standalone:
+
+- `app.py`: Streamlit page layout, sidebar controls, and the 7 dashboard tabs. Calls into the modules below rather than containing the calculation/ingestion logic itself.
+- `calculations.py`: Avoided-cost engine (5 components), Demand Response dispatch, EPC/ELCC capacity metrics, and the TRC/PCT/RIM/payback cost-effectiveness math.
+- `billing.py`: URDB V3 retail billing engine plus pre-packaged tariff schedules (Georgia Power R-31, Alabama Power Rate FD).
+- `data_loaders.py`: All file I/O — NREL Cambium CSV scanner, CWFT loader, weather (.epw/.csv) loader, load-profile parser (synthetic CSVs, EnergyPlus-style exports, and BEopt's native hourly export format), URDB API client, and the default mock-data generators.
+- `visualizations.py`: Plotly chart-builder functions (Streamlit-free), returning `go.Figure` objects for the dashboard tabs.
+- `config.py`: Central defaults, option lists, CSS styling, color palette, and the `EXAMPLE_BUILDINGS` pre-loaded example library.
 - `requirements.txt`: Python package dependencies (Streamlit, Pandas, NumPy, Plotly).
 - `Cambium_Hourly_Data_raw/`: Folder where users should place raw NREL hourly CSV downloads (for any scenario/year).
+- `Load_Profiles_raw/`: Folder for real building load-profile exports (BEopt/EnergyPlus, single file or a whole folder of them). Backs the sidebar's Example Building Library (currently two Birmingham, AL examples: ER Heat vs. Heat Pump, and No Battery vs. 10 kWh Battery) as well as any load profile you supply yourself.
 - `Weather_Data_raw/`: Contains subfolders (`Baseline/`, `Extreme_Winter/`, `Extreme_Summer/`) where users can place real weather datasets (e.g. `.epw` or `.csv` files) to override synthetic temperatures with real weather profiles.
 - `CWFT.csv`: The Capacity Weighting Factor Table (CWFT) representing hour-by-hour system risk weights. *(Note: Must be replaced with real utility/ISO risk factor data for real-world evaluations).*
-- `load_profiles.csv`: Standard building load shapes for baseline and dynamic load modification analysis.
-- `southeast_avoided_costs_AL_GA.csv`: Hourly avoided cost projections derived from NREL Cambium datasets for Alabama and Georgia balancing authorities.
+- `load_profiles.csv`: Default synthetic building load shapes, auto-generated if no real load data is supplied.
+- `southeast_avoided_costs_AL_GA.csv`: Hourly avoided cost projections derived from NREL Cambium datasets for Alabama and Georgia balancing authorities. *(Role still unconfirmed with Justin — see `docs/roadmap.md` §1.8.)*
 
 ---
 

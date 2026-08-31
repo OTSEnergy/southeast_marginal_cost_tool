@@ -995,6 +995,35 @@ class TestLoadProfileIngestion:
             assert df["Total No TES"].notna().all()
             assert df["Total TES"].mean() > 0.1
 
+    def test_beopt_native_export_format_parsing(self):
+        """Native BEopt hourly CSV export: 'wxDVFileHeaderVer.1' line, then headers,
+        then two index rows (0.5 / 1.0) and a units row before the 8760 data rows."""
+        from data_loaders import load_load_profiles_from_csv
+        filepath = "Load_Profiles_raw/BEOptExample_NoBattery_Birmingham2012.csv"
+        if os.path.exists(filepath):
+            df = load_load_profiles_from_csv(filepath)
+            assert "Hour" in df.columns
+            assert len(df) == 8760
+            profile_cols = [c for c in df.columns if c != "Hour"]
+            assert len(profile_cols) == 1
+            kw_vals = df[profile_cols[0]].to_numpy()
+            assert 0.5 < kw_vals.mean() < 10.0
+
+    def test_beopt_battery_example_shows_charge_discharge_shift(self):
+        """The Battery example should draw more than baseline during charge hours
+        and less (or negative, i.e. discharging) during discharge hours."""
+        from data_loaders import load_load_profiles_from_csv
+        nb_path = "Load_Profiles_raw/BEOptExample_NoBattery_Birmingham2012.csv"
+        b_path = "Load_Profiles_raw/BEOptExample_Battery_Birmingham2012.csv"
+        if os.path.exists(nb_path) and os.path.exists(b_path):
+            nb_df = load_load_profiles_from_csv(nb_path)
+            b_df = load_load_profiles_from_csv(b_path)
+            nb_col = [c for c in nb_df.columns if c != "Hour"][0]
+            b_col = [c for c in b_df.columns if c != "Hour"][0]
+            diff = b_df[b_col].to_numpy() - nb_df[nb_col].to_numpy()
+            assert diff.max() > 1.0, "Expected a clear charging spike above baseline somewhere in the year"
+            assert diff.min() < -1.0, "Expected a clear discharge dip below baseline somewhere in the year"
+
 
 # ======================================================================
 #  TEST SUITE 10: Cost Effectiveness & Payback Math

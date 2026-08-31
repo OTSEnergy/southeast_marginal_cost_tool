@@ -2,7 +2,7 @@
 
 > **Living Document** — Update as milestones are completed, priorities shift, or new requirements emerge.
 >
-> **Last Updated:** 2026-08-06
+> **Last Updated:** 2026-08-26
 > **Cross-references:** [needs_and_gaps.md](./needs_and_gaps.md) · [glossary.md](./glossary.md) · Project Abstract & Phased Plan
 
 ---
@@ -472,9 +472,12 @@ Phase 2 (Additional Budget / Future Year)
 ### 4.3 Pre-Loaded Example Building Library
 > **[John/Assistant, 2026-08-18]:** 🔨 BUILD — ✅ DONE (2026-08-18) for pick-and-view
 > scope. Editing via the What-If Explorer (4.2) stays open for later, not built now.
+> **[Assistant, 2026-08-26]:** Added a second example (battery storage). Also had to
+> extend the loader to support BEopt's *native* hourly export format — see 1.2a note.
 
 - [x] Package the real building models from M1.2 as selectable examples:
   - "Single Family – Birmingham, AL – Electric Resistance Heat (Baseline) vs. Heat Pump (Proposed)" ✅ first example, 2026-08-18
+  - "Single Family – Birmingham, AL – No Battery (Baseline) vs. 10 kWh Battery (Proposed)" ✅ second example, 2026-08-25/26 — seasonal charge/discharge strategy (winter: charge 12PM–4PM / discharge 5AM–9AM; summer: charge 2AM–6AM / discharge 4PM–8PM); battery file has already been swapped once as the strategy was tuned, and John expects to iterate further
   - "Single Family – Atlanta, GA – Gas Furnace + AC (Baseline)" *(future)*
   - "Single Family – Atlanta, GA – Standard Heat Pump" *(future)*
   - etc.
@@ -651,7 +654,7 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | **M1: Harden Foundation** | | | | |
 | ↳ 1.1 CWFT replacement | 📦 EXTERNAL | ⬜ Not Started | Justin (JH) | JH to provide; team proceeds on other items in parallel. Awaiting DD-2. |
 | ↳ 1.2 Real load profiles | 📦 EXTERNAL | 🟡 In Progress | John (JB) | Real BEopt models added (`ERHeatBeOptModel_Birmingham2012.csv` and `HeatPumpBeOptModel_Birmingham2012.csv`). 2012 AMY EPWs ready. |
-| ↳ 1.2a Flexible load ingestion | 🔨 BUILD | 🟢 **v1 Done** | JB + AI | Smart CSV loader built into `data_loaders.py`: auto-detects BEopt/EnergyPlus `ELECTRICITY:UNIT_1` / `Electricity:Facility` headers, converts Joules `[J]` → kW, and scans folders (`Load_Profiles_raw/`). |
+| ↳ 1.2a Flexible load ingestion | 🔨 BUILD | 🟢 **v2 Done** | JB + AI | Smart CSV loader in `data_loaders.py`: auto-detects BEopt/EnergyPlus `ELECTRICITY:UNIT_1` / `Electricity:Facility` headers, converts Joules `[J]` → kW, and scans folders (`Load_Profiles_raw/`). **2026-08-26:** extended `_read_profile_file()` to also parse BEopt's *native* hourly export format (`wxDVFileHeaderVer.1` version line + 2 index rows + a units row before the 8760 data rows) — needed for the new battery example files, which come straight from BEopt rather than the EnergyPlus-style exports used previously. |
 | ↳ 1.2b Explicit column selector UX | 🔀 MODIFY | 🟢 **v1 Done** | JB + AI | Single File Mode explicitly prompts "Which column in [file] is Baseline/Proposed?" without keyword guessing. Folder mode retains smart defaults. |
 | ↳ 1.3 State coverage | 🔀 MODIFY | ⬜ Not Started | JB + AI | **Reduced scope:** GA & AL only (maybe TN). Keep extensible for future states. Not adding others during prototype stage. |
 | ↳ 1.4 Weather file | 🔨 BUILD | 🟢 **v1 Done** | AI | 2012 AMY EPW files generated via `diyepw` for Atlanta (WMO 722190) and Birmingham (WMO 722280). Saved to `Weather_Data_raw/Baseline/`. App weather generator tab also functional. |
@@ -676,13 +679,13 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 4.0 UI/UX layout & sidebar cleanup | 🔨 BUILD | ✅ Done | John/Assistant | Sidebar reorganized into collapsible sections, tabs consolidated 9→7, KPI cards standardized, emojis trimmed (2026-08-18) |
 | ↳ 4.1 User role selector | | ⬜ Not Started | | |
 | ↳ 4.2 What-if explorer / load editor | | ⬜ Not Started | | |
-| ↳ 4.3 Pre-loaded building library | 🔨 BUILD | ✅ Done (pick-and-view) | John/Assistant | Birmingham AL ER Heat vs. Heat Pump example live; what-if editing deferred to 4.2 (2026-08-18) |
+| ↳ 4.3 Pre-loaded building library | 🔨 BUILD | ✅ Done (pick-and-view) | John/Assistant | Two examples live: Birmingham AL ER Heat vs. Heat Pump (2026-08-18) and Birmingham AL No Battery vs. 10 kWh Battery w/ seasonal charge-discharge (2026-08-25/26). What-if editing still deferred to 4.2. |
 | ↳ 4.4 Multi-page app evaluation | ❓ DISCUSS | ⬜ Deferred | John/Assistant | Staying on single-page tabs for now; revisit if consolidated tab set feels unwieldy again |
 | **M5: Validation & Test Cases** | | | | |
 | ↳ 5.1 Utility validation | | ⬜ Not Started | | |
 | ↳ 5.2 Technology developer tests | | ⬜ Not Started | | |
 | ↳ 5.3 Usability feedback | | ⬜ Not Started | | |
-| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v2 Done** | AI | 49 tests passing: avoided costs (7), URDB billing (6), NPV (5), EPC/ELCC (6), DR dispatch (5), config (7), visualizations (5), integration pipeline (5), load profile ingestion (2), cost-effectiveness math (1). Pytest infra + standing instruction in place. |
+| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v3 Done** | AI | 57 tests passing (2026-08-26). Load profile ingestion suite now covers the native BEopt hourly export format and the battery-example charge/discharge shift, in addition to the existing avoided costs, URDB billing, NPV, EPC/ELCC, DR dispatch, config, visualizations, and integration pipeline coverage. Pytest infra + standing instruction in place. |
 | **M6: Handoff & Expansion** | | | | |
 | ↳ 6.1 Multi-region expansion | | ⬜ Not Started | | |
 | ↳ 6.2 Institutional home transition | | ⬜ Not Started | | |

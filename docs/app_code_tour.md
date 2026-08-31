@@ -6,12 +6,14 @@ The application is structured into **6 modular Python files** to ensure clean se
 
 | Module | Role & Purpose |
 |--------|----------------|
-| **`app.py`** (~1,210 lines) | Streamlit web application layout, sidebar controls, dashboard tabs, and orchestration. |
+| **`app.py`** (~1,500 lines) | Streamlit web application layout, sidebar controls, dashboard tabs, and orchestration. |
 | **`calculations.py`** (~260 lines) | Pure-Python calculation engine: 5-component avoided costs, DR dispatch, EPC/ELCC metrics, and TRC/PCT/RIM/Payback math. |
-| **`billing.py`** (~180 lines) | URDB V3 retail electricity billing engine and pre-packaged tariff schedules (Georgia Power R-31, Alabama Power Rate FD). |
-| **`data_loaders.py`** (~700 lines) | Data ingestion pipeline: NREL Cambium CSV scanner, raw BEopt/EnergyPlus load profile parser, weather EPW loader, CWFT loader, URDB API client. |
-| **`visualizations.py`** (~230 lines) | Streamlit-free Plotly chart builder functions returning interactive `go.Figure` objects for all dashboard tabs. |
-| **`config.py`** (~250 lines) | Central configuration: sidebar defaults, option lists, color palettes, CSS styling, and weather sensitivity thresholds. |
+| **`billing.py`** (~270 lines) | URDB V3 retail electricity billing engine and pre-packaged tariff schedules (Georgia Power R-31, Alabama Power Rate FD). |
+| **`data_loaders.py`** (~825 lines) | Data ingestion pipeline: NREL Cambium CSV scanner, raw BEopt/EnergyPlus load profile parser (including BEopt's native `wxDVFileHeaderVer` hourly export format), weather EPW loader, CWFT loader, URDB API client. |
+| **`visualizations.py`** (~565 lines) | Streamlit-free Plotly chart builder functions (7 chart types) returning interactive `go.Figure` objects for all dashboard tabs. |
+| **`config.py`** (~400 lines) | Central configuration: sidebar defaults, option lists, the `EXAMPLE_BUILDINGS` library, color palettes, CSS styling, and weather sensitivity thresholds. |
+
+> **Note:** These are approximate, checked 2026-08-31. Re-verify with `wc -l *.py` if it matters for your task — they will keep drifting as the code changes.
 
 ---
 
@@ -44,10 +46,18 @@ Before diving into the code, here are a few key building blocks:
 
 ---
 
-## Chapter 1: Imports & UI Setup (Lines 1–80)
+> **File map for Chapters 1–6:** After modularization, the code these chapters describe
+> no longer all lives in `app.py`. Chapter 1 is still `app.py` (imports + page setup);
+> Chapter 2's rate dictionaries and Chapter 5's billing engine are in `billing.py`;
+> Chapter 3's mock generators and Chapter 4's data/weather loading are in
+> `data_loaders.py`; Chapter 4's avoided-cost formula and Chapter 5's DR dispatch are in
+> `calculations.py`; Chapter 6 (the `diyepw` weather generator UI) is still inline in
+> `app.py`. Line numbers below are approximate per-file, not a single continuous range.
+
+## Chapter 1: Imports & UI Setup — `app.py` (Lines ~1–55)
 
 ### What the Code Does
-This section loads essential software toolkits (libraries) into memory and sets up the browser tab title and custom CSS styling.
+This section loads essential software toolkits (libraries) into memory and sets up the browser tab title. Custom CSS styling (`CUSTOM_CSS`) now lives in `config.py` and is imported and applied with `st.markdown(CUSTOM_CSS, unsafe_allow_html=True)`.
 
 ```python
 import os
@@ -81,7 +91,7 @@ Lines 22–79 inject custom **CSS (Cascading Style Sheets)** to give metric card
 
 ---
 
-## Chapter 2: Utility Rate Structures (URDB) (Lines 81–121)
+## Chapter 2: Utility Rate Structures (URDB) — `billing.py`
 
 ### What the Code Does
 Defines exact pre-packaged residential retail tariffs for Georgia Power and Alabama Power as structured Python dictionaries.
@@ -107,7 +117,7 @@ GP_R31_URDB = {
 
 ---
 
-## Chapter 3: Mock Data Generators & File Handlers (Lines 122–285)
+## Chapter 3: Mock Data Generators & File Handlers — `data_loaders.py`
 
 ### What the Code Does
 Acts as a safety net. If you launch the tool without providing your own CSV files, these functions automatically generate sample 8,760-hour files so the web app can run immediately without crashing.
@@ -123,9 +133,17 @@ Acts as a safety net. If you launch the tool without providing your own CSV file
 3.  `generate_mock_state_file()`:
     Simulates NREL Cambium wholesale grid files (hourly LMP energy prices in $/MWh and carbon intensity in kg/MWh).
 
+`_read_profile_file()` (used by the real load-profile loader, not a mock generator) also
+knows how to parse **two different real-world export formats**, auto-detected by file
+signature: the EnergyPlus-style export (`Date/Time` column or `Electricity:Facility`-type
+headers), and — added 2026-08-26 — BEopt's *native* hourly CSV export (a
+`wxDVFileHeaderVer.1` version line, then headers, then two index rows and a units row
+before the 8,760 data rows). This second format was needed for the battery-storage
+example building, whose files come straight from BEopt rather than an EnergyPlus export.
+
 ---
 
-## Chapter 4: Data Processing & Valuation Pipeline (Lines 286–630)
+## Chapter 4: Data Processing & Valuation Pipeline — `data_loaders.py` (ingestion) + `calculations.py` (avoided costs)
 
 This is the mathematical core of the application.
 
@@ -156,7 +174,7 @@ $$\text{Total Avoided Cost} = \text{Wholesale Energy} + \text{Gen Capacity} + \t
 
 ---
 
-## Chapter 5: The Retail Bill Calculation Engine (Lines 631–773)
+## Chapter 5: The Retail Bill Calculation Engine — `billing.py` (bill) + `calculations.py` (DR dispatch)
 
 ### How `calculate_urdb_bill()` Works
 To compute utility "Lost Revenue", we must calculate what a customer would pay under their retail rate schedule before and after installing efficient equipment.
@@ -178,7 +196,7 @@ Simulates a smart grid Demand Response program:
 
 ---
 
-## Chapter 6: Weather File Generator (`diyepw`) (Lines 774–875)
+## Chapter 6: Weather File Generator (`diyepw`) — `app.py`, Setup & Calibration Guide tab (~lines 155–225)
 
 Interfaces with Pacific Northwest National Laboratory's (PNNL) `diyepw` Python tool.
 *   Takes a 6-digit NOAA WMO Station ID (e.g., `722300` for Birmingham, AL or `722190` for Atlanta, GA) and an observation year (2010–2024).
@@ -224,8 +242,12 @@ When the user clicks **Run Valuation Engine**, the app executes financial calcul
 6.  **Scenario Manager**: Save runs and compare scenarios side-by-side in a table (the lifetime NPV chart itself moved to the Charts tab).
 7.  **Diagnostics & Top Hours**: Validation checks and the capacity avoided-cost math trace are now tucked into a collapsed expander at the top; the Top Stress Hours table + CSV export is the main visible content.
 
-### Example Building Library (new, 2026-08-18)
-The sidebar's Building/Technology section includes a pre-configured example picker (`EXAMPLE_BUILDINGS` in `config.py`). Selecting an example auto-loads its baseline/proposed load columns and locks the Weather Alignment Metadata to the example's documented weather year. Current scope is **pick-and-view only** — editing an example via a what-if explorer is planned for later (see `docs/roadmap.md` §4.2).
+### Example Building Library (introduced 2026-08-18, expanded 2026-08-26)
+The sidebar's Building/Technology section includes a pre-configured example picker (`EXAMPLE_BUILDINGS` in `config.py`), currently with two entries — both Birmingham, AL, BEopt, 2012 weather year:
+1.  Electric Resistance Heat (Baseline) vs. Heat Pump (Proposed)
+2.  No Battery (Baseline) vs. 10 kWh Battery (Proposed) — seasonal charge/discharge strategy (winter: charge 12PM–4PM / discharge 5AM–9AM; summer: charge 2AM–6AM / discharge 4PM–8PM)
+
+Selecting an example auto-loads its baseline/proposed load columns and locks the Weather Alignment Metadata to the example's documented weather year. Current scope is **pick-and-view only** — editing an example via a what-if explorer is planned for later (see `docs/roadmap.md` §4.2).
 
 ---
 *Generated for the Southeast Marginal Cost Valuation Engine. Designed for clear, transparent energy modeling.*

@@ -2,6 +2,55 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-08-31] — Documentation Audit: Fixed Stale Status Claims Across 5 Docs
+
+### Context
+John asked for a pass through all the documentation to confirm it's up to date before continuing. Rather than just checking the items touched in the last session (the example-building work), did a full sweep of `README.md`, `AI_INSTRUCTIONS.md`, `docs/glossary.md`, `docs/app_code_tour.md`, and `docs/needs_and_gaps.md` against the current code. Found several real, pre-existing inaccuracies unrelated to the most recent feature work — mostly documentation that was never revisited after the modularization (extracting `app.py` into `calculations.py`/`billing.py`/`data_loaders.py`/`visualizations.py`/`config.py`) and after TRC/PCT/payback were implemented.
+
+### Fixed
+- **`docs/glossary.md`:** TRC, PCT, and Payback Period were all still marked "🔴 Not yet implemented" despite being live since well before mid-August. Marked all three ✅ Implemented with their actual formulas and source location (`calculate_cost_effectiveness_tests()` in `calculations.py`). Updated "Last Updated" date (was still 2026-08-04, seven revisions behind).
+- **`docs/needs_and_gaps.md`:**
+  - §4.1 ("No TRC Test") and §4.2 ("No Homeowner Cost-of-Ownership / Payback") rewrote as resolved — both were stale in exactly the same way as the glossary entries above, even though §1's Executive Summary already correctly said these were done. The document had drifted out of sync with itself.
+  - §7 Phase 1 Gap Mapping table: "Utility user mode" and "Product dev user mode" rows still said "TRC missing" / "no payback" — updated to reflect what's implemented and what's genuinely still missing (dedicated role/view, gap visualization).
+  - §8 Prioritized Action Items: marked items 3, 4, 11, and 13 resolved (TRC, payback, full modularization, config.py) — item 11 specifically still claimed visualizations.py/config.py extraction was "remaining" when it's done. Updated item 12's test count (24 → 57) and noted in item 14 that the app_annotated.py drift has now spanned 3 sessions.
+  - Updated "Last Updated" date and the `app.py` line count in the header (1,210 → 1,502).
+- **`docs/app_code_tour.md`:**
+  - The module line-count table was off by as much as 2.5x (`visualizations.py` claimed ~230 lines, actually 565; `config.py` claimed ~250, actually 397; `billing.py` claimed ~180, actually 269).
+  - Chapters 1–6 described mock generators, the Cambium column mapper, the weather loader, the avoided-cost engine, and the URDB billing engine as if they were still inline in `app.py` with specific line ranges (e.g. "Lines 286–630") — all of that code moved to `data_loaders.py`, `calculations.py`, and `billing.py` during modularization, and the doc was never updated to say so. Added a file-map note up front and retitled each chapter header with its actual current file.
+  - Updated the Example Building Library section to describe both examples (was still describing only the first, from 2026-08-18) and noted the native-BEopt-format loader support.
+- **`README.md`:** The "Project Structure" section still described `app.py` as "the core Streamlit application containing the avoided cost calculation engine... and dashboard visualizations" — i.e., the pre-modularization monolith — and didn't mention `Load_Profiles_raw/`, the module split, or the Example Building Library at all. Rewrote to list all 6 modules by actual responsibility and added the missing folder/feature entries.
+- **`AI_INSTRUCTIONS.md`:** Corrected "`visualizations.py` — Plotly chart builder functions (4 chart types...)" to 7 — the file has grown since that line was written.
+
+### Not Fixed (Flagged Instead)
+- **`docs/needs_and_gaps.md`** still has scattered `Lines: app.py NNN–NNN` pinpoint references throughout §3–§4 (e.g. §4.3, §4.4) that likely no longer match post-modularization line numbers. Given the volume, didn't attempt to re-verify every one this pass — treat them as approximate, same caveat the doc already carries for line-number drift generally.
+- **`docs/app_annotated.py`** remains unsynced (flagged in the 2026-08-18 entry, still true). It's now 3 sessions of drift (8-18 sidebar/tab rewrite, 8-21 peak-ratio rework, 8-26 example building + loader change) — none of that is reflected in the annotated teaching copy. A full resync is a dedicated task, not a quick fix within a doc-audit pass.
+
+### Verification
+- `python -m pytest`: **57/57 passing** — this was a documentation-only pass, no source files touched.
+
+---
+
+## [2026-08-26] — Second Example Building: No Battery vs. 10 kWh Battery (Seasonal Strategy)
+
+### Context
+John added two new BEopt output files to `Load_Profiles_raw/` (`BEOptExample_NoBattery_Birmingham2012.csv` / `BEOptExample_Battery_Birmingham2012.csv`) for a second Example Building: the same default BEopt single-family model, baseline with no battery vs. proposed with a 10 kWh battery. Unlike the existing `ERHeatBeOptModel_*` / `HeatPumpBeOptModel_*` files (EnergyPlus-style export with a `Date/Time` column), these came straight from BEopt's native hourly CSV export, which uses a different structure the loader didn't yet handle. The battery file was replaced once mid-session with a revised (seasonal) charge/discharge strategy, and John expects to iterate on it further.
+
+### Added / Updated
+- **`config.py`:** Added a second `EXAMPLE_BUILDINGS` entry — "Birmingham, AL — No Battery vs. 10 kWh Battery (BEopt, 2012)" — baseline `BEOptExample_NoBattery_Birmingham2012_kW`, proposed `BEOptExample_Battery_Birmingham2012_kW`, 2012 weather year, AL. Description updated mid-session to match the final seasonal strategy: winter (Dec/Jan/Feb) charges 12PM–4PM / discharges 5AM–9AM; summer (Jun/Jul/Aug) charges 2AM–6AM / discharges 4PM–8PM.
+- **`data_loaders.py`:** Extended `_read_profile_file()` to detect and parse BEopt's native hourly export format — a `wxDVFileHeaderVer.1` version line, then column headers, then two index rows (`0.5` / `1.0`) and a units row before the 8760 hourly data rows. Previously `pd.read_csv()` was called directly, which misparsed this format (the version line was read as a single-column header). Detection is by file signature, not filename, so it applies to any future BEopt native export dropped into `Load_Profiles_raw/`.
+- **`tests/test_calculations.py`:** Added `test_beopt_native_export_format_parsing` (validates the new format parses to 8760 rows of sane kW values) and `test_beopt_battery_example_shows_charge_discharge_shift` (validates the battery profile diverges from baseline by more than 1 kW in both directions somewhere in the year, i.e. a real charge spike and discharge dip exist) to `TestLoadProfileIngestion`.
+- **`docs/roadmap.md`:** Updated 1.2a (flexible load ingestion, now v2) and 4.3 (example building library) with the new file-format support and second example; updated the 5.4 test-suite count (57 passing) and the Milestone 4 progress-tracking table.
+- **`docs/needs_and_gaps.md`:** Updated the "Example building models" priority-matrix row to mention both example pairs.
+
+### Verification
+- `python -m pytest`: **57/57 passing** (55 prior + 2 new).
+- Manually verified via a Python script that both files parse to clean 8760-row kW series, and that the battery file's charge (elevated draw) / discharge (reduced or negative draw) windows land in the expected hours and are concentrated in Dec/Jan/Feb and Jun/Jul/Aug as described, with a few days of edge-of-season carryover from residual battery state of charge (not a bug).
+
+### Known Gap Noticed (Not Fixed This Session)
+- **`docs/needs_and_gaps.md` §7 Phase 1 Gap Mapping** (line ~433) still lists TRC as "missing" and RIM/TRC as merely "Partial," but §2 of the same document and `docs/roadmap.md` both mark the TRC test as done (2.1, v1 Done, well before this session). The two sections of `needs_and_gaps.md` disagree with each other — worth a reconciliation pass next time that doc is touched.
+
+---
+
 ## [2026-08-21] — Weather & Peak Diagnostics: Reframed Coincidence Metrics as Peak-to-Average Ratios
 
 ### Context

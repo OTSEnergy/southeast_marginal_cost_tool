@@ -2,8 +2,8 @@
 
 > **Document Purpose:** Maps the current state of `app.py` against the project abstract and phased development plan to identify gaps, placeholders, hardcoded assumptions, and unresolved design decisions.
 >
-> **Last Updated:** 2026-08-10
-> **Assessed Against:** app.py (1,210 lines) + calculations.py + billing.py + data_loaders.py + visualizations.py + config.py
+> **Last Updated:** 2026-08-31
+> **Assessed Against:** app.py (1,502 lines) + calculations.py + billing.py + data_loaders.py + visualizations.py + config.py
 
 ---
 
@@ -164,40 +164,33 @@ File paths for CWFT and load profiles are entered as **raw text strings** in the
 
 ## 4. Calculation & Methodology Gaps
 
-### 4.1 🔴 No TRC (Total Resource Cost) Test
-The project plan lists **RIM/TRC** as a key utility metric. Currently only **RIM** is implemented.
+### 4.1 ✅ ~~No TRC (Total Resource Cost) Test~~ — Resolved
+> **[Assistant, 2026-08-31]:** This section was stale — TRC has been implemented since
+> before 2026-08-18 (roadmap 2.1, marked v1 Done), and §1's Executive Summary above
+> already reflected that. This detail section just never got updated to match.
 
-**Gap:** TRC requires incorporating:
-- Technology/measure installation cost (capital cost)
-- Participant costs (homeowner equipment + O&M)
-- Non-energy benefits (comfort, resilience, property value — often qualitative or proxy-valued)
-- Program administration costs
-
-None of these cost inputs exist in the current sidebar or calculations.
-
-**What's Needed:**
-- Sidebar inputs for: installed cost ($), annual O&M ($/yr), program admin cost ($/yr), non-energy benefits ($/yr)
-- TRC formula: `TRC = (NPV Avoided Costs + NPV Non-Energy Benefits) / (NPV Measure Costs + NPV Program Costs)`
-- Display alongside RIM in the scorecard and cost-effectiveness table
+**Resolved:** `calculate_cost_effectiveness_tests()` in `calculations.py` computes TRC
+alongside PCT and RIM: `TRC = NPV Avoided Grid Costs / (Gross Measure Cost + Utility
+Admin Cost)`, using the existing Gross Measure Cost / Utility Incentive / Utility Admin
+Cost sidebar inputs (Financial Assumptions section). Displayed via `ratio_card_html()`
+on the Overview Scorecard tab alongside RIM and PCT, and in the Cost-Effectiveness Table
+tab. Non-energy benefits are **not** incorporated (out of scope for the current formula).
 
 ---
 
-### 4.2 🔴 No Homeowner Cost-of-Ownership / Payback Calculation
-The project plan calls for the **Product Development user** to see:
-> *"Cost for homeowner to use, cost to utility, gap between the two... Payback period"*
+### 4.2 ✅ ~~No Homeowner Cost-of-Ownership / Payback Calculation~~ — Resolved
+> **[Assistant, 2026-08-31]:** Also stale for the same reason as 4.1 — payback and PCT
+> were implemented (roadmap 2.2 and 3.1, both v1 Done) well before this section's
+> "Last Updated" date, but the detail text here was never revised to match.
 
-**Gap:** The tool calculates **utility-side** bill savings and grid avoided costs but never computes:
-- Customer total cost of ownership (equipment + install + O&M − bill savings)
-- Simple payback period
-- Discounted payback period
-- Customer IRR or ROI
+**Resolved:** `calculate_cost_effectiveness_tests()` in `calculations.py` computes:
+- **PCT** (Participant Cost Test / Customer ROI): `(NPV Customer Bill Savings + Incentive) / Gross Measure Cost`
+- **Simple Payback Period** (years): net customer cost ÷ year-1 bill savings
+- **Discounted Payback Period** (years): first year cumulative discounted savings ≥ net customer cost, with fractional-year interpolation
 
-**What's Needed:**
-- Equipment cost input ($ one-time)
-- Annual maintenance cost input ($/yr)
-- Available incentives/rebates input ($)
-- Payback = (Equipment Cost − Rebates) / Annual Bill Savings
-- Discounted payback using the customer's cost of capital
+All shown on the Overview Scorecard tab. Not yet implemented: customer IRR, and a
+dedicated "cost to utility vs. cost to homeowner" gap visualization (that framing is
+still open — see M3 in `roadmap.md`).
 
 ---
 
@@ -430,10 +423,10 @@ All default values (capacity scalar $100/kW-yr, T&D $15/kW-yr, carbon $30/ton, e
 
 | Planned Feature | Status | Gap |
 |----------------|--------|-----|
-| **Utility user mode** (capacity, EPC/ELCC, RIM/TRC, T&D) | 🟡 Partial | RIM exists; TRC missing; EPC/ELCC are proxies; T&D is simplified |
-| **Product dev user mode** (homeowner cost, utility cost, gap, payback) | 🔴 Not started | No customer cost-of-ownership, no payback, no vendor view |
+| **Utility user mode** (capacity, EPC/ELCC, RIM/TRC, T&D) | 🟡 Partial | RIM and TRC both implemented (see §4.1); EPC/ELCC are proxies; T&D is simplified |
+| **Product dev user mode** (homeowner cost, utility cost, gap, payback) | 🟡 Partial | PCT and payback implemented (see §4.2); no dedicated vendor view/role, no cost-to-utility-vs-cost-to-homeowner gap visualization |
 | **Researcher mode** (transparency, detailed hourly, model insights) | 🟡 Partial | Debugger tab exists but no dedicated researcher interface |
-| **Example building models** | � In progress | Real BEopt models added (Birmingham AL ER Heat vs. Heat Pump, 2026-08-18); sidebar Example Building Library picker live with pick-and-view only. More examples + what-if editing still needed. |
+| **Example building models** | 🟡 In progress | Two real BEopt model pairs added: Birmingham AL ER Heat vs. Heat Pump (2026-08-18) and Birmingham AL No Battery vs. 10 kWh Battery w/ seasonal charge-discharge (2026-08-25/26). Sidebar Example Building Library picker live with pick-and-view only. More examples + what-if editing still needed. |
 | **What-if explorer** (adjust power for key hours, add EV charger) | 🔴 Not started | No in-app load modification capability |
 | **Technology improvement guidance / targets** | 🔴 Not started | No performance gap analysis or improvement recommendations |
 | **Best/worst performance highlighting** | 🔴 Not started | No hour-by-hour performance scoring |
@@ -458,9 +451,9 @@ All default values (capacity scalar $100/kW-yr, T&D $15/kW-yr, carbon $30/ton, e
 ### 🔴 Priority 1 — Foundation (Must-Have for Credibility)
 
 1. **Replace placeholder CWFT** with real or calibrated capacity risk data
-2. **Bundle real building load profiles** from EnergyPlus prototype models
-3. **Implement TRC test** alongside existing RIM
-4. **Add customer cost-of-ownership and payback** calculations
+2. **Bundle real building load profiles** from EnergyPlus/BEopt models — 🟡 Partial: two example pairs bundled (ER Heat vs. Heat Pump; No Battery vs. 10 kWh Battery), both Birmingham AL 2012. Other buildings/climates/technologies still needed.
+3. **Implement TRC test** alongside existing RIM — ✅ **Resolved** (see §4.1)
+4. **Add customer cost-of-ownership and payback** calculations — ✅ **Resolved** (see §4.2)
 5. **Design and implement user role architecture** (Utility / Vendor / Researcher mode selector)
 
 ### 🟡 Priority 2 — Differentiation (Core Value Proposition)
@@ -468,15 +461,15 @@ All default values (capacity scalar $100/kW-yr, T&D $15/kW-yr, carbon $30/ton, e
 6. **Build technology improvement guidance engine** (best/worst hours, performance targets, cost-effectiveness gap calculator)
 7. **Add what-if explorer** (in-app load profile adjustment)
 8. **Create vendor-facing visualizations** (bill comparison, payback timeline, value heatmap)
-9. **Expand grid data coverage** to all target Southeast states
+9. **Expand grid data coverage** to all target Southeast states — scope intentionally reduced to GA/AL (maybe TN) for the prototype stage per John, 2026-08-04 (see roadmap 1.3)
 10. **Add file upload widgets** for CWFT, load profiles, weather
 
 ### 🟢 Priority 3 — Quality & Sustainability
 
-11. **Modularize codebase** — 🟡 Phase 2 done (calculations.py + billing.py + data_loaders.py extracted 2026-08-06). Remaining: visualizations.py, config.py.
-12. **Add unit test suite** — ✅ Done (24 tests, 2026-08-06). Standing instruction for ongoing test maintenance.
-13. **Create configuration file** for default parameters
-14. **Resolve `app_annotated.py` sync strategy**
+11. **Modularize codebase** — ✅ **Resolved** — all five modules extracted (`calculations.py`, `billing.py`, `data_loaders.py`, `visualizations.py`, `config.py`); `app.py` is UI orchestration only.
+12. **Add unit test suite** — ✅ Done, actively maintained (57 tests passing as of 2026-08-31, up from 24 at 2026-08-06). Standing instruction for ongoing test maintenance in place.
+13. **Create configuration file** for default parameters — ✅ **Resolved** (`config.py`)
+14. **Resolve `app_annotated.py` sync strategy** — still open; drift has grown across at least three sessions (2026-08-18, 2026-08-21, 2026-08-26) since the file was last resynced. A dedicated resync session is recommended before it's used for onboarding.
 15. **Improve error handling** in data ingestion pipeline
 16. **Clarify role of `southeast_avoided_costs_AL_GA.csv`** (unused file)
 17. **Revisit load profile column selection UX** — ✅ **Resolved 2026-08-10** (Single File Mode explicitly prompts "Which column in [file] is Baseline/Proposed?" without keyword guessing).

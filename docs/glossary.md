@@ -2,7 +2,7 @@
 
 > **Living Document** — Update whenever new terms, metrics, or concepts are introduced in the codebase or project planning.
 >
-> **Last Updated:** 2026-08-04
+> **Last Updated:** 2026-08-31
 
 ---
 
@@ -56,9 +56,9 @@
 | Term / Acronym | Definition |
 |----------------|------------|
 | **RIM (Ratepayer Impact Measure)** | Cost-effectiveness test measuring impact on non-participating ratepayers. `RIM = NPV of Grid Avoided Costs / NPV of Retail Lost Revenue`. RIM ≥ 1.0 means grid savings exceed utility lost revenue, putting downward pressure on rates. ✅ *Implemented in tool.* |
-| **TRC (Total Resource Cost)** | Cost-effectiveness test measuring net benefit to all parties combined (utility + participant). `TRC = (NPV Avoided Costs + Non-Energy Benefits) / (NPV Measure Costs + Program Admin Costs)`. Requires equipment cost and O&M inputs. 🔴 *Not yet implemented.* |
+| **TRC (Total Resource Cost)** | Cost-effectiveness test measuring net benefit to all parties combined (utility + participant). `TRC = NPV Avoided Grid Costs / (Gross Measure Cost + Utility Admin Cost)`. ✅ *Implemented* in `calculate_cost_effectiveness_tests()` (`calculations.py`), displayed via `ratio_card_html()` on the Overview Scorecard tab. |
 | **UCT / PAC (Utility Cost Test / Program Administrator Cost)** | Measures cost-effectiveness from the utility's perspective only, excluding participant costs. Similar to RIM but treats bill savings differently. 🔴 *Not yet implemented.* |
-| **PCT (Participant Cost Test)** | Measures whether the investment is worthwhile from the customer's perspective. `PCT = NPV Bill Savings / NPV Customer Costs (equipment, install, O&M)`. 🔴 *Not yet implemented.* |
+| **PCT (Participant Cost Test)** | Measures whether the investment is worthwhile from the customer's perspective. `PCT = (NPV Customer Bill Savings + Incentive) / Gross Measure Cost`. ✅ *Implemented* in `calculate_cost_effectiveness_tests()` (`calculations.py`), displayed via `ratio_card_html()` on the Overview Scorecard tab. |
 | **SCT (Societal Cost Test)** | Broadest test; includes externalities (carbon, health, resilience) at societal valuation levels. 🔴 *Not yet implemented.* |
 | **Lost Revenue** | The reduction in retail electricity sales revenue that a utility experiences when a customer installs efficient equipment. Calculated as `Baseline Annual Bill − Proposed Annual Bill`. |
 | **Non-Energy Benefits (NEBs)** | Economic benefits beyond energy savings — comfort, health, property value, resilience, reduced maintenance. Often included in TRC but difficult to quantify. |
@@ -127,7 +127,7 @@
 | **Escalation Rate** | The assumed annual growth rate of electricity prices. Grid escalation (wholesale) and retail escalation are specified separately. |
 | **Degradation Rate** | The assumed annual decline in equipment performance (e.g., a heat pump losing 1%/year in efficiency due to wear). Reduces savings in later years. |
 | **Discount Factor** | The multiplier applied to a future cash flow to express it in present value. `DF_t = 1 / (1 + r)^t`. |
-| **Payback Period** | The time required for cumulative savings to equal the initial investment cost. Simple payback ignores time value of money; discounted payback accounts for it. 🔴 *Not yet implemented.* |
+| **Payback Period** | The time required for cumulative savings to equal the initial investment cost. Simple payback ignores time value of money; discounted payback accounts for it. ✅ *Implemented* — both Simple and Discounted Payback Period (years) are calculated in `calculate_cost_effectiveness_tests()` (`calculations.py`) and shown on the Overview Scorecard tab. |
 | **Asset Lifetime** | The assumed operating life of the technology being evaluated (default: 15 years). Determines the NPV analysis horizon. |
 | **Levelized Cost** | A per-unit cost metric that spreads total lifecycle costs over total lifetime output. Not currently calculated but commonly used in utility planning. |
 
