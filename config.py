@@ -40,6 +40,27 @@ SCENARIO_OPTIONS = [
     "LowDemandGrowth",
 ]
 
+CAMBIUM_DOC_URL = "https://docs.nlr.gov/docs/fy25osti/93005.pdf"
+
+SCENARIO_DESCRIPTIONS = {
+    "MidCase": (
+        "Central baseline projection under current federal and state policies (including the Inflation Reduction Act [IRA]). "
+        "Uses moderate technology cost declines (NREL ATB) and benchmark fuel prices (EIA AEO Reference)."
+    ),
+    "HighDemandGrowth": (
+        "High electricity demand growth driven by rapid electrification across transportation (EVs) and building space/water heating (heat pumps), "
+        "along with accelerated computing, data center, and industrial load expansion. Leads to higher peak demand and capacity additions."
+    ),
+    "LowDemandGrowth": (
+        "Low electricity demand growth characterized by slower economic expansion, modest electrification adoption, and aggressive "
+        "building energy efficiency improvements. Leads to lower peak demand, lower wholesale energy prices, and deferred capacity buildout."
+    ),
+    "LowCarbonConstraint": (
+        "Strict power sector emissions constraint targeting deep decarbonization (e.g., 95% emissions cuts by 2050). Models accelerated "
+        "fossil unit retirements, rapid deployment of solar, wind, and battery storage, and significantly lower grid marginal carbon rates."
+    ),
+}
+
 PLANNING_YEAR_OPTIONS = ["2025", "2030", "2035", "2040", "2045", "2050"]
 DEFAULT_PLANNING_YEAR_INDEX = 3  # "2040"
 
@@ -113,6 +134,88 @@ TRANS_VALUE_RANGE = (0.0, 500.0, 1.00)
 DIST_VALUE_RANGE = (0.0, 500.0, 1.00)
 CARBON_TAX_RANGE = (0.0, 100.0, 5.00)
 
+# ==============================================================================
+# SOUTHEAST UTILITY PEAKER & T&D PRESETS
+# ==============================================================================
+
+SOUTHEAST_PEAKER_PRESETS = {
+    "Southern Company / Georgia Power IRP SCCT Benchmark": {
+        "description": "Next planned F-Class simple cycle combustion turbine based on Southern Company 2022/2025 IRP dockets.",
+        "capex_kw": 1080.0,
+        "fom_kw_yr": 15.00,
+        "wacc": 0.071,
+        "life": 30,
+        "tax_rate": 0.25,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "TVA Capacity Expansion SCCT Benchmark": {
+        "description": "TVA 2019/2024 IRP capacity expansion peaker proxy with federal financing.",
+        "capex_kw": 1020.0,
+        "fom_kw_yr": 14.00,
+        "wacc": 0.068,
+        "life": 30,
+        "tax_rate": 0.21,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "NREL ATB 2024: Regulated Utility Finance SCCT": {
+        "description": "NREL Annual Technology Baseline (ATB 2024) Natural Gas Combustion Turbine - Industrial Frame, regulated investor-owned utility financing.",
+        "capex_kw": 1050.0,
+        "fom_kw_yr": 15.50,
+        "wacc": 0.070,
+        "life": 30,
+        "tax_rate": 0.257,
+        "eas_offset_kw_yr": 5.0,
+    },
+    "NREL ATB 2024: Aeroderivative CT": {
+        "description": "Fast-ramping aeroderivative peaker (e.g. LM6000) for winter morning cold snap / peak following.",
+        "capex_kw": 1250.0,
+        "fom_kw_yr": 18.00,
+        "wacc": 0.071,
+        "life": 30,
+        "tax_rate": 0.25,
+        "eas_offset_kw_yr": 8.0,
+    },
+}
+
+SOUTHEAST_TD_PRESETS = {
+    "Georgia Power Rate Case Benchmark": {
+        "dist_value": 25.00,
+        "trans_value": 15.00,
+        "description": "Derived from Georgia Power retail rate dockets and FERC Form 1 growth additions.",
+    },
+    "Alabama Power Rate Case Benchmark": {
+        "dist_value": 22.00,
+        "trans_value": 14.00,
+        "description": "Derived from Alabama Power retail rate filings and FERC Form 1.",
+    },
+    "LBNL Southeast Regional Average": {
+        "dist_value": 20.00,
+        "trans_value": 12.00,
+        "description": "Lawrence Berkeley National Lab (LBNL) Southeast regional avoided T&D cost benchmark.",
+    },
+    "Constrained Urban / High Growth Corridor": {
+        "dist_value": 35.00,
+        "trans_value": 20.00,
+        "description": "Rapidly growing Southeast metro area (Atlanta / Birmingham perimeter) with heavy transformer loading.",
+    },
+}
+
+CWF_METHOD_OPTIONS = [
+    "Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)",
+    "Ambient Temperature Severity (Weather-Triggered)",
+    "Cambium Price-Exceedance LOLP Proxy (Exponential)",
+    "Top-N Peak Hours Exceedance",
+    "Wholesale Peaker Rent (Spark Spread)",
+    "Uploaded / Default CWFT CSV",
+]
+
+FEEDER_TYPE_OPTIONS = [
+    "Winter-Peaking Feeder (Southeast Heating / Cold Snap)",
+    "Summer-Peaking Feeder (Southeast Cooling)",
+    "Dual-Peaking Feeder (Suburban Mixed 50/50)",
+    "Wholesale Price PCAF (Top 100 Hours)",
+]
+
 
 # ==============================================================================
 # FINANCIAL / NPV DEFAULTS
@@ -143,6 +246,14 @@ DR_SEASON_OPTIONS = [
 ]
 DEFAULT_DR_MAX_HOURS_PER_DAY = 4
 DEFAULT_DR_CAPACITY_KW = 1.0
+
+# Fraction of nameplate DR capacity accredited as firm/reliable generation capacity.
+# This is the DR analog of a generator's UCAP/ELCC accreditation factor: it de-rates
+# expected non-performance, opt-outs, and M&V shortfall relative to a program's
+# nameplate curtailment capability. Applied only to the Generation Capacity ($/kW-yr)
+# credit -- NOT to metered energy savings, which reflect actual dispatched curtailment.
+DEFAULT_DR_PERFORMANCE_FACTOR = 0.85
+DR_PERFORMANCE_FACTOR_RANGE = (10, 100, 1)  # percent: (min, max, step)
 
 
 # ==============================================================================
@@ -218,11 +329,42 @@ def ratio_card_html(label, value, sublabel, passing):
 </div>"""
 
 
+def financial_metric_card_html(label, value, sublabel, is_positive=True, neutral=False, help_text=None):
+    """
+    Returns an HTML snippet for a financial KPI card (e.g. Annual Operating Margin, Lifetime NPV),
+    styled to match native st.metric() cards, where the primary number's font color dynamically
+    matches positive (green #15803d), negative / cross-subsidy (red #b91c1c), or neutral (teal #0D9488).
+    """
+    if neutral:
+        color = "#0D9488"
+        sub_color = "#64748B"
+    elif is_positive:
+        color = "#15803d"
+        sub_color = "#15803d"
+    else:
+        color = "#b91c1c"
+        sub_color = "#b91c1c"
+    
+    title_attr = f' title="{help_text}"' if help_text else ""
+    return f"""<div class="kpi-card"{title_attr}>
+<div class="kpi-card-label">{label}</div>
+<div class="kpi-card-value" style="color: {color};">{value}</div>
+<div class="kpi-card-sublabel" style="color: {sub_color}; font-weight: 500;">{sublabel}</div>
+</div>"""
+
+
+
 # ==============================================================================
 # CUSTOM CSS STYLING
 # ==============================================================================
 
 CUSTOM_CSS = """<style>
+/* Reduce excessive default top whitespace to move header elements higher */
+.block-container {
+    padding-top: 1.5rem !important;
+    padding-bottom: 2rem !important;
+}
+
 /* Metric styling */
 [data-testid="stMetricValue"] {
     font-size: 1.8rem;

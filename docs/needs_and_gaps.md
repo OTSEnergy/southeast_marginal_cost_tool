@@ -80,20 +80,17 @@ Before cataloguing gaps, here is what the tool **does** have working today:
 
 ## 3. Data & Input Gaps
 
-### 3.1 🔴 CWFT Is a Placeholder
-**File:** `CWFT.csv` / `generate_default_cwft_file()`
-**Lines:** app.py 127–154
+### 3.1 🟡 CWFT Generation & Allocation Engine Implemented (Proprietary IRP Calibration In Progress)
+**File:** `CWFT.csv` / `calculations.py` / `app.py`
 
-The CWFT file is **synthetically generated** using hardcoded hour ranges and a simple 45%/55% winter/summer split. The README itself warns:
-> *"The provided CWFT.csv file is currently a mocked placeholder and does not reflect realistic utility peak risk conditions."*
+The tool now supports four robust allocation methodologies alongside custom file upload:
+1. **Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)** with configurable seasonal weight split and load exceedance weighting.
+2. **Cambium Price-Exceedance LOLP Proxy** using an exponential risk curve `exp(α · (P_h / P_peak - 1.0))` on Cambium's own hourly wholesale energy price to concentrate capacity value in extreme hours. (Previously mislabeled "EIA-930 Demand LOLP Proxy" — it was never fed real EIA-930 demand data; it inherits Cambium's weather-year alignment instead, which is why it's used in place of an external historical demand series.)
+3. **Top-N System Peak Hours** with uniform or exceedance weighting.
+4. **Wholesale Peaker Rent** spark spread proxy.
+5. **Direct CSV Upload** for utility-supplied proprietary shapes.
 
-**Gap:** No connection to real utility LOLP (Loss of Load Probability) data, IRP capacity planning outputs, or ISO/RTO reliability studies. The winter morning window (hours 6-9, Jan-Feb only) and summer afternoon window (hours 14-18, Jun-Sep) are crude approximations.
-
-**What's Needed:**
-- Real CWFT data from Southern Company or similar (likely proprietary)
-- Or: a calibration methodology using public LOLP proxy data (e.g., NERC LTRA, EIA Form 411)
-- Ability to upload and validate externally-produced CWFT shapes
-- Possibly: a CWFT *builder* tool that lets utility users define risk windows and weights interactively
+**Remaining Gap:** Awaiting proprietary 8,760 LOLP/CWFT matrices from Southern Company (Georgia Power / Alabama Power) 2024/2025 IRP dockets to provide calibrated utility baselines.
 
 ---
 
@@ -211,20 +208,17 @@ The ELCC proxy is calculated as `EPC / Peak Load`. This is a simple approximatio
 
 ---
 
-### 4.4 🟡 T&D Deferral Methodology Is Simplified
-**Lines:** app.py 532–536, 616–617
+### 4.4 ✅ Feeder-Specific T&D Deferral & Presets Implemented
+**File:** `calculations.py` / `config.py` / `app.py`
 
-T&D value uses PCAF (top 100 price hours) with uniform weighting. This treats wholesale energy price as a proxy for local T&D congestion, which is a rough approximation.
-
-**Gap:**
-- Real T&D deferral depends on **local feeder/substation peak**, not system-wide wholesale prices
-- No distinction between transmission-level and distribution-level peak hours (they may differ)
-- No ability to input feeder-specific load data or transformer ratings
-
-**What's Needed:**
-- Clarify in documentation that PCAF is an approximation
-- Consider allowing users to upload a custom T&D peak allocation vector (similar to CWFT)
-- Or: allow direct $/kW-yr scalar input (already exists) but remove the hourly allocation and just use annual EPC-like metric
+**Resolved (2026-09-10):**
+- Transmission and distribution weight vectors are now fully decoupled in `calculate_avoided_costs()`.
+- Added **Feeder Peaking Profile Selection** (`FEEDER_TYPE_OPTIONS`) supporting:
+  1. *Winter-Peaking Feeder (Southeast Heating / Cold Snap)*: 6–9 AM Dec–Feb (critical for space heating / heat pump valuation).
+  2. *Summer-Peaking Feeder (Southeast Cooling)*: 2–6 PM Jun–Sep.
+  3. *Dual-Peaking Feeder (Suburban Mixed 50/50)*.
+  4. *Wholesale Price PCAF (Top 100 Hours)*.
+- Pre-packaged empirical Southeast rate case benchmarks for Georgia Power, Alabama Power, and LBNL.
 
 ---
 

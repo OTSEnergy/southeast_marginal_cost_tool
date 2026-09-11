@@ -601,6 +601,14 @@ class TestConfig:
         assert len(config.SCENARIO_OPTIONS) >= 2
         assert all(isinstance(s, str) for s in config.SCENARIO_OPTIONS)
 
+    def test_scenario_descriptions_complete(self):
+        assert hasattr(config, "SCENARIO_DESCRIPTIONS")
+        for scen in config.SCENARIO_OPTIONS:
+            assert scen in config.SCENARIO_DESCRIPTIONS
+            assert len(config.SCENARIO_DESCRIPTIONS[scen]) > 20
+        assert hasattr(config, "CAMBIUM_DOC_URL")
+        assert config.CAMBIUM_DOC_URL.startswith("http")
+
     def test_planning_year_options(self):
         assert len(config.PLANNING_YEAR_OPTIONS) >= 2
         assert config.DEFAULT_PLANNING_YEAR_INDEX < len(config.PLANNING_YEAR_OPTIONS)
@@ -636,6 +644,28 @@ class TestConfig:
     def test_custom_css_nonempty(self):
         assert len(config.CUSTOM_CSS) > 100
         assert "<style>" in config.CUSTOM_CSS
+
+    def test_financial_metric_card_html(self):
+        # Positive case (green)
+        html_pos = config.financial_metric_card_html(
+            "Annual Operating Margin", "+$32.29/yr", "Positive Utility Return", is_positive=True
+        )
+        assert "#15803d" in html_pos
+        assert "+$32.29/yr" in html_pos
+
+        # Negative case (red)
+        html_neg = config.financial_metric_card_html(
+            "Annual Operating Margin", "-$125.50/yr", "Net Utility Cross-Subsidy", is_positive=False
+        )
+        assert "#b91c1c" in html_neg
+        assert "-$125.50/yr" in html_neg
+
+        # Neutral case (teal)
+        html_neu = config.financial_metric_card_html(
+            "Wholesale Grid Deferrals", "$685.33/yr", "5 Avoided Cost Streams", neutral=True
+        )
+        assert "#0D9488" in html_neu
+
 
 
 # ======================================================================
@@ -722,6 +752,49 @@ class TestVisualizations:
         fig = build_lifetime_npv_chart(years, nominal, disc_grid, disc_lost)
         assert isinstance(fig, go.Figure)
         assert len(fig.data) == 3  # 3 bar traces
+
+    def test_economic_balance_chart_returns_figure(self):
+        from visualizations import build_economic_balance_chart
+        fig = build_economic_balance_chart(
+            npv_grid_savings=4967.38,
+            npv_retail_lost_revenue=6296.74,
+            npv_net_savings=-1329.36
+        )
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 1
+        assert fig.data[0].type == "waterfall"
+
+    def test_two_sided_cost_effectiveness_chart_returns_figure(self):
+        from visualizations import build_two_sided_cost_effectiveness_chart
+        # Test positive net operating margin
+        fig_pos = build_two_sided_cost_effectiveness_chart(
+            annual_energy_savings=124.24,
+            annual_gen_cap_savings=466.03,
+            annual_trans_savings=4.47,
+            annual_dist_savings=57.99,
+            annual_emissions_savings=32.59,
+            retail_energy_savings=653.04,
+            retail_demand_savings=0.0,
+            annual_net_savings=32.29
+        )
+        assert isinstance(fig_pos, go.Figure)
+        assert len(fig_pos.data) == 8  # 5 grid components + 2 retail components + 1 net margin
+        assert len(fig_pos.layout.annotations) == 3  # 3 total/net annotations
+
+        # Test negative net operating margin (cross-subsidy)
+        fig_neg = build_two_sided_cost_effectiveness_chart(
+            annual_energy_savings=100.0,
+            annual_gen_cap_savings=200.0,
+            annual_trans_savings=5.0,
+            annual_dist_savings=20.0,
+            annual_emissions_savings=10.0,
+            retail_energy_savings=500.0,
+            retail_demand_savings=50.0,
+            annual_net_savings=-215.0
+        )
+        assert isinstance(fig_neg, go.Figure)
+        assert len(fig_neg.data) == 8
+
 
 
 # ======================================================================
@@ -1059,5 +1132,220 @@ class TestCostEffectivenessTests:
         assert pytest.approx(res["simple_payback"], abs=1e-3) == 2500.0 / 300.0
         # Discounted payback = 2500 / (300 * 0.8) = 2500 / 240 = 10.417 years
         assert pytest.approx(res["discounted_payback"], abs=1e-3) == 10.416666
+
+
+# ======================================================================
+#  TEST SUITE 11: Southeast Utility Capacity & Feeder Engine
+# ======================================================================
+
+class TestSoutheastUtilityCapacityEngine:
+    """
+    Validates Southeast utility peaker carrying cost, regulated FCR,
+    dual-peak CWF allocation, LOLP proxies, peaker spark spreads, and feeder weights.
+    """
+
+    def test_regulated_fcr_bounds(self):
+        from calculations import calculate_regulated_fcr
+        # 7.1% WACC, 30 year life, 25% tax rate
+        fcr = calculate_regulated_fcr(wacc=0.071, economic_life=30, tax_rate=0.25, macrs_life=15)
+        # Expected FCR is in the 8.0% - 9.0% range typical of regulated electric utilities
+        assert 0.075 < fcr < 0.095
+
+    def test_regulated_fcr_zero_tax(self):
+        from calculations import calculate_regulated_fcr
+        # With zero tax, FCR equals pure CRF
+        d = 0.07
+        n = 30
+        expected_crf = d / (1.0 - (1.0 + d) ** (-n))
+        fcr = calculate_regulated_fcr(wacc=d, economic_life=n, tax_rate=0.0)
+        assert pytest.approx(fcr, rel=1e-5) == expected_crf
+
+    def test_ct_carrying_cost_gross_and_net(self):
+        from calculations import calculate_ct_carrying_cost
+        capex = 1000.0  # $/kW
+        fom = 15.0      # $/kW-yr
+        fcr = 0.085     # 8.5%
+        eas = 10.0      # $/kW-yr
+
+        res = calculate_ct_carrying_cost(capex, fom, fcr, eas_offset_kw_yr=eas)
+        # Capital recovery = 1000 * 0.085 = 85.0
+        assert res["capital_recovery_annuity"] == 85.0
+        # Gross = 85.0 + 15.0 = 100.0
+        assert res["gross_carrying_cost"] == 100.0
+        # Net = 100.0 - 10.0 = 90.0
+        assert res["net_capacity_cost"] == 90.0
+
+    def test_southeast_dual_peak_cwf_sums_and_shape(self):
+        from calculations import calculate_southeast_dual_peak_cwf
+        cwf = calculate_southeast_dual_peak_cwf(winter_weight=0.5, summer_weight=0.5)
+        assert len(cwf) == 8760
+        assert np.all(cwf >= 0.0)
+        assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+
+        # Check that winter morning hours and summer afternoon hours get the weights
+        # Jan 15 hour 7 (7 AM) is a winter morning hour -> should be > 0
+        jan_15_7am = 14 * 24 + 7
+        assert cwf[jan_15_7am] > 0.0
+
+        # Jul 15 hour 15 (3 PM) is a summer afternoon hour -> should be > 0
+        # Day 195 (approx July 15), hour 15
+        jul_15_3pm = 195 * 24 + 15
+        assert cwf[jul_15_3pm] > 0.0
+
+        # Apr 15 hour 12 (spring midday) should be 0
+        apr_15_12pm = 104 * 24 + 12
+        assert cwf[apr_15_12pm] == 0.0
+
+    def test_southeast_dual_peak_cwf_exceedance_with_load(self):
+        from calculations import calculate_southeast_dual_peak_cwf
+        np.random.seed(42)
+        load = np.random.uniform(1.0, 5.0, 8760)
+        cwf = calculate_southeast_dual_peak_cwf(winter_weight=0.6, summer_weight=0.4, load_array=load)
+        assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+
+    def test_cwf_lolp_proxy(self):
+        from calculations import calculate_cwf_lolp_proxy
+        demand = np.linspace(100.0, 1000.0, 8760)
+        cwf = calculate_cwf_lolp_proxy(demand, alpha=12.0)
+        assert len(cwf) == 8760
+        assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+        assert np.all(cwf >= 0.0)
+        # Highest demand hour (last) should have much higher risk than lowest (first)
+        assert cwf[-1] > cwf[0] * 1000.0
+
+    def test_cwf_top_n_uniform_and_exceedance(self):
+        from calculations import calculate_cwf_top_n
+        demand = np.arange(8760, dtype=float)
+        cwf_uni = calculate_cwf_top_n(demand, top_n=100, weighting_method="uniform")
+        assert pytest.approx(cwf_uni.sum(), abs=1e-6) == 1.0
+        assert (cwf_uni > 0).sum() == 100
+        assert np.isclose(cwf_uni[-1], 0.01)
+
+        cwf_exc = calculate_cwf_top_n(demand, top_n=100, weighting_method="exceedance")
+        assert pytest.approx(cwf_exc.sum(), abs=1e-6) == 1.0
+        assert (cwf_exc > 0).sum() == 100
+
+    def test_cwf_peaker_rent(self):
+        from calculations import calculate_cwf_peaker_rent
+        prices = np.ones(8760) * 30.0  # below peaker operating cost
+        prices[-10:] = 200.0           # 10 peaker hours above cost
+        cwf = calculate_cwf_peaker_rent(prices, heat_rate=10500, gas_price=3.50, vom=4.0)
+        assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+        # Only the 10 peak hours should have non-zero weight
+        assert (cwf > 0).sum() == 10
+
+    def test_feeder_pcaf_weights(self):
+        from calculations import calculate_feeder_pcaf_weights
+        w_winter = calculate_feeder_pcaf_weights(feeder_type="Winter-Peaking Feeder (Southeast Heating / Cold Snap)")
+        assert pytest.approx(w_winter.sum(), abs=1e-6) == 1.0
+        assert np.all(w_winter >= 0.0)
+
+        w_summer = calculate_feeder_pcaf_weights(feeder_type="Summer-Peaking Feeder (Southeast Cooling)")
+        assert pytest.approx(w_summer.sum(), abs=1e-6) == 1.0
+
+        w_dual = calculate_feeder_pcaf_weights(feeder_type="Dual-Peaking Feeder (Suburban Mixed 50/50)")
+        assert pytest.approx(w_dual.sum(), abs=1e-6) == 1.0
+
+    def test_avoided_costs_decoupled_td_weights(self, grid_df_8760, cwft_uniform):
+        from calculations import calculate_avoided_costs
+        df = grid_df_8760.copy()
+        custom_dist = np.zeros(8760)
+        custom_dist[:100] = 0.01  # First 100 hours
+
+        res = calculate_avoided_costs(
+            df,
+            cap_value=100.0,
+            trans_value=15.0,
+            dist_value=25.0,
+            carbon_tax=30.0,
+            cwft_array=cwft_uniform,
+            dist_weight_array=custom_dist
+        )
+        # Dist_Value_MWh should be 25 * 0.01 * 1000 = 250 in hour 0
+        assert pytest.approx(res['Dist_Value_MWh'].iloc[0], rel=1e-5) == 250.0
+        # Dist_Value_MWh should be 0 in hour 500
+        assert res['Dist_Value_MWh'].iloc[500] == 0.0
+
+    def test_new_visualization_functions(self):
+        from visualizations import (
+            plot_peaker_carrying_cost_breakdown,
+            plot_southeast_cwf_distribution,
+            plot_feeder_vs_system_load
+        )
+        # 1. Peaker breakdown
+        c_dict = {
+            "capital_recovery_annuity": 85.0,
+            "fom_kw_yr": 15.0,
+            "gross_carrying_cost": 100.0,
+            "eas_offset_kw_yr": 5.0,
+            "net_capacity_cost": 95.0
+        }
+        fig1 = plot_peaker_carrying_cost_breakdown(c_dict)
+        assert fig1 is not None
+
+        # 2. CWF distribution
+        cwf = np.ones(8760) / 8760
+        fig2 = plot_southeast_cwf_distribution(cwf)
+        assert fig2 is not None
+
+        # 3. Feeder vs system
+        feeder = np.ones(8760) / 8760
+        system = np.ones(8760) / 8760
+        fig3 = plot_feeder_vs_system_load(feeder, system)
+        assert fig3 is not None
+
+    def test_cwf_temperature_exceedance_sums_and_shape(self):
+        from calculations import calculate_cwf_temperature_exceedance
+        # Synthetic temperature profile: winter cold (20-40F), summer hot (75-95F), shoulder (60F)
+        temps = np.full(8760, 60.0)
+        # Cold winter morning in January
+        temps[100] = 18.0
+        # Hot summer afternoon in July
+        temps[5000] = 98.0
+
+        cwf = calculate_cwf_temperature_exceedance(temps, freeze_threshold_f=32.0, heat_threshold_f=90.0)
+        assert cwf.shape == (8760,)
+        assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+        assert np.all(cwf >= 0.0)
+
+    def test_cwf_temperature_exceedance_colder_gets_more_weight(self):
+        from calculations import calculate_cwf_temperature_exceedance
+        # Standard non-leap year: hour 6 is Jan 1 06:00 (winter window)
+        # hour 30 is Jan 2 06:00 (winter window)
+        temps = np.full(8760, 50.0)
+        temps[6] = 15.0   # 17 degrees below 32
+        temps[30] = 27.0  # 5 degrees below 32
+        temps[54] = 35.0  # above 32, zero severity
+
+        cwf = calculate_cwf_temperature_exceedance(
+            temps, freeze_threshold_f=32.0, heat_threshold_f=90.0,
+            winter_weight=1.0, summer_weight=0.0
+        )
+        assert cwf[6] > cwf[30] > 0.0
+        assert cwf[54] == 0.0
+        assert pytest.approx(cwf[6] / cwf[30], rel=1e-4) == (32.0 - 15.0) / (32.0 - 27.0)
+
+    def test_cwf_temperature_exceedance_seasonal_split_and_fallback(self):
+        from calculations import calculate_cwf_temperature_exceedance
+        # Test 75% winter / 25% summer split
+        temps = np.full(8760, 65.0)
+        temps[6] = 20.0     # winter freeze hour
+        # Jul 15 15:00 is approx hour 4719
+        temps[4719] = 95.0  # summer heat hour
+
+        cwf = calculate_cwf_temperature_exceedance(
+            temps, freeze_threshold_f=32.0, heat_threshold_f=90.0,
+            winter_weight=0.75, summer_weight=0.25
+        )
+        assert pytest.approx(cwf[6], abs=1e-6) == 0.75
+        assert pytest.approx(cwf[4719], abs=1e-6) == 0.25
+
+        # Fallback when no temperatures cross threshold
+        flat_temps = np.full(8760, 65.0)
+        cwf_fallback = calculate_cwf_temperature_exceedance(flat_temps, freeze_threshold_f=32.0, heat_threshold_f=90.0)
+        assert pytest.approx(cwf_fallback.sum(), abs=1e-6) == 1.0
+        assert np.all(cwf_fallback >= 0.0)
+
+
 
 

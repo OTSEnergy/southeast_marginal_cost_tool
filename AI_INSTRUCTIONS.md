@@ -64,6 +64,7 @@ After processing annotations, update the progress tracking table, clear resolved
   - `calculations.py` — grid avoided cost engine + DR dispatch (5-component hourly valuation)
   - `billing.py` — URDB-compliant retail billing engine + pre-packaged tariff schedules
   - `data_loaders.py` — all file I/O: Cambium ingestion, CWFT, load profiles, weather, URDB API, mock generators
+  - `cambium_downloader.py` — automated on-demand retrieval of NREL Cambium grid datasets via Scenario Viewer & S3 range requests
   - `visualizations.py` — Plotly chart builder functions (7 chart types, returns `go.Figure`)
   - `config.py` — default parameters, option lists, CSS styling, color palette, constants
 - **Stakeholders:** JB (John Bush, project lead), JH (Justin, utility-side partner), SC (cost-effectiveness reviewer), Al/Mitch (external reviewers).

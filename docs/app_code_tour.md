@@ -6,14 +6,14 @@ The application is structured into **6 modular Python files** to ensure clean se
 
 | Module | Role & Purpose |
 |--------|----------------|
-| **`app.py`** (~1,500 lines) | Streamlit web application layout, sidebar controls, dashboard tabs, and orchestration. |
-| **`calculations.py`** (~260 lines) | Pure-Python calculation engine: 5-component avoided costs, DR dispatch, EPC/ELCC metrics, and TRC/PCT/RIM/Payback math. |
+| **`app.py`** (~1,660 lines) | Streamlit web application layout, sidebar controls, dashboard tabs, and orchestration. |
+| **`calculations.py`** (~670 lines) | Pure-Python calculation engine: 5-component avoided costs, Southeast Next Planned Peaker carrying cost / regulated FCR, dual-peak CWF allocation, LOLP proxies, feeder PCAF, DR dispatch, and SPM/payback math. |
 | **`billing.py`** (~270 lines) | URDB V3 retail electricity billing engine and pre-packaged tariff schedules (Georgia Power R-31, Alabama Power Rate FD). |
 | **`data_loaders.py`** (~825 lines) | Data ingestion pipeline: NREL Cambium CSV scanner, raw BEopt/EnergyPlus load profile parser (including BEopt's native `wxDVFileHeaderVer` hourly export format), weather EPW loader, CWFT loader, URDB API client. |
-| **`visualizations.py`** (~565 lines) | Streamlit-free Plotly chart builder functions (7 chart types) returning interactive `go.Figure` objects for all dashboard tabs. |
-| **`config.py`** (~400 lines) | Central configuration: sidebar defaults, option lists, the `EXAMPLE_BUILDINGS` library, color palettes, CSS styling, and weather sensitivity thresholds. |
+| **`visualizations.py`** (~780 lines) | Streamlit-free Plotly chart builder functions (10 chart types) returning interactive `go.Figure` objects for all dashboard tabs. |
+| **`config.py`** (~480 lines) | Central configuration: sidebar defaults, Southeast peaker & T&D presets, option lists, the `EXAMPLE_BUILDINGS` library, color palettes, and CSS styling. |
 
-> **Note:** These are approximate, checked 2026-08-31. Re-verify with `wc -l *.py` if it matters for your task — they will keep drifting as the code changes.
+> **Note:** Updated 2026-09-10 with Southeast utility capacity, dual-peak CWF, and feeder T&D engine additions.
 
 ---
 

@@ -164,9 +164,13 @@ Phase 2 (Additional Budget / Future Year)
 > **[John, 8/4/2026]:** This will be done by Justin; we should be prepared to continue progress while awaiting his input
 
 - [ ] **Option A (Preferred):** Obtain real CWFT data from Southern Company or a public LOLP proxy
-- [ ] **Option B (Fallback):** Build an interactive CWFT builder that lets users define seasonal risk windows, peak hours, and winter/summer weight splits — producing a defensible custom shape
-- [ ] Document the methodology, assumptions, and limitations of whichever approach is used
-- [ ] Retain the current synthetic generator as a clearly-labeled "demo/illustrative" fallback
+- [x] **Option B (Implemented 2026-09-10):** Built an interactive CWFT allocation suite:
+  - **Southeast Dual-Peak**: Seasonal risk windows (winter morning 6–9 AM Dec–Feb vs. summer afternoon 2–6 PM Jun–Sep) with configurable weight splits and exceedance weighting.
+  - **Cambium Price-Exceedance LOLP Proxy** (renamed 2026-09-11 from "EIA-930 Demand LOLP Proxy" — it was mislabeled and never actually used EIA-930 data): Exponential risk curve `exp(α · (P_h / P_peak - 1.0))` on Cambium's hourly wholesale energy price.
+  - **Top-N System Peak**: Exceedance and uniform weighting.
+  - **Wholesale Peaker Rent**: Spark spread above peaker operating costs.
+- [x] Document the methodology, assumptions, and limitations in in-app expanders and living docs
+- [x] Retain current CSV upload as fallback option
 
 ### 1.2 Bundle Real Building Load Profiles
 *Ref: needs_and_gaps.md §3.2*
@@ -279,23 +283,25 @@ Phase 2 (Additional Budget / Future Year)
 - [ ] Display as a third cost-effectiveness metric
 > **[John, 8/6/2026]:**  JB can lead the work but JH and SC will need to provide or support the values and sanity-check the math 
 
-### 2.3 Document Capacity Methodology Limitations
+### 2.3 Document & Upgrade Capacity Methodology
 *Ref: needs_and_gaps.md §4.3*
 
-- [ ] Add a methodology notes section (in-app expander or docs) explaining:
-  - The ELCC proxy is a simplified approximation, not a full probabilistic LOLP calculation
-  - How the result relates to and differs from IRP-derived capacity credits
-  - When the proxy is reasonable vs. when it breaks down
-- [ ] Add an input field allowing utility users to override ELCC with their own IRP value
-> **[John, 8/6/2026]:**  Suggest this as JH lead 
+- [x] **Next Planned Peaker Carrying Cost Builder (Implemented 2026-09-10):**
+  - Added economic carrying cost engine for Simple Cycle Combustion Turbines (SCCT) under regulated cost-of-service ratemaking: `Gross ECC = (CAPEX × FCR) + FOM`.
+  - Implemented regulated Fixed Charge Rate (FCR) calculator accounting for utility WACC, 30-year economic life, corporate income tax, and MACRS depreciation.
+  - Bundled empirical presets: Southern Company IRP Benchmark (~$105.70/kW-yr), TVA Capacity Expansion SCCT (~$98.50/kW-yr), and NREL ATB.
+- [x] Retain direct IRP scalar input field allowing utility users to enter commission-approved capacity credits directly.
 
-### 2.4 Document T&D Deferral Approximations
+### 2.4 Deferral Approximations & Localized Feeder Profiling
 *Ref: needs_and_gaps.md §4.4*
 
-- [ ] Add methodology note explaining PCAF uses system-wide price as a proxy for local T&D congestion
-- [ ] Consider: allow users to upload a custom T&D peak allocation vector (analogous to custom CWFT)
-- [ ] Or: add a "T&D Method" toggle between "PCAF (top 100 price hours)" and "Simple annual scalar"
-> **[John, 8/6/2026]:**  Suggest this as JH lead 
+- [x] Decoupled bulk transmission deferral from local distribution deferral in calculation engine.
+- [x] Added **Feeder Peaking Profile Selection** (`FEEDER_TYPE_OPTIONS`):
+  - Winter-Peaking Feeder (Southeast Heating / Cold Snap 6–9 AM Dec–Feb)
+  - Summer-Peaking Feeder (Southeast Cooling 2–6 PM Jun–Sep)
+  - Dual-Peaking Feeder (Suburban Mixed 50/50)
+  - Wholesale Price PCAF (Top 100 Hours)
+- [x] Bundled Southeast empirical rate case benchmarks (Georgia Power, Alabama Power, LBNL). 
 
 
 

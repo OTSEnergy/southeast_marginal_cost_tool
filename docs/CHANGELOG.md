@@ -2,6 +2,183 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-09-11] — Cost-Effectiveness Table: Two-Sided Visual Breakdown & Collapsible Data Table
+
+### Context
+Overhauled the **Cost-Effectiveness Table** tab (`tab_calculator`) in `app.py` with a modern, visual design consistent with the Option B Scorecard UI:
+1. **Four Headline KPI Cards (`financial_metric_card_html`)**:
+   - `Wholesale Grid Deferrals`: Displays annual wholesale benefits (`$685.33/yr`) across 5 avoided cost streams.
+   - `Customer Bill Reductions`: Displays annual lost utility retail revenue (`$653.04/yr`).
+   - `Annual Operating Margin`: Shows annual operational net benefit or cross-subsidy (`+$32.29/yr`), with primary number font dynamically color-coded (**Green `#15803d`** if positive, **Red `#b91c1c`** if negative) matching the direction indicator and warning sublabel.
+   - `Lifetime Net Valuation NPV`: Shows discounted lifetime net benefit (`+$311.30` over 15 yrs @ 7.0% WACC), also dynamically color-coded (**Green** when positive, **Red** when cross-subsidy/negative). Applied this same dynamic color-coding to `Net Valuation NPV` on the `Overview Scorecard` tab as well.
+2. **Interactive Two-Sided Visual Chart (`build_two_sided_cost_effectiveness_chart`)**:
+   - Added in `visualizations.py`: a stacked bar comparison chart visualizing:
+     - **Wholesale Grid Deferrals** stacked by component (Gen Capacity `#0D9488`, Wholesale Energy `#F59E0B`, Distribution Deferral `#EC4899`, Carbon Avoided `#10B981`, Transmission Deferral `#3B82F6`) with inside value/percent labels and bold total annotations.
+     - **Customer Bill Savings** stacked by retail component (Energy Charges `#F43F5E`, Demand Charges `#BE123C`).
+     - **Net Operating Margin** (Emerald `#059669` if positive, Crimson `#E11D48` if negative) with zero-line support.
+3. **Structured Composition Panel**:
+   - Displays clean side-by-side cards breaking down the exact composition of wholesale avoided costs and retail bill reductions, along with the Customer Bill Capture Rate (`95.3%`).
+4. **Collapsible Full Data Table**:
+   - Preserved the complete 13-row engineering data table intact inside `st.expander("▸ Full Two-Sided Cost-Effectiveness Data Table", expanded=False)` with all unit rate derivations, annual values, and lifetime metrics.
+5. **Unit Tests**:
+   - Added `test_financial_metric_card_html` in `TestConfig` and `test_two_sided_cost_effectiveness_chart_returns_figure` in `TestVisualizations` in `tests/test_calculations.py`. All **83/83 tests pass**.
+
+---
+
+## [2026-09-11] — Overview Scorecard: Option B Visual Economic Balance & Headline KPIs
+
+### Context
+Redesigned the `Overview Scorecard` tab (`tab_summary`) in `app.py` to address visual clutter, cognitive overload, and metric duplication:
+1. **Lifetime Economic Balance Strip (`build_economic_balance_chart`)**:
+   - Added a clean horizontal comparison / waterfall chart in `visualizations.py` comparing Grid Avoided Costs (`+$4,967`), Utility Lost Revenue (`-$6,297`), and Net Valuation NPV (`-$1,329`).
+   - Placed in a bordered top card with prominent Net NPV metric, delta indicator, and dynamic cross-subsidy vs. positive return alert.
+2. **Four Headline KPI Cards (Zero Duplication)**:
+   - Eliminated redundant RIM cards, duplicate Accredited Capacity cards, and repetitive bullet lists.
+   - Cleanly showcases the 4 primary decision metrics:
+     - `Total Resource Cost (TRC)` (1.602, Pass badge)
+     - `Ratepayer Impact Measure (RIM)` (0.720, Cross-Subsidy badge)
+     - `Participant Payback` (3.8 yrs, Discounted: 4.4 yrs)
+     - `Coincident Capacity` (1.31 kW, 39.3% ELCC Accreditation)
+3. **Progressive Disclosure Expander**:
+   - Replaced 13 dense bullet points with a collapsible expander `▸ Detailed SPM Tests & Technical Engineering Audit`.
+   - Houses secondary SPM tests (PCT: 2.266), Technical EPC reduction, peak coincidence factor shift, peak kW cut, annual MWh, and full parameter audit trail.
+4. **Unit Tests**:
+   - Added `test_economic_balance_chart_returns_figure` to `TestVisualizations` in `tests/test_calculations.py`. Total test suite: **81/81 passing**.
+
+---
+
+## [2026-09-11] — Automated NREL Cambium Downloader & Setup Reversion
+
+### Context
+Implemented full automated on-demand downloading of raw NREL Cambium 8,760-hour hourly grid datasets:
+1. **New Module `cambium_downloader.py`**:
+   - `RemoteZipReader`: Implements a seekable byte-stream using HTTP Range requests against AWS S3 signed download URLs.
+   - Inspects the remote ZIP central directory (~40 KB) without downloading the entire 650+ MB archive.
+   - Streams and extracts *only* the specific balancing area CSV files required for the selected state(s), scenario, and planning year in seconds (~1.5–4s per state).
+   - Maps Southeast states (`AL`, `GA`, `TN`, `NC`, `SC`, `FL`, `MS`, `VA`) to ReEDS Balancing Areas (`p94`, `p89`, `p90`, `p92`, etc.).
+   - Provides `check_missing_cambium_data()` for fast local cache detection.
+   - Caches files in `./Cambium_Hourly_Data_raw` for permanent offline reuse.
+2. **UI Integration in `app.py`**:
+   - Added pre-run missing-data detection: if any selected state is missing locally, displays an informative alert with an `[📥 Auto-Download from NREL]` button and real-time progress bar (`st.progress`).
+   - Added sidebar live cache status indicator showing whether data is cached or will auto-download on execution.
+3. **Checklist Reversion**:
+   - Because grid data retrieval is now fully automated, reverted the checklist in `Instructions & Setup` (`welcome_tab_instruct`) back to the original **3 items**, with an informational callout explaining automatic on-demand retrieval.
+4. **Test Suite**:
+   - Added `tests/test_cambium_downloader.py` with 8 comprehensive tests covering BA mappings, manifest schemas, range reader offsets, and mock cache detection. Total test suite expanded to **80/80 passing tests**.
+
+---
+
+## [2026-09-11] — Home / Info Screen Navigation Buttons
+
+### Context
+Added Home navigation buttons across the interface to allow users to return to the original welcome / instructions & setup screen from any state:
+1. **Top Header Card**: Placed a `🏠 Home` button directly inside the top Stakeholder View boxed card.
+2. **Dashboard Navigation Bar**: Added a `← Back to Instructions & Setup` button right above the results tabs when a simulation has been run.
+3. **Error Recovery**: Embedded a `🏠 Return to Info & Setup Screen` button directly inside data processing / CSV parsing exception messages (e.g. when raw Cambium files are missing).
+4. **Sidebar Navigation**: Added a `🏠 Home / Info Screen` button under the "Run Valuation Engine" button when viewing results.
+
+---
+
+## [2026-09-11] — Top-of-UI Persona Switcher Mock-Up (Utility, Manufacturer, Tech Research)
+
+### Context
+Added a mock toggle switch at the very top of the main dashboard UI to illustrate future persona-tailored workspace views:
+1. **Views**: Toggle between `"Utility"` view, `"Manufacturer"` view, and `"Tech Research"` view.
+2. **Boxed Area**: Enclosed in a dedicated bordered card container (`st.container(border=True)`) with badge, title, subtitle, and dynamic persona preview callout.
+3. **Elevated UI Layout**: Reduced Streamlit `.block-container` top padding to `1.5rem` in `CUSTOM_CSS` to move the switcher higher up on screen and create clear vertical separation from downstream panels.
+4. **Visual Mock-up Indicator**: Styled with a clear `MOCK-UP` badge and tagged as a non-functional prototype demonstrating future use cases.
+5. **Dynamic Persona Previews**:
+   - **Utility View**: Tailored for IRP planners & regulators (highlighting Avoided Generation Capacity / ECC of CT, TRC/RIM tests, and Feeder Peak Reduction).
+   - **Manufacturer View**: Tailored for equipment OEMs & product designers (highlighting Participant Bill Savings, Payback, and Heat Pump COP under freeze events).
+   - **Tech Research View**: Tailored for national labs & energy researchers (highlighting 8,760-hr marginal cost curves, temperature-driven LOLP, and emissions abatement).
+
+---
+
+## [2026-09-11] — Cambium 2024 Scenario Descriptions & Documentation Link
+
+### Context
+Added summaries of each NREL Cambium future power sector scenario with direct linking to the official NREL report:
+1. **Scenario Summaries**: Documented central assumptions for `MidCase`, `HighDemandGrowth`, `LowDemandGrowth`, and `LowCarbonConstraint`.
+2. **Interactive UI**:
+   - Sidebar: Added dynamic selected-scenario caption and styled collapsible `<details>` guide under the "NREL Future Scenario" dropdown with direct link to `[Cambium 2024 Scenario Descriptions and Documentation](https://docs.nlr.gov/docs/fy25osti/93005.pdf)`.
+   - Main Area: Added scenario reference expander in the Scenario Manager tab (`tab_scenarios`).
+3. **Architecture**: Defined `SCENARIO_DESCRIPTIONS` and `CAMBIUM_DOC_URL` in `config.py` as single source of truth and added unit test coverage in `tests/test_calculations.py`. Total tests: **72/72 passing**.
+
+---
+
+## [2026-09-11] — Direct Weather-Triggered CWF (Ambient Temperature Severity)
+
+### Context
+Implemented Direct Weather-Triggered Capacity Worth Factor (CWF) calculation based on ambient dry-bulb temperature severity within Southeast utility reliability windows (Option A):
+1. **Winter Morning Freeze**: 6:00 AM – 9:00 AM (Dec–Feb) degree-hour exceedance below configurable freeze threshold ($T_{\text{freeze}} - T_h$).
+2. **Summer Afternoon Heat**: 2:00 PM – 6:00 PM (Jun–Sep) degree-hour exceedance above configurable heat threshold ($T_h - T_{\text{heat}}$).
+3. **Seasonal Risk Budgeting**: Configurable winter risk share slider (e.g., 75% winter / 25% summer).
+
+### Added / Updated
+- `calculations.py`: Added `calculate_cwf_temperature_exceedance()`.
+- `config.py`: Added `"Ambient Temperature Severity (Weather-Triggered)"` to `CWF_METHOD_OPTIONS`.
+- `app.py`: Integrated new method into sidebar expander with interactive threshold number inputs and wired into calculation pipeline.
+- `tests/test_calculations.py`: Added 3 new unit tests covering sum/shape, temperature sensitivity (colder mornings receiving proportionally higher capacity weights), and seasonal split/fallback. Total tests: **71/71 passing**.
+
+---
+
+## [2026-09-11] — Sidebar Capacity Valuation UI Alignment (ECC of a CT & Direct IRP Scaler)
+
+### Context
+Updated the sidebar capacity valuation expander in `app.py` to match Southeast utility conventions:
+1. Renamed sidebar section expander to `"Total Economic Carrying Cost of a CT (ECC of a CT)"`.
+2. Defaulted the selection to `"Direct IRP Scaler ($/kW-year)"` (`index=0`).
+3. Renamed builder radio option label to `"Carrying cost of a CT Builder"`.
+4. Updated scalar numeric input label to `"Total Economic Carrying Cost of a CT ($/kW-year)"`.
+
+### Verification
+- `python -m pytest`: **68/68 passing**.
+- Headless `import app` smoke test passed cleanly.
+
+---
+
+## [2026-09-10] — Southeast Utility Peaker Carrying Cost (Net CONE/ECC), Dual-Peak CWF, & Feeder T&D Engine
+
+### Context
+Implemented an engineering-economic valuation update grounded entirely in the Southeast US vertically integrated utility landscape (Southern Company / Georgia Power, Alabama Power, TVA, Duke Energy Carolinas/Progress). Replaces static placeholders with:
+1. Economic Carrying Cost (ECC / Net CONE) builder for the Next Planned Peaking Unit (SCCT) under regulated cost-of-service ratemaking (WACC, 30-yr life, MACRS depreciation, corporate tax).
+2. Four selectable 8,760-hour Capacity Worth Factor (CWF) allocation methods, featuring Southeast Dual-Peak (winter morning freeze 6–9 AM Dec–Feb vs. summer afternoon heat 2–6 PM Jun–Sep), EIA-930 Demand LOLP proxy, Top-N exceedance, and peaker spark spreads.
+3. Decoupled Transmission and Distribution deferral with localized Feeder Peaking selection (winter space-heating constrained feeders vs. summer cooling vs. system PCAF).
+
+### Added / Updated
+- **`calculations.py`:**
+  - Added `calculate_regulated_fcr()`: Capital Recovery Factor (CRF) and MACRS 15/20 tax depreciation shield factor.
+  - Added `calculate_ct_carrying_cost()`: Gross Economic Carrying Cost and Net Avoided Capacity credit ($/kW-yr).
+  - Added `calculate_southeast_dual_peak_cwf()`: Allocates risk across Southeast winter morning freeze hours (6–9 AM) and summer afternoon heat hours (2–6 PM) with configurable seasonal split.
+  - Added `calculate_cwf_lolp_proxy()`: Exponential LOLP risk weighting function on hourly demand.
+  - Added `calculate_cwf_top_n()`: Top-N system peak exceedance and uniform allocation.
+  - Added `calculate_cwf_peaker_rent()`: Spark spread above peaker variable operating costs.
+  - Added `calculate_feeder_pcaf_weights()`: Localized distribution peak allocation by feeder type.
+  - Updated `calculate_avoided_costs()`: Accepts optional `dist_weight_array` to decouple localized distribution deferral from bulk transmission PCAF.
+- **`config.py`:**
+  - Added `SOUTHEAST_PEAKER_PRESETS`: Southern Company / Georgia Power IRP SCCT, TVA Capacity Expansion SCCT, NREL ATB Regulated Utility Finance SCCT, and Aeroderivative CT.
+  - Added `SOUTHEAST_TD_PRESETS`: Georgia Power Rate Case Benchmark, Alabama Power Rate Case Benchmark, LBNL Southeast Regional Average, and Constrained Urban Corridor.
+  - Added `CWF_METHOD_OPTIONS` and `FEEDER_TYPE_OPTIONS`.
+- **`visualizations.py`:**
+  - Added `plot_peaker_carrying_cost_breakdown()`: Waterfall chart of CAPEX recovery + FOM - E&AS offset = Avoided Capacity Scalar.
+  - Added `plot_southeast_cwf_distribution()`: Diurnal distribution (% of annual risk by hour) comparing winter cold snaps vs. summer heat waves.
+  - Added `plot_feeder_vs_system_load()`: Comparison of localized feeder distribution peak vs. bulk system transmission PCAF.
+- **`app.py`:**
+  - Replaced static grid scalars with interactive expanders for Generation Capacity (CT Carrying Cost Builder with IRP presets and live metric card), Capacity Risk Allocation (method dropdown and sliders), and T&D Deferral & Feeder Constraints.
+  - Wired dual-peak CWF and feeder weights into calculation pipeline and updated Cost-Effectiveness table to display feeder peak reduction.
+  - Added peaker carrying cost waterfall and Southeast CWF / feeder comparison charts to the Charts tab.
+- **`tests/test_calculations.py`:**
+  - Added `TestSoutheastUtilityCapacityEngine` with 11 new tests covering regulated FCR, CT carrying cost, dual-peak CWF, LOLP proxy, peaker rent, feeder weights, decoupled T&D avoided costs, and chart builders.
+  - Total test suite count increased from 57 to 68 passing tests.
+- **`docs/` living documents:**
+  - Updated `docs/needs_and_gaps.md`, `docs/roadmap.md`, `docs/glossary.md`, and `docs/CHANGELOG.md`.
+
+### Verification
+- `python -m pytest`: **68/68 passing** (57 prior + 11 new).
+- Headless `import app` smoke test passed successfully with all Streamlit components compiling cleanly.
+
+---
+
 ## [2026-08-31] — Documentation Audit: Fixed Stale Status Claims Across 5 Docs
 
 ### Context

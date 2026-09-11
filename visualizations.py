@@ -563,3 +563,438 @@ def build_temp_power_cost_bubble_chart(temp_vals, baseline_load, proposed_load,
 
     return fig
 
+
+def plot_peaker_carrying_cost_breakdown(carrying_cost_dict):
+    """
+    Build a waterfall / component bar chart showing the composition of the
+    avoided generation capacity scalar ($/kW-yr).
+
+    Parameters
+    ----------
+    carrying_cost_dict : dict
+        Output from calculations.calculate_ct_carrying_cost(), containing:
+        - capital_recovery_annuity
+        - fom_kw_yr
+        - gross_carrying_cost
+        - eas_offset_kw_yr
+        - net_capacity_cost
+
+    Returns
+    -------
+    go.Figure
+    """
+    cap_rec = carrying_cost_dict.get("capital_recovery_annuity", 0.0)
+    fom = carrying_cost_dict.get("fom_kw_yr", 0.0)
+    gross = carrying_cost_dict.get("gross_carrying_cost", 0.0)
+    eas = carrying_cost_dict.get("eas_offset_kw_yr", 0.0)
+    net = carrying_cost_dict.get("net_capacity_cost", gross)
+
+    if eas > 0:
+        x_labels = [
+            "Capital Recovery<br>(CAPEX × FCR)",
+            "Fixed O&M<br>(FOM)",
+            "Gross Carrying Cost<br>(Total Peaker Annuity)",
+            "Inframarginal Offset<br>(Net E&AS Margin)",
+            "Net Avoided Capacity<br>(Net CONE / Scalar)"
+        ]
+        y_vals = [cap_rec, fom, gross, -eas, net]
+        measures = ["relative", "relative", "total", "relative", "total"]
+    else:
+        x_labels = [
+            "Capital Recovery<br>(CAPEX × FCR)",
+            "Fixed O&M<br>(FOM)",
+            "Avoided Capacity Scalar<br>(Gross Peaker Cost)"
+        ]
+        y_vals = [cap_rec, fom, gross]
+        measures = ["relative", "relative", "total"]
+
+    fig = go.Figure(go.Waterfall(
+        name="Peaker Carrying Cost",
+        orientation="v",
+        measure=measures,
+        x=x_labels,
+        text=[f"${abs(v):,.2f}/kW-yr" for v in y_vals],
+        textposition="outside",
+        y=y_vals,
+        connector={"line": {"color": "rgb(63, 63, 63)", "dash": "dot"}},
+        decreasing={"marker": {"color": "#EF4444"}},
+        increasing={"marker": {"color": "#3B82F6"}},
+        totals={"marker": {"color": "#10B981"}}
+    ))
+
+    fig.update_layout(
+        title="Avoided Generation Capacity: Next Planned Peaker Carrying Cost Breakdown",
+        template="plotly_white",
+        height=420,
+        margin=dict(l=40, r=40, t=50, b=50),
+        yaxis_title="Annual Carrying Cost ($/kW-year)",
+        showlegend=False
+    )
+    return fig
+
+
+def plot_southeast_cwf_distribution(cwf_array, datetime_series=None):
+    """
+    Build a dual-panel chart showing how Capacity Worth Factors (CWF)
+    distribute reliability risk across hours of the day in winter vs summer.
+
+    Parameters
+    ----------
+    cwf_array : np.ndarray
+        8,760 array of capacity weights.
+    datetime_series : pd.Series or pd.DatetimeIndex, optional
+        Timestamps.
+
+    Returns
+    -------
+    go.Figure
+    """
+    n_hours = len(cwf_array)
+    if datetime_series is not None:
+        dts = pd.to_datetime(datetime_series)
+        months = dts.dt.month.to_numpy()
+        hours = dts.dt.hour.to_numpy()
+    else:
+        h_idx = np.arange(n_hours)
+        days = h_idx // 24
+        hours = h_idx % 24
+        month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        cum_days = np.cumsum([0] + month_days)
+        months = np.zeros(n_hours, dtype=int)
+        for m in range(12):
+            months[(days >= cum_days[m]) & (days < cum_days[m+1])] = m + 1
+
+    df_cwf = pd.DataFrame({"month": months, "hour": hours, "cwf": cwf_array})
+
+    # Group by season
+    winter_mask = df_cwf["month"].isin([12, 1, 2])
+    summer_mask = df_cwf["month"].isin([6, 7, 8, 9])
+
+    winter_profile = df_cwf[winter_mask].groupby("hour")["cwf"].sum() * 100.0
+    summer_profile = df_cwf[summer_mask].groupby("hour")["cwf"].sum() * 100.0
+
+    all_hours = np.arange(24)
+    w_vals = [winter_profile.get(h, 0.0) for h in all_hours]
+    s_vals = [summer_profile.get(h, 0.0) for h in all_hours]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=all_hours,
+        y=w_vals,
+        name="Winter Cold Snaps (Dec–Feb)",
+        marker_color="#2563EB",
+        opacity=0.85
+    ))
+    fig.add_trace(go.Bar(
+        x=all_hours,
+        y=s_vals,
+        name="Summer Heat Waves (Jun–Sep)",
+        marker_color="#DC2626",
+        opacity=0.85
+    ))
+
+    fig.update_layout(
+        title="Southeast Capacity Risk Allocation by Hour of Day (% of Annual Risk)",
+        template="plotly_white",
+        barmode="group",
+        height=400,
+        margin=dict(l=40, r=40, t=50, b=50),
+        xaxis=dict(
+            title="Hour of Day (0 = Midnight, 6 = 6 AM, 14 = 2 PM)",
+            tickmode="linear",
+            tick0=0,
+            dtick=1
+        ),
+        yaxis=dict(title="% of Total Annual Capacity Value"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    return fig
+
+
+def plot_feeder_vs_system_load(feeder_weights, system_weights, datetime_series=None):
+    """
+    Build a comparison chart illustrating when localized feeder distribution stress
+    occurs relative to bulk system transmission/wholesale peak hours.
+
+    Parameters
+    ----------
+    feeder_weights : np.ndarray
+        8,760 distribution peak weighting factors.
+    system_weights : np.ndarray
+        8,760 transmission / bulk system peak weighting factors.
+    datetime_series : pd.Series or pd.DatetimeIndex, optional
+        Timestamps.
+
+    Returns
+    -------
+    go.Figure
+    """
+    n_hours = len(feeder_weights)
+    if datetime_series is not None:
+        dts = pd.to_datetime(datetime_series)
+        hours = dts.dt.hour.to_numpy()
+    else:
+        hours = np.arange(n_hours) % 24
+
+    df_comp = pd.DataFrame({
+        "hour": hours,
+        "feeder": feeder_weights * 100.0,
+        "system": system_weights * 100.0
+    })
+
+    feeder_diurnal = df_comp.groupby("hour")["feeder"].sum()
+    system_diurnal = df_comp.groupby("hour")["system"].sum()
+
+    all_hours = np.arange(24)
+    f_vals = [feeder_diurnal.get(h, 0.0) for h in all_hours]
+    s_vals = [system_diurnal.get(h, 0.0) for h in all_hours]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=all_hours, y=f_vals,
+        mode="lines+markers",
+        name="Distribution Feeder Deferral",
+        line=dict(color="#EC4899", width=3)
+    ))
+    fig.add_trace(go.Scatter(
+        x=all_hours, y=s_vals,
+        mode="lines+markers",
+        name="Bulk Transmission / System PCAF",
+        line=dict(color="#3B82F6", width=3, dash="dash")
+    ))
+
+    fig.update_layout(
+        title="Feeder Distribution vs. Bulk Transmission Peak Allocation (% by Hour of Day)",
+        template="plotly_white",
+        height=380,
+        margin=dict(l=40, r=40, t=50, b=50),
+        xaxis=dict(title="Hour of Day", tickmode="linear", tick0=0, dtick=1),
+        yaxis=dict(title="% of Annual Value Stream"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    return fig
+
+
+def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_net_savings):
+    """
+    Build a clean horizontal comparison / waterfall chart for the Lifetime Economic Balance
+    showing Grid Avoided Costs (+), Utility Lost Revenue (-), and Net Valuation NPV.
+
+    Parameters
+    ----------
+    npv_grid_savings : float
+        Discounted lifetime grid avoided costs ($).
+    npv_retail_lost_revenue : float
+        Discounted lifetime utility lost revenue / customer bill savings ($).
+    npv_net_savings : float
+        Net valuation NPV (grid savings minus lost revenue).
+
+    Returns
+    -------
+    go.Figure
+    """
+    fig = go.Figure(go.Waterfall(
+        name="Economic Balance",
+        orientation="h",
+        measure=["relative", "relative", "total"],
+        y=["Grid Avoided Costs", "Utility Lost Revenue", "Net Valuation NPV"],
+        x=[npv_grid_savings, -npv_retail_lost_revenue, 0],
+        text=[f"+${npv_grid_savings:,.0f}", f"-${npv_retail_lost_revenue:,.0f}", f"${npv_net_savings:,.0f}"],
+        textposition="outside",
+        decreasing={"marker": {"color": "#F43F5E"}},
+        increasing={"marker": {"color": "#10B981"}},
+        totals={"marker": {"color": "#10B981" if npv_net_savings >= 0 else "#E11D48"}},
+        connector={"line": {"color": "#94A3B8", "width": 1.5, "dash": "dot"}},
+        hovertemplate="<b>%{y}:</b> %{text}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        template="plotly_white",
+        height=190,
+        margin=dict(l=145, r=110, t=15, b=25),
+        xaxis=dict(
+            title="",
+            showgrid=True,
+            gridcolor="#F1F5F9",
+            zeroline=True,
+            zerolinecolor="#94A3B8",
+            zerolinewidth=1.5,
+            tickprefix="$",
+            tickformat=","
+        ),
+        yaxis=dict(
+            autorange="reversed",
+            tickfont=dict(size=12, family="sans-serif", color="#334155")
+        ),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    return fig
+
+
+def build_two_sided_cost_effectiveness_chart(
+    annual_energy_savings,
+    annual_gen_cap_savings,
+    annual_trans_savings,
+    annual_dist_savings,
+    annual_emissions_savings,
+    retail_energy_savings,
+    retail_demand_savings,
+    annual_net_savings
+):
+    """
+    Build an interactive two-sided comparison bar chart for Tab 3 (Cost-Effectiveness Table).
+    Visualizes Wholesale Grid Deferrals (5-component stacked bar) vs. Customer Bill
+    Reductions / Lost Revenue (2-component stacked bar) alongside the Net Operating Margin.
+
+    Parameters
+    ----------
+    annual_energy_savings : float
+        Wholesale energy avoided costs ($/yr).
+    annual_gen_cap_savings : float
+        Generation capacity avoided costs ($/yr).
+    annual_trans_savings : float
+        Transmission deferral avoided costs ($/yr).
+    annual_dist_savings : float
+        Distribution deferral avoided costs ($/yr).
+    annual_emissions_savings : float
+        Carbon emissions avoided costs ($/yr).
+    retail_energy_savings : float
+        Retail volumetric energy bill reductions ($/yr).
+    retail_demand_savings : float
+        Retail demand charge bill reductions ($/yr).
+    annual_net_savings : float
+        Net annual operational margin (Grid avoided costs minus retail lost revenue, $/yr).
+
+    Returns
+    -------
+    go.Figure
+    """
+    fig = go.Figure()
+
+    annual_grid_savings = (
+        annual_gen_cap_savings + annual_energy_savings +
+        annual_dist_savings + annual_emissions_savings + annual_trans_savings
+    )
+    annual_lost_revenue = retail_energy_savings + retail_demand_savings
+
+    # 1. Grid Avoided Cost Components (Stacked)
+    grid_components = [
+        ("Generation Capacity", annual_gen_cap_savings, "#0D9488"),
+        ("Wholesale Energy", annual_energy_savings, "#F59E0B"),
+        ("Distribution Deferral", annual_dist_savings, "#EC4899"),
+        ("Carbon Avoided", annual_emissions_savings, "#10B981"),
+        ("Transmission Deferral", annual_trans_savings, "#3B82F6"),
+    ]
+    for name, val, color in grid_components:
+        pct = (val / annual_grid_savings * 100) if annual_grid_savings > 0 else 0
+        txt = f"${val:,.0f} ({pct:.0f}%)" if val >= 25 else (f"${val:,.0f}" if val >= 10 else "")
+        fig.add_trace(go.Bar(
+            name=name,
+            x=["Wholesale Grid Deferrals"],
+            y=[val],
+            marker_color=color,
+            text=[txt],
+            textposition="inside",
+            insidetextanchor="middle",
+            hovertemplate=f"<b>{name}:</b> $%{{y:,.2f}} / yr ({pct:.1f}%)<extra></extra>"
+        ))
+
+    # 2. Retail Bill Savings / Lost Revenue Components (Stacked)
+    retail_components = [
+        ("Retail Energy Savings", retail_energy_savings, "#F43F5E"),
+        ("Retail Demand Savings", retail_demand_savings, "#BE123C"),
+    ]
+    for name, val, color in retail_components:
+        pct = (val / annual_lost_revenue * 100) if annual_lost_revenue > 0 else 0
+        txt = f"${val:,.0f} ({pct:.0f}%)" if val >= 25 else (f"${val:,.0f}" if val >= 10 else "")
+        fig.add_trace(go.Bar(
+            name=name,
+            x=["Customer Bill Savings"],
+            y=[val],
+            marker_color=color,
+            text=[txt],
+            textposition="inside",
+            insidetextanchor="middle",
+            hovertemplate=f"<b>{name}:</b> $%{{y:,.2f}} / yr ({pct:.1f}%)<extra></extra>"
+        ))
+
+    # 3. Net Annual Operating Margin (Single bar)
+    net_sign = "+" if annual_net_savings >= 0 else "-"
+    net_color = "#059669" if annual_net_savings >= 0 else "#E11D48"
+    fig.add_trace(go.Bar(
+        name="Net Operating Margin",
+        x=["Net Operating Margin"],
+        y=[annual_net_savings],
+        marker_color=net_color,
+        text=[f"{net_sign}${abs(annual_net_savings):,.2f}"],
+        textposition="outside",
+        hovertemplate=f"<b>Net Operating Margin:</b> {net_sign}${abs(annual_net_savings):,.2f} / yr<extra></extra>"
+    ))
+
+    # Dynamic y-axis scale with padding for annotations
+    max_top = max(annual_grid_savings, annual_lost_revenue, max(0, annual_net_savings))
+    min_bottom = min(0, annual_net_savings)
+    y_pad = max(max_top * 0.18, 50.0)
+    y_min_pad = abs(min_bottom) * 1.25 if min_bottom < 0 else 0
+
+    # Total and Net Annotations
+    fig.add_annotation(
+        x="Wholesale Grid Deferrals",
+        y=annual_grid_savings,
+        text=f"<b>Total: ${annual_grid_savings:,.2f}</b>",
+        showarrow=False,
+        yshift=14,
+        font=dict(size=12, color="#0F172A")
+    )
+    fig.add_annotation(
+        x="Customer Bill Savings",
+        y=annual_lost_revenue,
+        text=f"<b>Total: ${annual_lost_revenue:,.2f}</b>",
+        showarrow=False,
+        yshift=14,
+        font=dict(size=12, color="#0F172A")
+    )
+    fig.add_annotation(
+        x="Net Operating Margin",
+        y=annual_net_savings,
+        text=f"<b>Net: {net_sign}${abs(annual_net_savings):,.2f}</b>",
+        showarrow=False,
+        yshift=14 if annual_net_savings >= 0 else -16,
+        font=dict(size=12, color=net_color)
+    )
+
+    fig.update_layout(
+        barmode="stack",
+        template="plotly_white",
+        height=380,
+        margin=dict(l=40, r=40, t=35, b=40),
+        yaxis=dict(
+            title="Annual Value ($/yr)",
+            tickprefix="$",
+            tickformat=",",
+            range=[-y_min_pad, max_top + y_pad],
+            gridcolor="#F1F5F9",
+            zeroline=True,
+            zerolinecolor="#94A3B8",
+            zerolinewidth=1.5,
+        ),
+        xaxis=dict(
+            tickfont=dict(size=12, color="#1E293B", family="sans-serif")
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.04,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=10.5)
+        ),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+    return fig
+
+
+
+

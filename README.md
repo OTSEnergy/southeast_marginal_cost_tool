@@ -75,8 +75,8 @@ The application's ingestion engine will automatically:
 
 
 > [!WARNING]
-> **Capacity Weighting Factor Table (CWFT) Data:**  
-> The provided `CWFT.csv` file in this repository is currently a **mocked placeholder** and does not reflect realistic utility peak risk conditions. It should **not** be used for final engineering or economic evaluations. Users must replace it with a valid, region-specific Capacity Weighting Factor dataset.
+> **Capacity Worth Factor Table (CWFT) Data:**  
+> The provided `CWFT.csv` file in this repository is currently a **mocked placeholder** and does not reflect realistic utility peak risk conditions. It should **not** be used for final engineering or economic evaluations. Users must replace it with a valid, region-specific Capacity Worth Factor dataset.
 
 ---
 

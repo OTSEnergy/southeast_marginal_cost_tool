@@ -67,6 +67,30 @@ import pandas as pd
 # ==============================================================================
 
 INPUT_DIRECTORY = "./Cambium_Hourly_Data_raw"
+WMO_STATION_LOOKUP_PATH = "./data/wmo_station_lookup.csv"
+
+
+# ==============================================================================
+# WMO WEATHER STATION LOOKUP — City/State -> WMO Station ID
+# ==============================================================================
+
+def load_wmo_station_lookup(filepath=WMO_STATION_LOOKUP_PATH):
+    """
+    Loads the City/State -> WMO Station ID lookup table used to populate the
+    weather-station search dropdown in render_weather_generator() (app.py),
+    so users don't have to manually look up WMO IDs from energyplus.net.
+
+    The lookup file is derived from diyepw's bundled TMY3/TMYx EPW catalog
+    (venv/Lib/site-packages/diyepw/data/tmy_epw_catalogs/tmy_epw_catalog.csv),
+    which mirrors the same NREL/onebuilding.org station set shown on the
+    EnergyPlus weather map. Returns an empty DataFrame with the expected
+    columns if the file is missing, so callers can fall back to manual entry.
+    """
+    columns = ["wmo_id", "city", "state_abbr", "state_name", "country", "source", "label"]
+    if not os.path.exists(filepath):
+        return pd.DataFrame(columns=columns)
+    df = pd.read_csv(filepath, dtype={"wmo_id": str})
+    return df
 
 
 # ==============================================================================
