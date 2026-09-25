@@ -213,6 +213,22 @@ def _read_profile_file(filepath):
     return pd.read_csv(filepath)
 
 
+def _fill_hourly_gaps(vals, expected_len=8760):
+    """Resize to expected_len, then linearly interpolate any NaN gaps left
+    behind by a blank cell or non-numeric value in the source file (e.g. a
+    single missing hour in an otherwise complete export). Edge NaNs are
+    filled from the nearest valid value. Returns (filled_vals, n_filled).
+    """
+    vals = np.asarray(vals, dtype=float)
+    if len(vals) != expected_len:
+        vals = np.resize(vals, expected_len)
+    n_nan = int(np.isnan(vals).sum())
+    if n_nan == 0:
+        return vals, 0
+    filled = pd.Series(vals).interpolate(limit_direction='both').to_numpy()
+    return filled, n_nan
+
+
 def _is_date_or_time_col(col_name):
     """Check if a column name represents a date, time, timestamp, or hour index."""
     c_low = str(col_name).strip().lower()
@@ -249,19 +265,18 @@ def _extract_profile_from_beopt_or_eplus(df, filename_stem):
                 
     if elec_col:
         vals = pd.to_numeric(df[elec_col], errors='coerce').to_numpy()
-        if len(vals) != 8760:
-            vals = np.resize(vals, 8760)
-            
+        vals, n_filled = _fill_hourly_gaps(vals, 8760)
+
         # Unit conversion: Joules [J] to kW (kWh per hour)
         if '[j]' in str(elec_col).lower() or np.nanmean(vals) > 1000.0:
             vals = vals / 3600000.0
         elif '[w]' in str(elec_col).lower():
             vals = vals / 1000.0
-            
+
         col_name = f"{filename_stem}_kW" if not filename_stem.endswith("_kW") else filename_stem
-        return col_name, vals
-        
-    return None, None
+        return col_name, vals, n_filled
+
+    return None, None, 0
 
 
 def load_load_profiles_from_csv(filepath):
@@ -291,31 +306,36 @@ def load_load_profiles_from_csv(filepath):
                 raise ValueError(f"No load profile CSV or Excel files found in directory '{filepath}'")
             
             merged_dict = {'Hour': np.arange(1, 8761)}
+            ingestion_warnings = []
             for fp in sorted(files):
                 stem = os.path.splitext(os.path.basename(fp))[0]
                 sub_df = _read_profile_file(fp)
-                
+
                 # Check if it's a BEopt or EnergyPlus output export
                 is_beopt_eplus = ('Date/Time' in sub_df.columns or any(':' in str(c) for c in sub_df.columns))
-                
+
                 if is_beopt_eplus:
-                    col_name, vals = _extract_profile_from_beopt_or_eplus(sub_df, stem)
+                    col_name, vals, n_filled = _extract_profile_from_beopt_or_eplus(sub_df, stem)
                     if vals is not None:
                         col_key = col_name if col_name not in merged_dict else f"{stem} - {col_name}"
                         merged_dict[col_key] = vals
+                        if n_filled > 0:
+                            ingestion_warnings.append(f"'{fp}': {n_filled} missing hour(s) in '{col_key}' filled via linear interpolation.")
                 else:
                     # Filter out date/time columns
                     non_date_cols = [c for c in sub_df.columns if not _is_date_or_time_col(c)]
                     for col in non_date_cols:
                         vals = pd.to_numeric(sub_df[col], errors='coerce').to_numpy()
-                        if len(vals) != 8760:
-                            vals = np.resize(vals, 8760)
+                        vals, n_filled = _fill_hourly_gaps(vals, 8760)
                         col_key = col if col not in merged_dict else f"{stem} - {col}"
                         merged_dict[col_key] = vals
-                        
+                        if n_filled > 0:
+                            ingestion_warnings.append(f"'{fp}': {n_filled} missing hour(s) in '{col_key}' filled via linear interpolation.")
+
             res_df = pd.DataFrame(merged_dict)
             if len(res_df.columns) <= 1:
                 raise ValueError(f"Could not extract load profiles from files in '{filepath}'")
+            res_df.attrs['ingestion_warnings'] = ingestion_warnings
             return res_df
 
         # Otherwise, process single file
@@ -326,12 +346,17 @@ def load_load_profiles_from_csv(filepath):
         is_beopt_eplus = ('Date/Time' in df.columns or any(':' in str(c) for c in df.columns))
         
         if is_beopt_eplus:
-            col_name, vals = _extract_profile_from_beopt_or_eplus(df, stem)
+            col_name, vals, n_filled = _extract_profile_from_beopt_or_eplus(df, stem)
             if vals is not None:
-                return pd.DataFrame({
+                out_df = pd.DataFrame({
                     'Hour': np.arange(1, 8761),
                     col_name: vals
                 })
+                if n_filled > 0:
+                    out_df.attrs['ingestion_warnings'] = [
+                        f"'{filepath}': {n_filled} missing hour(s) in '{col_name}' filled via linear interpolation."
+                    ]
+                return out_df
             else:
                 raise ValueError(f"Could not find an electricity/facility load column in '{filepath}'")
 
@@ -341,13 +366,17 @@ def load_load_profiles_from_csv(filepath):
             raise ValueError(f"The Load Profiles file '{filepath}' must contain at least one numeric load profile column.")
 
         out_dict = {'Hour': np.arange(1, 8761)}
+        ingestion_warnings = []
         for col in non_date_cols:
             vals = pd.to_numeric(df[col], errors='coerce').to_numpy()
-            if len(vals) != 8760:
-                vals = np.resize(vals, 8760)
+            vals, n_filled = _fill_hourly_gaps(vals, 8760)
             out_dict[col] = vals
+            if n_filled > 0:
+                ingestion_warnings.append(f"'{filepath}': {n_filled} missing hour(s) in '{col}' filled via linear interpolation.")
 
-        return pd.DataFrame(out_dict)
+        out_df = pd.DataFrame(out_dict)
+        out_df.attrs['ingestion_warnings'] = ingestion_warnings
+        return out_df
     except Exception as e:
         raise ValueError(f"Failed to parse Load Profiles file: {str(e)}")
 
@@ -618,8 +647,16 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
         8760-row DataFrame with columns: Hour, Datetime, Cambium_Energy_MWh,
         Cambium_Carbon_kg_MWh, PCAF_Weight, Temperature_F, CWFT_derived,
         Mapped_Energy_Col, Mapped_Carbon_Col
+    ingestion_warnings : list of str
+        One entry per file that looked like a match (by name/metadata) but
+        failed to parse or map cleanly, so the caller can surface them
+        (e.g. via st.warning()) instead of the file being dropped with no
+        explanation. Files that simply don't match the requested scenario/
+        state/year are not warnings -- they're expected and skipped silently.
     """
     os.makedirs(input_directory, exist_ok=True)
+
+    ingestion_warnings = []
 
     # Track which states we successfully loaded from real data
     loaded_states = set()
@@ -704,8 +741,10 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
                 combined_list.append(filtered_df[['Hour', 'Cambium_Energy_MWh', 'Cambium_Carbon_kg_MWh', 'State']])
 
         except Exception as e:
-            # Silently pass for other files
-            pass
+            # Reached only for a file that looked like a match (raw NREL metadata
+            # matched, or file_matches_scenario() said yes) but then failed to
+            # parse/map -- a genuinely broken file, not just a non-matching one.
+            ingestion_warnings.append(f"Skipped '{os.path.basename(file)}': {e}")
 
     # Ensure all requested states were successfully loaded from real files
     missing_states = [s for s in target_states if s.upper() not in loaded_states]
@@ -726,8 +765,21 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
         'Cambium_Carbon_kg_MWh': 'mean'
     }).reset_index()
 
-    # Standard 8760-hour generation, aligned to the target year
-    date_range = pd.date_range(start=f"{target_year}-01-01 00:00:00", periods=8760, freq="h")
+    # Standard 8760-hour generation, aligned to the target year. Cambium and
+    # BEopt/EnergyPlus 8760-hour profiles both use a "365-day" calendar
+    # convention -- verified directly against Cambium's own raw timestamp
+    # column, which has exactly 28 Feb days / 744 Dec hours even for a real
+    # leap planning year. Building the range from `periods=8760` against a
+    # real leap target_year instead inserts a real Feb 29 and falls one day
+    # short of Dec 31 (stops at Dec 30 23:00), silently misaligning every
+    # date from ~Mar 1 onward. Generate the full Jan 1 - Dec 31 range and
+    # drop Feb 29 if present instead, which matches the source data's own
+    # convention and always yields exactly 8760 hours.
+    full_range = pd.date_range(
+        start=f"{target_year}-01-01 00:00:00", end=f"{target_year}-12-31 23:00:00", freq="h"
+    )
+    date_range = full_range[~((full_range.month == 2) & (full_range.day == 29))]
+    assert len(date_range) == 8760, f"Expected 8760 hours after removing Feb 29, got {len(date_range)}"
     regional_base['Datetime'] = date_range
 
     # Peak Capacity Allocation Factor (PCAF) for localized T&D stress (top 100 grid hours)
@@ -805,7 +857,7 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
     regional_base['Mapped_Energy_Col'] = mapped_energy_col
     regional_base['Mapped_Carbon_Col'] = mapped_carbon_col
 
-    return regional_base
+    return regional_base, ingestion_warnings
 
 
 # ==============================================================================

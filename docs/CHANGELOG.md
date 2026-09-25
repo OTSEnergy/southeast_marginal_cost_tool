@@ -2,6 +2,109 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-09-25] — Charts Tab Expansion, CWF Methodology Fix, and Comprehensive QA Review
+
+### Context
+Multi-session block of work: (1) restructured the Charts tab into real sub-tabs with
+written explainer copy (replacing placeholder text), (2) fixed a real building-dependence
+bug in the default capacity-risk methodology, (3) added two new analysis tabs, and (4) ran
+a full cross-tab consistency/QA review and fixed everything it surfaced that was in scope.
+
+### 1. Charts Tab Restructuring
+- Split the single "Charts" tab into 9 focused sub-tabs (Building Load vs. Temperature,
+  Weekly Grid Economics, Annual Wholesale Cost, Winter and Summer Peak Comparison,
+  Peaker Carrying Cost, Capacity Risk & Feeder Stress, Lifetime Cash Flow, Cost Duration
+  Curve, Cumulative Annual Cost), each with real (non-placeholder) explainer text.
+- Established a consistent green-good/red-bad signed-color convention across every
+  chart that shows a savings-vs-cost comparison; purple/amber reserved for
+  Baseline/Proposed lines so they don't collide with that convention.
+- Discovered and fixed a real rendering bug: `go.Bar` traces become sub-pixel/invisible
+  at high point density (hundreds–thousands of points); fixed by switching to filled
+  `go.Scatter` lines (smooth aggregate data) or explicit "stem" line segments (raw
+  hourly data, where a continuous fill visually blurs distinct hours into one blob).
+- Added `find_peak_week()` — data-driven peak/shoulder week detection, replacing
+  hardcoded calendar windows — plus a per-tab "View span" (week/month) control.
+- **New: Cost Duration Curve tab** — hourly cost sorted by cost/chronological/outdoor
+  temperature, one month (or "Full Year") at a time via a shared Month selector, with
+  an outlier-robust y-axis cap (10x median) and a "Day x Hour" predictability heatmap
+  for the selected month (full-year "Hour x Month" view when "Full Year" is selected).
+- **New: Cumulative Annual Cost tab** — running cumulative $ difference
+  (Proposed − Baseline) across one representative year (whichever Planning Year is
+  selected), shown from two perspectives: Utility (toggle between **RIM**: grid
+  savings vs. lost retail revenue, and **TRC**: grid savings alone with no revenue
+  netting — both scoped to just that year's energy usage, no capital cost) and
+  Customer/Occupant (their retail bill difference).
+- **Lifetime Cash Flow tab reworked**: added a Utility/Customer perspective toggle;
+  the Utility view now nets grid savings against lost retail revenue *and* the
+  one-time program cost (rebate + admin), matching the RIM test's actual cost basis
+  instead of just "grid savings minus lost revenue."
+
+### 2. CWF (Capacity Risk) Methodology Fix
+- Found and fixed a real methodology bug: the default "Southeast Dual-Peak" CWF
+  method used the *selected Baseline building's own load* to define grid stress
+  hours, making capacity-risk allocation (and therefore EPC-driven results)
+  building-dependent — swapping which technology was set as Baseline changed
+  results by up to ~37% for the same technology pair.
+- Switched the default to **Cambium Price-Exceedance LOLP Proxy** (building-
+  independent, grid-price-driven) and reduced its `alpha` from 12 → 4 after finding
+  the old default put 40–58% of a whole year's capacity credit on a single hour
+  across real Southeast Cambium data; alpha=4 keeps the top hour's share under ~1%
+  (verified against real AL/GA/TN/MS/NC/SC data).
+
+### 3. QA Review Fixes (2026-09-25)
+Ran a full review for cross-tab calculation consistency, methodology coherence, and
+general code quality (see `needs_and_gaps.md` for the full findings list). Fixed:
+- **Leap-year date misalignment** (`data_loaders.py`): the 8,760-hour datetime
+  generator used `pd.date_range(..., periods=8760)` against the real Gregorian
+  calendar, which inserts a real Feb 29 for a leap `target_year` and therefore falls
+  one day short of Dec 31 — silently misaligning every calendar-based feature
+  (Month filters, seasonal CWF/feeder windows, peak-week detection) by one day from
+  ~March onward. Verified Cambium's own data (and BEopt/EnergyPlus 8760-hour
+  profiles) always use a 365-day/no-leap convention regardless of the labeled year;
+  fixed by generating a full Jan1–Dec31 range and dropping Feb 29 if present, which
+  now always yields exactly 8,760 hours for any target year. **2012, the default
+  Weather Observation Year, is a leap year**, so this was live by default.
+- **Tiered-billing simplification silently understated customer $ totals**: the
+  hourly rate helper used for chart totals (Weekly Grid Economics, Cost Duration
+  Curve, Cumulative Annual Cost) always charges the first tariff tier, ignoring
+  monthly cumulative-usage tiering (by design — see its docstring). For a realistic
+  Southeast summer-cooling load this understated the annual bill by ~9% ($226 on a
+  ~$2,487 bill) relative to the authoritative `calculate_urdb_bill()` total used by
+  the Scorecard/Cost-Effectiveness Table. Fixed by rescaling the hourly series to
+  sum exactly to the official annual bill, preserving the hourly shape for charts
+  while keeping every tab's annual totals reconciled.
+- **Silent exception swallowing in the Cambium file scanner** (`needs_and_gaps.md`
+  §6.3 / `roadmap.md` 1.7, previously open): `load_and_aggregate_data()` now returns
+  `(df, ingestion_warnings)`; a file that looked like a match but failed to parse is
+  surfaced via `st.warning()` instead of silently disappearing. Files that simply
+  don't match the requested scenario/state/year remain silent (expected).
+- **Scorecard "Lifetime Net Valuation NPV" now agrees with the Lifetime Cash Flow
+  tab's Utility total**: previously excluded the one-time program cost (rebate +
+  admin) that the Lifetime Cash Flow tab's Utility view already netted in, so the
+  two headline numbers could legitimately disagree by the program-cost amount with
+  no visible explanation. `npv_net_savings` now subtracts program cost everywhere it
+  feeds (Scorecard KPI card, Executive Summary waterfall chart — which gained a
+  third "Utility Program Cost" bar — Scenario Manager's Net NPV column, the
+  Cost-Effectiveness Table's formula-trace row).
+- **Added a separate Customer Discount Rate** (sidebar, defaults to match the
+  utility WACC): the customer's discounted payback, PCT ratio, and the Lifetime
+  Cash Flow Customer view now discount that side's cash flows at this rate instead
+  of silently reusing the utility's WACC, which is rarely the right rate for a
+  homeowner's own payback math.
+- **TRC/PCT/RIM ratios no longer misreport a $0-cost input as a failing 0.0** — a
+  real benefit against no cost is now `inf` (infinitely favorable) instead of a
+  ratio that visually reads as "worthless."
+- **Documented, not yet fixed** (deferred): DR Mode's Capacity Accreditation Factor
+  derate isn't applied in the Cost Duration Curve / Cumulative Annual Cost tabs'
+  simplified grid-cost basis, so those tabs can overstate grid savings relative to
+  the Scorecard while DR Mode is active — flagged in-code and here, revisit if DR
+  Mode usage grows. `app_annotated.py`'s drift from `app.py` (tracked since
+  2026-08-18, still open) also remains unresolved — flagged again, not touched.
+- Test suite: 113 tests passing (up from 110 before this pass), covering all of the
+  above.
+
+---
+
 ## [2026-09-11] — Cost-Effectiveness Table: Two-Sided Visual Breakdown & Collapsible Data Table
 
 ### Context

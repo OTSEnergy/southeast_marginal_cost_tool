@@ -175,6 +175,30 @@ def dispatch_dr_program(datetime_series, cwft_array, dr_hours_per_year,
     return dr_reduction, selected_hours
 
 
+def _safe_cost_effectiveness_ratio(benefit, cost):
+    """
+    benefit / cost, guarding two different edge cases:
+    - cost == 0 (e.g. a user zeroes out Gross Measure Cost while testing): a
+      real benefit against no cost is infinitely favorable and should read
+      that way, not as a misleadingly bad-looking 0.0; no benefit and no
+      cost nets to a neutral 0.0.
+    - cost < 0: a genuinely degenerate case (e.g. a RIM test where the
+      customer's bill goes up enough that "lost revenue" is actually
+      negative and outweighs the program cost, or a TRC/PCT cost input that
+      somehow nets negative). Dividing by a negative cost would silently
+      flip the ratio's sign -- a negative benefit over a negative cost would
+      read as a *positive*, seemingly-favorable ratio, which is exactly
+      backwards. Returns NaN instead, since the test's benefit/cost premise
+      doesn't hold here; the caller should display this distinctly from
+      both a real ratio and the cost==0 infinite/neutral cases.
+    """
+    if cost > 0:
+        return benefit / cost
+    if cost == 0:
+        return float('inf') if benefit > 0 else 0.0
+    return float('nan')
+
+
 def calculate_cost_effectiveness_tests(npv_grid_savings, npv_lost_revenue,
                                         npv_customer_bill_savings, gross_measure_cost,
                                         utility_incentive, utility_admin_cost,
@@ -213,18 +237,18 @@ def calculate_cost_effectiveness_tests(npv_grid_savings, npv_lost_revenue,
 
     # 1. Total Resource Cost (TRC) Test
     trc_costs = gross_measure_cost + utility_admin_cost
-    trc_ratio = npv_grid_savings / trc_costs if trc_costs > 0 else 0.0
+    trc_ratio = _safe_cost_effectiveness_ratio(npv_grid_savings, trc_costs)
     trc_npv = npv_grid_savings - trc_costs
 
     # 2. Participant Cost Test (PCT) / Customer ROI
     pct_benefits = npv_customer_bill_savings + utility_incentive
     pct_costs = gross_measure_cost
-    pct_ratio = pct_benefits / pct_costs if pct_costs > 0 else 0.0
+    pct_ratio = _safe_cost_effectiveness_ratio(pct_benefits, pct_costs)
     pct_npv = pct_benefits - pct_costs
 
     # 3. Rate Impact Measure (RIM) Test (includes program costs)
     rim_costs = npv_lost_revenue + total_program_cost
-    rim_ratio = npv_grid_savings / rim_costs if rim_costs > 0 else 0.0
+    rim_ratio = _safe_cost_effectiveness_ratio(npv_grid_savings, rim_costs)
     rim_npv = npv_grid_savings - rim_costs
 
     # 4. Simple Payback Period (Years)
@@ -558,7 +582,7 @@ def calculate_cwf_temperature_exceedance(temperature_array, datetime_series=None
     return cwf
 
 
-def calculate_cwf_lolp_proxy(signal_array, alpha=12.0):
+def calculate_cwf_lolp_proxy(signal_array, alpha=4.0):
     """
     Calculate an 8,760-hour Capacity Worth Factor using an exponential
     Loss-of-Load Probability (LOLP) risk proxy on an hourly stress signal.
@@ -591,8 +615,11 @@ def calculate_cwf_lolp_proxy(signal_array, alpha=12.0):
         or real system/net demand if one is available on the same weather-year
         basis as the rest of the analysis).
     alpha : float
-        Risk concentration parameter (default 12.0). Higher alpha concentrates
-        more risk exclusively into the highest-signal hours.
+        Risk concentration parameter (default 4.0). Higher alpha concentrates
+        more risk exclusively into the highest-signal hours -- alpha=12, an
+        earlier default, put 40-58% of a year's entire capacity credit onto a
+        single hour for real Southeast Cambium data; alpha=4 keeps the top
+        hour's share under 1%, spread across thousands of hours instead.
 
     Returns
     -------
@@ -784,3 +811,57 @@ def calculate_feeder_pcaf_weights(feeder_type="Winter-Peaking Feeder (Southeast 
 
     return weights
 
+
+def find_peak_week(datetime_series, stress_signal, month_filter, mode="max", window_hours=168):
+    """
+    Find the contiguous `window_hours`-long window (starting on a day
+    boundary) that best matches `mode` within the given months, scored by
+    summing `stress_signal` over each candidate window.
+
+    Used to pick a genuinely representative "Winter Peak Week," "Summer
+    Peak Week," or "Shoulder Week" from the actual loaded data, instead of
+    assuming a fixed calendar week (e.g. "Jan 1-7") is representative every
+    run — the real peak hour can land anywhere depending on the selected
+    grid scenario/state/year, and a fixed window can miss it entirely.
+
+    Parameters
+    ----------
+    datetime_series : pd.Series or array-like of datetime
+        Timestamp for each hour (typically 8,760 hours).
+    stress_signal : np.ndarray
+        Per-hour value summed over each candidate window (e.g.
+        Total_Avoided_Cost_MWh). Higher = more stressed.
+    month_filter : list of int
+        Calendar months (1-12) the window must be entirely contained
+        within, so a "Winter Peak Week" can't land in July.
+    mode : str
+        "max" for the highest-stress window, "min" for the lowest (e.g. a
+        representative Shoulder Week).
+    window_hours : int
+        Window length in hours (default 168 = 7 days).
+
+    Returns
+    -------
+    tuple of (int, int), or None
+        (start_hour, end_hour) half-open index range, or None if no
+        window_hours-long window fits entirely within month_filter.
+    """
+    dts = pd.to_datetime(pd.Series(np.asarray(datetime_series)).reset_index(drop=True))
+    months = dts.dt.month.to_numpy()
+    vals = np.asarray(stress_signal, dtype=float)
+    n = len(vals)
+
+    best_start = None
+    best_score = -np.inf if mode == "max" else np.inf
+    for day_start in range(0, n - window_hours + 1, 24):
+        window_months = months[day_start:day_start + window_hours]
+        if not np.isin(window_months, month_filter).all():
+            continue
+        score = vals[day_start:day_start + window_hours].sum()
+        if (mode == "max" and score > best_score) or (mode == "min" and score < best_score):
+            best_score = score
+            best_start = day_start
+
+    if best_start is None:
+        return None
+    return best_start, best_start + window_hours

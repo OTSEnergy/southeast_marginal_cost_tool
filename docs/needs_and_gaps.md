@@ -2,8 +2,15 @@
 
 > **Document Purpose:** Maps the current state of `app.py` against the project abstract and phased development plan to identify gaps, placeholders, hardcoded assumptions, and unresolved design decisions.
 >
-> **Last Updated:** 2026-08-31
-> **Assessed Against:** app.py (1,502 lines) + calculations.py + billing.py + data_loaders.py + visualizations.py + config.py
+> **Last Updated:** 2026-09-25
+> **Assessed Against:** app.py (~2,500 lines) + calculations.py + billing.py + data_loaders.py + visualizations.py + config.py
+>
+> **[Assistant, 2026-09-25]:** Updated after a substantial round of Charts-tab work (see
+> `CHANGELOG.md` [2026-09-25] entry for full detail — Cost Duration Curve and Cumulative
+> Annual Cost tabs added, CWF default/alpha fix, Lifetime Cash Flow Utility/Customer
+> toggle) and a full cross-tab QA/consistency review. Several items below were only
+> partially updated to reflect that review; treat any section not explicitly touched
+> below as possibly stale relative to the current app.py.
 
 ---
 
@@ -91,6 +98,15 @@ The tool now supports four robust allocation methodologies alongside custom file
 5. **Direct CSV Upload** for utility-supplied proprietary shapes.
 
 **Remaining Gap:** Awaiting proprietary 8,760 LOLP/CWFT matrices from Southern Company (Georgia Power / Alabama Power) 2024/2025 IRP dockets to provide calibrated utility baselines.
+
+> **[Assistant, 2026-09-25]:** Found and fixed a real building-dependence bug in the
+> default "Southeast Dual-Peak" method (it used the *selected Baseline building's own
+> load* to define grid stress hours, so swapping which technology was Baseline could
+> shift results ~37% for the same technology pair). Default switched to the
+> building-independent **Cambium Price-Exceedance LOLP Proxy**, and its `alpha`
+> reduced from 12 → 4 after finding the old default concentrated 40–58% of a whole
+> year's capacity credit onto a single hour on real Cambium data; alpha=4 keeps the
+> top hour's share under ~1%. See `CHANGELOG.md` [2026-09-25].
 
 ---
 
@@ -255,6 +271,28 @@ The project plan mentions:
 
 ---
 
+### 4.7 🟡 DR Mode's Capacity Derate Isn't Applied in the Newer Simplified-Basis Charts
+**Files:** `app.py` (Cost Duration Curve and Cumulative Annual Cost tabs)
+
+`annual_grid_savings` (Scorecard, Lifetime Cash Flow) correctly applies the sidebar's
+DR Mode Capacity Accreditation Factor derate to *only* the Gen Capacity component,
+leaving energy/T&D/emissions savings undiminished (intentional — DR non-performance
+risk only affects firm capacity credit, not metered energy savings). The Cost
+Duration Curve and Cumulative Annual Cost tabs use a simpler
+`load_reduction x Total_Avoided_Cost_MWh` basis that doesn't distinguish components,
+so it doesn't apply that derate at all — when DR Mode is active and the
+Accreditation Factor is < 100%, those two tabs can overstate grid savings relative
+to the Scorecard by the un-derated portion of the capacity credit.
+
+**Status:** Flagged 2026-09-25 during a cross-tab QA review; intentionally deferred
+(punted) rather than fixed immediately — see the in-code `KNOWN GAP` comments at both
+call sites. Revisit if DR Mode usage grows.
+
+**What's Needed:** Either plumb the DR capacity derate through the simplified hourly
+basis in those two tabs too, or add a caption caveat on them when DR Mode is active.
+
+---
+
 ## 5. User Experience & Interface Gaps
 
 ### 5.1 🔴 No User Role / View Mode Architecture
@@ -373,19 +411,13 @@ All 1,957 lines of application logic, UI, and data processing live in one `app.p
 
 ---
 
-### 6.3 🟡 Silent Error Swallowing in Data Ingestion
-**Lines:** app.py 505–507
-```python
-except Exception as e:
-    # Silently pass for other files
-    pass
-```
-
-The Cambium file scanner silently swallows all exceptions. If a real data file has a formatting issue, the user gets no feedback — the file is simply skipped.
-
-**What's Needed:**
-- Log or display warnings for files that fail to parse
-- Distinguish between "not a matching file" (expected, silent) and "matching file with errors" (should warn)
+### 6.3 ✅ ~~Silent Error Swallowing in Data Ingestion~~ — Resolved 2026-09-25
+> **[Assistant, 2026-09-25]:** `load_and_aggregate_data()` now returns
+> `(df, ingestion_warnings)`. A file that looked like a match (by name/metadata) but
+> failed to parse or map is collected into `ingestion_warnings` and surfaced via
+> `st.warning()` in `app.py`, distinguishing it from a file that simply didn't match
+> the requested scenario/state/year (which stays silent, as expected). See
+> `CHANGELOG.md` [2026-09-25].
 
 ---
 
@@ -461,10 +493,10 @@ All default values (capacity scalar $100/kW-yr, T&D $15/kW-yr, carbon $30/ton, e
 ### 🟢 Priority 3 — Quality & Sustainability
 
 11. **Modularize codebase** — ✅ **Resolved** — all five modules extracted (`calculations.py`, `billing.py`, `data_loaders.py`, `visualizations.py`, `config.py`); `app.py` is UI orchestration only.
-12. **Add unit test suite** — ✅ Done, actively maintained (57 tests passing as of 2026-08-31, up from 24 at 2026-08-06). Standing instruction for ongoing test maintenance in place.
+12. **Add unit test suite** — ✅ Done, actively maintained (113 tests passing as of 2026-09-25, up from 24 at 2026-08-06). Standing instruction for ongoing test maintenance in place.
 13. **Create configuration file** for default parameters — ✅ **Resolved** (`config.py`)
-14. **Resolve `app_annotated.py` sync strategy** — still open; drift has grown across at least three sessions (2026-08-18, 2026-08-21, 2026-08-26) since the file was last resynced. A dedicated resync session is recommended before it's used for onboarding.
-15. **Improve error handling** in data ingestion pipeline
+14. **Resolve `app_annotated.py` sync strategy** — still open; drift has grown across at least four sessions (2026-08-18, 2026-08-21, 2026-08-26, and the 2026-09-25 Charts-tab expansion) since the file was last resynced. Re-flagged 2026-09-25 during the QA review, intentionally not resolved this pass. A dedicated resync session is recommended before it's used for onboarding.
+15. **Improve error handling** in data ingestion pipeline — ✅ **Resolved 2026-09-25** (see §6.3)
 16. **Clarify role of `southeast_avoided_costs_AL_GA.csv`** (unused file)
 17. **Revisit load profile column selection UX** — ✅ **Resolved 2026-08-10** (Single File Mode explicitly prompts "Which column in [file] is Baseline/Proposed?" without keyword guessing).
 

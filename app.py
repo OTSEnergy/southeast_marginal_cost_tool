@@ -44,9 +44,12 @@ from visualizations import (
     build_weekly_load_and_temp_chart,
     build_weekly_grid_economics_chart,
     build_annual_avoided_cost_chart,
-    build_stacked_components_chart,
+    build_winter_summer_comparison_chart,
     build_lifetime_npv_chart,
-    build_temp_power_cost_bubble_chart,
+    build_cost_duration_chart,
+    build_hour_month_heatmap,
+    build_day_hour_heatmap,
+    build_cumulative_cost_chart,
     plot_peaker_carrying_cost_breakdown,
     plot_southeast_cwf_distribution,
     plot_feeder_vs_system_load,
@@ -65,6 +68,7 @@ from calculations import (
     calculate_cwf_top_n,
     calculate_cwf_peaker_rent,
     calculate_feeder_pcaf_weights,
+    find_peak_week,
 )
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
@@ -462,6 +466,8 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
         generate_default_load_profiles_file(load_profiles_filepath if load_profiles_filepath != "Load_Profiles_raw" else "load_profiles.csv")
         load_profiles_df = load_load_profiles_from_csv(load_profiles_filepath)
         profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
+        for w in load_profiles_df.attrs.get('ingestion_warnings', []):
+            st.warning(f"Load profile data gap: {w}")
 
         is_folder_mode = os.path.isdir(load_profiles_filepath)
         file_basename = os.path.basename(load_profiles_filepath)
@@ -622,15 +628,18 @@ with st.sidebar.expander("Capacity Risk Allocation (CWF)", expanded=False):
     selected_cwf_method = st.selectbox(
         "Allocation Methodology",
         options=CWF_METHOD_OPTIONS,
-        index=0,
-        help="Determines how the annual capacity value ($/kW-yr) is distributed across the 8,760 hours of the year."
+        index=CWF_METHOD_OPTIONS.index("Cambium Price-Exceedance LOLP Proxy (Exponential)"),
+        help="Determines how the annual capacity value ($/kW-yr) is distributed across the 8,760 hours of the year. "
+             "Defaults to a Cambium-price-based method (alpha=4, spread across ~6,000 hours rather than "
+             "concentrated in a handful) so capacity risk reflects system-wide grid stress, not the shape of "
+             "whichever single building's load happens to be selected as Baseline."
     )
 
     cwft_filepath = "CWFT.csv"
     winter_split_pct = 50.0
     freeze_threshold_f = 32.0
     heat_threshold_f = 90.0
-    lolp_alpha = 12.0
+    lolp_alpha = 4.0
     top_n_peak_hours = 100
     peaker_heat_rate = 10500.0
     peaker_gas_price = 3.50
@@ -660,8 +669,8 @@ with st.sidebar.expander("Capacity Risk Allocation (CWF)", expanded=False):
             "inherits the same weather-year basis as the rest of this tool's inputs (see the Weather Year Alignment "
             "check), unlike an external demand dataset that would need its own separate weather-year alignment."
         )
-        lolp_alpha = st.slider("Risk Concentration (α)", min_value=1.0, max_value=30.0, value=12.0, step=1.0,
-                               help="Higher alpha concentrates risk exclusively into the highest-price hours (a proxy for scarcity, not a direct measure of it — see the method description above for caveats).")
+        lolp_alpha = st.slider("Risk Concentration (α)", min_value=1.0, max_value=30.0, value=4.0, step=1.0,
+                               help="Higher alpha concentrates risk exclusively into the highest-price hours (a proxy for scarcity, not a direct measure of it — see the method description above for caveats). Default of 4 keeps risk spread across thousands of hours instead of collapsing onto a handful.")
     elif "Top-N Peak Hours" in selected_cwf_method:
         top_n_peak_hours = st.slider("Top Peak Hours (N)", min_value=10, max_value=500, value=100, step=10,
                                      help="Number of highest system load hours that receive capacity credit.")
@@ -701,8 +710,10 @@ with st.sidebar.expander("T&D Deferral & Feeder Constraints", expanded=False):
     selected_feeder_type = st.selectbox(
         "Local Distribution Feeder Peaking Type",
         options=FEEDER_TYPE_OPTIONS,
-        index=0,
-        help="Select whether the target distribution feeder/substation is winter-peaking (electric heating), summer-peaking (cooling), or follows system prices."
+        index=FEEDER_TYPE_OPTIONS.index("Wholesale Price PCAF (Top 100 Hours)"),
+        help="Select whether the target distribution feeder/substation is winter-peaking (electric heating), "
+             "summer-peaking (cooling), or follows system prices. Defaults to system prices so this doesn't depend "
+             "on the shape of whichever single building's load happens to be selected as Baseline."
     )
 
     carbon_tax = st.slider(
@@ -777,7 +788,8 @@ with st.sidebar.expander("Retail Tariff (NREL URDB)", expanded=True):
 # 6. Financial Assumptions (Asset Lifetime, NPV & Measure/Program Costs)
 with st.sidebar.expander("Financial Assumptions", expanded=False):
     asset_life = st.number_input("Asset Lifetime (Years)", min_value=1, max_value=50, value=DEFAULT_ASSET_LIFE, step=1)
-    discount_rate = st.number_input("Discount Rate / WACC (%)", min_value=0.0, max_value=25.0, value=DEFAULT_DISCOUNT_RATE, step=0.5, format="%.1f")
+    discount_rate = st.number_input("Discount Rate / WACC (%)", min_value=0.0, max_value=25.0, value=DEFAULT_DISCOUNT_RATE, step=0.5, format="%.1f", help="The utility's cost of capital -- discounts the grid-side (utility) NPV streams.")
+    customer_discount_rate = st.number_input("Customer Discount Rate (%)", min_value=0.0, max_value=25.0, value=discount_rate, step=0.5, format="%.1f", help="The homeowner's own discount rate for their bill-savings NPV and payback -- in practice often higher than a utility's WACC (personal opportunity cost of money, financing terms, risk tolerance). Defaults to match the WACC above; change it to model a more realistic customer perspective.")
     escalation_rate = st.number_input("Grid Price Escalation (%)", min_value=-5.0, max_value=15.0, value=DEFAULT_ESCALATION_RATE, step=0.5, format="%.1f")
     degradation_rate = st.number_input("Annual Efficiency Decay (%)", min_value=0.0, max_value=10.0, value=DEFAULT_DEGRADATION_RATE, step=0.1, format="%.1f")
 
@@ -977,14 +989,18 @@ else:
             default_load_path = generate_default_load_profiles_file(load_profiles_filepath)
             load_profiles_df = load_load_profiles_from_csv(load_profiles_filepath)
             profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
+            for w in load_profiles_df.attrs.get('ingestion_warnings', []):
+                st.warning(f"Load profile data gap: {w}")
             
-            raw_df = load_and_aggregate_data(
-                target_states, 
-                selected_scenario, 
-                weather_case, 
+            raw_df, cambium_ingestion_warnings = load_and_aggregate_data(
+                target_states,
+                selected_scenario,
+                weather_case,
                 target_year=meta_load_weather,
                 planning_year=planning_year
             )
+            for w in cambium_ingestion_warnings:
+                st.warning(f"Cambium data file skipped: {w}")
             datetime_series = raw_df['Datetime']
             
             # Retrieve mapped variables for reporting
@@ -1076,13 +1092,26 @@ else:
                 
             annual_lost_revenue = ann_bill_baseline - ann_bill_proposed
             
-            # Hourly Customer Retail Rate & Cost (for the Graphs tab's weekly charts)
+            # Hourly Customer Retail Rate & Cost (for the Graphs tab's weekly, duration,
+            # and cumulative charts). get_hourly_energy_rate() only reflects the first
+            # tier's rate (see its docstring) and ignores the fixed monthly charge, so
+            # the raw hourly product alone won't sum to the same annual total as
+            # calculate_urdb_bill() above for a tiered tariff or usage that crosses a
+            # tier threshold. Rescale each hourly series so it sums to the exact
+            # official annual bill -- preserves the hourly shape the charts need while
+            # keeping every tab's annual $ totals reconciled with each other.
             hourly_retail_rate = get_hourly_energy_rate(
                 datetime_series,
                 active_tariff_json if active_tariff_json is not None else fallback_rate_json
             )
             baseline_cost_hr = hourly_retail_rate * baseline_load
             proposed_cost_hr = hourly_retail_rate * proposed_load
+            baseline_hr_sum = baseline_cost_hr.sum()
+            proposed_hr_sum = proposed_cost_hr.sum()
+            if baseline_hr_sum > 0:
+                baseline_cost_hr = baseline_cost_hr * (ann_bill_baseline / baseline_hr_sum)
+            if proposed_hr_sum > 0:
+                proposed_cost_hr = proposed_cost_hr * (ann_bill_proposed / proposed_hr_sum)
             
             # 3. Grid Avoided Cost Calculations
             reduction_mwh = load_reduction / 1000.0
@@ -1109,34 +1138,49 @@ else:
             # 4. Multi-year NPV discounting
             years = np.arange(1, asset_life + 1)
             discount_pct = discount_rate / 100.0
+            customer_discount_pct = customer_discount_rate / 100.0
             escalation_pct = escalation_rate / 100.0
             retail_escalation_pct = retail_escalation_rate / 100.0
             degradation_pct = degradation_rate / 100.0
-            
+
             grid_esc_factors = (1 + escalation_pct) ** (years - 1)
             retail_esc_factors = (1 + retail_escalation_pct) ** (years - 1)
             deg_factors = (1 - degradation_pct) ** (years - 1)
             disc_factors = 1 / ((1 + discount_pct) ** years)
-            
+            customer_disc_factors = 1 / ((1 + customer_discount_pct) ** years)
+
             grid_pv_multipliers = (grid_esc_factors * deg_factors) * disc_factors
+            # Utility-side view of the same lost-revenue dollar stream, discounted at the
+            # utility's own WACC (feeds RIM, the Scorecard/Lifetime Cash Flow Utility view).
             retail_pv_multipliers = (retail_esc_factors * deg_factors) * disc_factors
-            
+            # Customer-side view of that same stream, discounted at the customer's own
+            # rate (feeds PCT, discounted payback, and the Lifetime Cash Flow Customer
+            # view) -- a homeowner's appropriate discount rate is often higher than a
+            # utility's regulated WACC, so this defaults to match it but can be raised.
+            customer_pv_multipliers = (retail_esc_factors * deg_factors) * customer_disc_factors
+
             npv_grid_savings = annual_grid_savings * grid_pv_multipliers.sum()
             npv_retail_lost_revenue = annual_lost_revenue * retail_pv_multipliers.sum()
+            npv_customer_bill_savings = annual_lost_revenue * customer_pv_multipliers.sum()
             
-            npv_net_savings = npv_grid_savings - npv_retail_lost_revenue
+            # Includes the utility's one-time program cost (incentive + admin) so this
+            # headline NPV agrees with the Lifetime Cash Flow tab's Utility perspective
+            # total, rather than being a narrower "grid savings vs. lost revenue only"
+            # figure that silently excludes real utility cash outflows.
+            npv_program_cost = utility_incentive + utility_admin_cost
+            npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_program_cost
             
             # 4b. Cost-Effectiveness & Payback Tests (TRC, PCT, RIM, Payback)
             annual_cust_savings_stream = (annual_lost_revenue * retail_esc_factors * deg_factors)
             cost_tests = calculate_cost_effectiveness_tests(
                 npv_grid_savings=npv_grid_savings,
                 npv_lost_revenue=npv_retail_lost_revenue,
-                npv_customer_bill_savings=npv_retail_lost_revenue,
+                npv_customer_bill_savings=npv_customer_bill_savings,
                 gross_measure_cost=gross_measure_cost,
                 utility_incentive=utility_incentive,
                 utility_admin_cost=utility_admin_cost,
                 annual_customer_savings_stream=annual_cust_savings_stream,
-                pv_multipliers=retail_pv_multipliers
+                pv_multipliers=customer_pv_multipliers
             )
             trc_ratio = cost_tests["trc_ratio"]
             pct_ratio = cost_tests["pct_ratio"]
@@ -1238,12 +1282,11 @@ else:
             # ==================================================================
             # TABS DISPLAY
             # ==================================================================
-            tab_setup, tab_summary, tab_calculator, tab_charts, tab_weather_diag, tab_scenarios, tab_diagnostics = st.tabs([
+            tab_setup, tab_summary, tab_calculator, tab_charts, tab_scenarios, tab_diagnostics = st.tabs([
                 "Calibration Check",
                 "Overview Scorecard",
                 "Cost-Effectiveness Table",
                 "Charts",
-                "Weather & Peak Diagnostics",
                 "Scenario Manager",
                 "Diagnostics & Top Hours"
             ])
@@ -1294,13 +1337,14 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     with col_bal_chart:
                         st.markdown("#### Lifetime Economic Balance (NPV Valuation)")
                         st.caption(
-                            "Compares total wholesale grid avoided costs against utility retail lost revenue over the "
-                            f"{asset_life}-year horizon ({discount_rate}% discount rate)."
+                            "Compares total wholesale grid avoided costs against utility retail lost revenue and the "
+                            f"one-time program cost, over the {asset_life}-year horizon ({discount_rate}% discount rate)."
                         )
                         fig_balance = build_economic_balance_chart(
                             npv_grid_savings=npv_grid_savings,
                             npv_retail_lost_revenue=npv_retail_lost_revenue,
-                            npv_net_savings=npv_net_savings
+                            npv_net_savings=npv_net_savings,
+                            npv_program_cost=npv_program_cost
                         )
                         st.plotly_chart(fig_balance, use_container_width=True, config={"displayModeBar": False})
                     with col_bal_net:
@@ -1311,7 +1355,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 value=f"{'+' if npv_net_savings >= 0 else '-'}${abs(npv_net_savings):,.2f}",
                                 sublabel="↑ Net Utility Benefit" if npv_net_savings >= 0 else "↓ Net Utility Cross-Subsidy",
                                 is_positive=(npv_net_savings >= 0),
-                                help_text="Grid Avoided Costs minus Utility Lost Revenue. Negative values indicate retail bill savings exceed grid cost deferrals, requiring cross-subsidization."
+                                help_text="Grid Avoided Costs minus Utility Lost Revenue minus the one-time utility Rebate/Incentive and Admin & Marketing cost. Negative values indicate retail bill savings plus program cost exceed grid cost deferrals, requiring cross-subsidization."
                             ),
                             unsafe_allow_html=True
                         )
@@ -1322,28 +1366,28 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
 
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
+                # A ratio can come back NaN when its cost basis itself goes negative (e.g.
+                # RIM when the customer's bill increase is large enough that "lost revenue
+                # + program cost" nets negative) -- a degenerate case, not a real 0-1+ ratio.
+                # Show "N/A" with an explanatory sublabel instead of a misleading number.
+                def _ratio_card(label, ratio, sublabel):
+                    if np.isnan(ratio):
+                        st.markdown(
+                            ratio_card_html(label, "N/A", "Cost basis went negative — see Net NPV", False),
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.markdown(
+                            ratio_card_html(label, f"{ratio:.3f}", sublabel, ratio >= 1.0),
+                            unsafe_allow_html=True
+                        )
+
                 # 2. Row of 4 Primary Headline Cards (No duplicates)
                 kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
                 with kpi_col1:
-                    st.markdown(
-                        ratio_card_html(
-                            "Total Resource Cost (TRC)",
-                            f"{trc_ratio:.3f}",
-                            "NPV Grid / (Measure + Admin)",
-                            trc_ratio >= 1.0
-                        ),
-                        unsafe_allow_html=True
-                    )
+                    _ratio_card("Total Resource Cost (TRC)", trc_ratio, "NPV Grid / (Measure + Admin)")
                 with kpi_col2:
-                    st.markdown(
-                        ratio_card_html(
-                            "Ratepayer Impact (RIM)",
-                            f"{rim_ratio:.3f}",
-                            "NPV Grid / (Lost Rev + Program)",
-                            rim_ratio >= 1.0
-                        ),
-                        unsafe_allow_html=True
-                    )
+                    _ratio_card("Ratepayer Impact (RIM)", rim_ratio, "NPV Grid / (Lost Rev + Program)")
                 with kpi_col3:
                     sp_str = f"{simple_payback:.1f} yrs" if simple_payback != float('inf') else "N/A"
                     dp_str = f"{discounted_payback:.1f} yrs" if discounted_payback != float('inf') else "N/A"
@@ -1371,9 +1415,9 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     audit_m1, audit_m2, audit_m3, audit_m4, audit_m5 = st.columns(5)
                     audit_m1.metric(
                         label="Participant Cost Test (PCT)",
-                        value=f"{pct_ratio:.3f}",
-                        delta="Pass" if pct_ratio >= 1.0 else "Fail",
-                        delta_color="normal" if pct_ratio >= 1.0 else "inverse",
+                        value="N/A" if np.isnan(pct_ratio) else f"{pct_ratio:.3f}",
+                        delta="Fail (cost basis negative)" if np.isnan(pct_ratio) else ("Pass" if pct_ratio >= 1.0 else "Fail"),
+                        delta_color="inverse" if np.isnan(pct_ratio) else ("normal" if pct_ratio >= 1.0 else "inverse"),
                         help="(Bill Savings + Rebate) ÷ Measure Cost"
                     )
                     audit_m2.metric(
@@ -1408,7 +1452,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
 - **Selected Weather Case:** `{weather_case}`
 - **Target Region:** `{', '.join(target_states)}`
 - **Demand Response Mode:** `{"Active" if dr_mode else "Inactive"}`
-- **Analysis Asset Horizon:** `{asset_life} years` (discount rate: {discount_rate}%)"""
+- **Analysis Asset Horizon:** `{asset_life} years` (utility WACC: {discount_rate}%, customer discount rate: {customer_discount_rate}%)"""
                         )
                     with col_info2:
                         st.markdown("###### Capacity & Profile Breakdown")
@@ -1477,7 +1521,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             value=f"{'+' if annual_net_savings >= 0 else '-'}${abs(annual_net_savings):,.2f}/yr",
                             sublabel="↑ Positive Utility Return" if annual_net_savings >= 0 else "↓ Net Utility Cross-Subsidy",
                             is_positive=(annual_net_savings >= 0),
-                            help_text="Annual Wholesale Grid Avoided Costs minus Annual Retail Bill Reductions."
+                            help_text="Annual Wholesale Grid Avoided Costs minus Annual Retail Bill Reductions. This does NOT include the one-time utility Rebate/Incentive or Admin & Marketing cost from the sidebar — those are one-time, not annual, so they don't belong in an annual figure. See the Lifetime Cash Flow tab's Utility perspective for the version that nets those in."
                         ),
                         unsafe_allow_html=True
                     )
@@ -1488,7 +1532,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             value=f"{'+' if npv_net_savings >= 0 else '-'}${abs(npv_net_savings):,.2f}",
                             sublabel=f"{'↑' if npv_net_savings >= 0 else '↓'} {asset_life} yrs @ {discount_rate}% WACC",
                             is_positive=(npv_net_savings >= 0),
-                            help_text="Discounted net present value of wholesale grid cost deferrals minus customer bill reductions over the asset lifetime."
+                            help_text="Discounted net present value of wholesale grid cost deferrals minus customer bill reductions, minus the utility's one-time Rebate/Incentive and Admin & Marketing cost, over the asset lifetime. For the year-by-year cash flow behind this number, see the Lifetime Cash Flow tab's Utility perspective."
                         ),
                         unsafe_allow_html=True
                     )
@@ -1607,7 +1651,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             "Sum of Tariff Components",
                             f"NPV over {asset_life} years @ {discount_rate}% WACC",
                             f"NPV over {asset_life} years @ {discount_rate}% WACC",
-                            "Grid NPV - Lost Revenue NPV",
+                            "Grid NPV - Lost Revenue NPV - Program Cost (Incentive + Admin)",
                             "Grid NPV / Lost Revenue NPV"
                         ],
                         "Value ($/yr)": [
@@ -1631,7 +1675,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     # Format output values
                     def format_vals(val, name):
                         if "Ratio" in name:
-                            return f"{val:.3f}"
+                            return "N/A (cost basis negative)" if np.isnan(val) else f"{val:.3f}"
                         return f"${val:,.2f}"
                     df_val["Value ($/yr)"] = df_val.apply(lambda r: format_vals(r["Value ($/yr)"], r["Valuation Component"]), axis=1)
                     
@@ -1642,291 +1686,671 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
             # ------------------------------------------------------------------
             with tab_charts:
                 st.markdown("### Charts")
-                st.caption("All grid, cost, and building-load visualizations for this run, ordered from the building level up to the full financial picture.")
+                st.caption("All grid, cost, and building-load visualizations for this run, one chart (or closely related pair) per sub-tab, ordered from the building level up to the full financial picture.")
 
-                # --- Shared week selector (used by the first two chart groups below) ---
-                selected_week = st.selectbox("Select Analysis Week Window", options=list(WEEK_WINDOWS.keys()), index=0)
-                start_h, end_h = WEEK_WINDOWS[selected_week]
+                def _chart_explainer(text, title="What this shows"):
+                    with st.container(border=True):
+                        st.markdown(f"**{title}**")
+                        st.markdown(text)
 
-                dt_slice = datetime_series.iloc[start_h:end_h]
-                baseline_slice = baseline_load[start_h:end_h]
-                proposed_slice = proposed_load[start_h:end_h]
-                reduction_slice = load_reduction[start_h:end_h]
-                temp_slice = results_df['Temperature_F'].iloc[start_h:end_h].to_numpy()
+                def _cwf_methodology_caveat():
+                    """TODO(2026-09-23): revisit once the CWF/feeder methodology has been
+                    validated further — see docs/roadmap.md DD-2."""
+                    st.markdown(
+                        "*Generation Capacity and Distribution Deferral values on this page "
+                        "come from the sidebar's CWF Allocation Methodology (default: Cambium "
+                        "Price-Exceedance LOLP Proxy, alpha=4) and Feeder Peaking Type (default: "
+                        "Wholesale Price PCAF) — simplified proxies for system stress, not a "
+                        "full probabilistic LOLP study.*"
+                    )
 
-                st.markdown("---")
-                # --- Group 1: Customer & Building Load (simplest, most relatable) ---
-                st.markdown("#### Customer & Building Load — Weekly Demand vs. Outdoor Temperature")
-                st.caption(f"Building heating/cooling demand vs. outdoor air temperature (°F) for `{selected_week}`.")
-                fig_load_temp = build_weekly_load_and_temp_chart(
-                    dt_slice, baseline_slice, proposed_slice, temp_slice
-                )
-                st.plotly_chart(fig_load_temp, use_container_width=True)
+                # --- Shared week selector (used by the "Building Load vs. Temperature" and
+                # "Weekly Grid Economics" sub-tabs below; has no effect on the others) ---
+                # Computed from this run's actual data rather than fixed calendar dates, since
+                # the real peak/shoulder week shifts by state, scenario, and CWF methodology
+                # (e.g. a state's true peak-price hour can fall outside a fixed "Jul 15-21" guess).
+                def _week_label(prefix, start, end):
+                    d0 = pd.to_datetime(results_df['Datetime'].iloc[start])
+                    d1 = pd.to_datetime(results_df['Datetime'].iloc[end - 1])
+                    date_range = (f"{d0.strftime('%b')} {d0.day}-{d1.day}" if d0.month == d1.month
+                                  else f"{d0.strftime('%b')} {d0.day} - {d1.strftime('%b')} {d1.day}")
+                    return f"{prefix} ({date_range})"
 
-                st.markdown("---")
-                # --- Group 2: Weekly Grid Economics (one layer deeper — dollars, still weekly) ---
-                st.markdown("#### Weekly Grid Avoided Cost Economics")
-                st.caption(f"Hourly grid avoided-cost value and customer bill impact for `{selected_week}`.")
+                stress_signal = results_df['Total_Avoided_Cost_MWh'].to_numpy()
+                winter_window = find_peak_week(results_df['Datetime'], stress_signal, month_filter=[12, 1, 2], mode="max")
+                summer_window = find_peak_week(results_df['Datetime'], stress_signal, month_filter=[6, 7, 8, 9], mode="max")
+                shoulder_window = find_peak_week(results_df['Datetime'], stress_signal, month_filter=[3, 4, 5, 10, 11], mode="min")
 
-                econ_view_mode = st.radio(
-                    "Grid Economics View Mode",
-                    options=["Stacked Components", "Individual Component Lines", "Total Marginal Cost ($/MWh)"],
-                    horizontal=True,
-                    help="Switch between stacked component areas, individual cost lines, or total marginal avoided cost."
-                )
+                week_windows = {}
+                if winter_window:
+                    week_windows[_week_label("Winter Peak Week", *winter_window)] = winter_window
+                if summer_window:
+                    week_windows[_week_label("Summer Peak Week", *summer_window)] = summer_window
+                if shoulder_window:
+                    week_windows[_week_label("Shoulder Week", *shoulder_window)] = shoulder_window
+                if not week_windows:
+                    week_windows = WEEK_WINDOWS  # fallback: static defaults if none could be computed
 
-                slice_df = results_df.iloc[start_h:end_h].copy()
-                slice_df['Load_Reduction_kW'] = reduction_slice
-                slice_df['Hourly_Savings_hr'] = (reduction_slice / 1000.0) * slice_df['Total_Avoided_Cost_MWh']
-                slice_df['Customer_Cost_Baseline_hr'] = baseline_cost_hr[start_h:end_h]
-                slice_df['Customer_Cost_Proposed_hr'] = proposed_cost_hr[start_h:end_h]
-                slice_df['Retail_Rate_kWh'] = hourly_retail_rate[start_h:end_h]
+                selected_week = st.selectbox("Select Analysis Week Window", options=list(week_windows.keys()), index=0)
+                st.caption("Applies to the **Building Load vs. Temperature** and **Weekly Grid Economics** sub-tabs below. Weeks are computed from this run's actual grid data (the highest/lowest avoided-cost week within each season), not fixed calendar dates.")
+                base_start_h, base_end_h = week_windows[selected_week]
 
-                fig_grid_econ = build_weekly_grid_economics_chart(slice_df, mode=econ_view_mode)
-                st.plotly_chart(fig_grid_econ, use_container_width=True)
+                def _resolve_view_span(key_suffix):
+                    """Renders its own 'View span' (Selected Week / Full Month) radio,
+                    scoped to whichever tab calls it — this only affects the Building Load
+                    vs. Temperature and Weekly Grid Economics tabs, so it's rendered inside
+                    each of those tabs individually rather than once globally above all 7,
+                    where it would misleadingly look like it applies to every tab."""
+                    view_span = st.radio(
+                        "View span",
+                        options=["Selected Week", "Full Month"],
+                        horizontal=True,
+                        key=f"view_span_{key_suffix}",
+                        help="Show just the selected week above, or expand to the entire calendar month it falls in."
+                    )
+                    if view_span == "Full Month":
+                        week_start_ts = pd.to_datetime(results_df['Datetime'].iloc[base_start_h])
+                        month_start = week_start_ts.replace(day=1, hour=0, minute=0, second=0)
+                        month_end = month_start + pd.DateOffset(months=1)
+                        dt_all = pd.to_datetime(results_df['Datetime'])
+                        month_indices = np.where((dt_all >= month_start) & (dt_all < month_end))[0]
+                        start_h, end_h = int(month_indices[0]), int(month_indices[-1]) + 1
+                        label = week_start_ts.strftime('%B %Y')
+                    else:
+                        start_h, end_h = base_start_h, base_end_h
+                        label = _week_label("", start_h, end_h).strip(" ()")
+                    return start_h, end_h, label
 
-                total_week_savings = slice_df['Hourly_Savings_hr'].sum()
-                total_week_customer_savings = (slice_df['Customer_Cost_Baseline_hr'] - slice_df['Customer_Cost_Proposed_hr']).sum()
-                col_g1, col_g2 = st.columns(2)
-                col_g1.caption(f"Total Grid Avoided Cost Value Created for `{selected_week}`: **${total_week_savings:,.2f}**")
-                col_g2.caption(f"Total Customer Retail Bill Savings for `{selected_week}`: **${total_week_customer_savings:,.2f}**")
+                (chart_tab_load, chart_tab_econ, chart_tab_annual, chart_tab_seasonal,
+                 chart_tab_peaker, chart_tab_cwf, chart_tab_lifetime, chart_tab_duration,
+                 chart_tab_cumulative) = st.tabs([
+                    "Building Load vs. Temperature",
+                    "Weekly Grid Economics",
+                    "Annual Wholesale Cost",
+                    "Winter and Summer Peak Comparison",
+                    "Peaker Carrying Cost",
+                    "Capacity Risk & Feeder Stress",
+                    "Lifetime Cash Flow",
+                    "Cost Duration Curve",
+                    "Cumulative Annual Cost",
+                ])
 
-                st.markdown("---")
-                # --- Group 3: Utility Cost Tests (deeper — full year, component decomposition) ---
-                st.markdown("#### Utility Cost Tests — Annual Wholesale Avoided Cost Distribution")
-                st.caption("Distribution of the wholesale energy, generation capacity (CWFT), transmission & distribution (PCAF), and emissions value.")
+                # --- Sub-tab 1: Customer & Building Load (simplest, most relatable) ---
+                with chart_tab_load:
+                    start_h, end_h, current_range_label = _resolve_view_span("load")
+                    dt_slice = datetime_series.iloc[start_h:end_h]
+                    baseline_slice = baseline_load[start_h:end_h]
+                    proposed_slice = proposed_load[start_h:end_h]
+                    temp_slice = results_df['Temperature_F'].iloc[start_h:end_h].to_numpy()
 
-                fig_grid_full = build_annual_avoided_cost_chart(results_df)
-                st.plotly_chart(fig_grid_full, use_container_width=True)
+                    st.markdown(f"#### Customer & Building Load — Weekly Demand vs. Outdoor Temperature ({current_range_label})")
+                    col_chart, col_text = st.columns([3, 2])
+                    with col_chart:
+                        fig_load_temp = build_weekly_load_and_temp_chart(
+                            dt_slice, baseline_slice, proposed_slice, temp_slice
+                        )
+                        st.plotly_chart(fig_load_temp, use_container_width=True)
+                    with col_text:
+                        _chart_explainer(
+                            "This chart shows the hourly demand of the Baseline and Proposed "
+                            "cases (top) alongside outdoor temperature (bottom), lined up "
+                            "hour-by-hour. If the load data you uploaded is whole-premise "
+                            "power, that's what's shown; if you uploaded device-level power "
+                            "instead, that's shown in its place. Use the **Select Analysis "
+                            "Week Window** menu above to switch between Winter, Summer, and "
+                            "Shoulder season weeks."
+                        )
 
-                col_st1, col_st2 = st.columns(2)
-                with col_st1:
-                    st.markdown("##### Winter morning peak details (Jan 1-7)")
-                    winter_slice = results_df.iloc[0:168]
-                    fig_w_stack = build_stacked_components_chart(winter_slice, show_legend=True)
-                    st.plotly_chart(fig_w_stack, use_container_width=True)
+                # --- Sub-tab 2: Weekly Grid Economics (one layer deeper — dollars, still weekly) ---
+                with chart_tab_econ:
+                    start_h, end_h, current_range_label = _resolve_view_span("econ")
+                    reduction_slice = load_reduction[start_h:end_h]
 
-                with col_st2:
-                    st.markdown("##### Summer afternoon peak details (Jul 15-21)")
-                    summer_slice = results_df.iloc[4680:4848]
-                    fig_s_stack = build_stacked_components_chart(summer_slice, show_legend=False)
-                    st.plotly_chart(fig_s_stack, use_container_width=True)
+                    st.markdown(f"#### Weekly Grid Avoided Cost Economics ({current_range_label})")
 
-                if ct_calc is not None:
-                    st.markdown("##### Next Planned Peaker Carrying Cost Breakdown")
-                    st.caption("Annual gross carrying cost annuity and net avoided capacity credit ($/kW-yr).")
-                    fig_peaker_wf = plot_peaker_carrying_cost_breakdown(ct_calc)
-                    st.plotly_chart(fig_peaker_wf, use_container_width=True)
+                    econ_view_mode = st.radio(
+                        "Grid Economics View Mode",
+                        options=["Stacked Components", "Individual Component Lines", "Total Marginal Cost ($/MWh)"],
+                        horizontal=True,
+                        help="Switch between stacked component areas, individual cost lines, or total marginal avoided cost."
+                    )
 
-                st.markdown("##### Southeast Capacity Risk Distribution & Local Feeder Stress")
-                st.caption("Diurnal profile of generation capacity risk and comparison between local feeder distribution peak and bulk transmission PCAF.")
-                col_cwf1, col_cwf2 = st.columns(2)
-                with col_cwf1:
-                    fig_cwf_dist = plot_southeast_cwf_distribution(cwft_array, datetime_series)
-                    st.plotly_chart(fig_cwf_dist, use_container_width=True)
-                with col_cwf2:
-                    fig_feeder = plot_feeder_vs_system_load(dist_weight_array, results_df['PCAF_Weight'].to_numpy(), datetime_series)
-                    st.plotly_chart(fig_feeder, use_container_width=True)
+                    slice_df = results_df.iloc[start_h:end_h].copy()
+                    slice_df['Load_Reduction_kW'] = reduction_slice
+                    slice_df['Hourly_Savings_hr'] = (reduction_slice / 1000.0) * slice_df['Total_Avoided_Cost_MWh']
+                    slice_df['Customer_Cost_Baseline_hr'] = baseline_cost_hr[start_h:end_h]
+                    slice_df['Customer_Cost_Proposed_hr'] = proposed_cost_hr[start_h:end_h]
+                    slice_df['Retail_Rate_kWh'] = hourly_retail_rate[start_h:end_h]
 
-                st.markdown("---")
-                # --- Group 4: Overall Scorecard (most technical — lifetime discounted cash flow) ---
-                st.markdown("#### Overall Scorecard — Lifetime Cash Flow")
-                projected_grid_nominal = annual_grid_savings * grid_esc_factors * deg_factors
-                projected_grid_disc = annual_grid_savings * grid_pv_multipliers
-                projected_lost_disc = annual_lost_revenue * retail_pv_multipliers
+                    col_chart, col_text = st.columns([3, 2])
+                    with col_chart:
+                        fig_grid_econ = build_weekly_grid_economics_chart(slice_df, mode=econ_view_mode)
+                        st.plotly_chart(fig_grid_econ, use_container_width=True)
 
-                fig_lifetime = build_lifetime_npv_chart(
-                    years, projected_grid_nominal, projected_grid_disc, projected_lost_disc
-                )
-                st.plotly_chart(fig_lifetime, use_container_width=True)
+                        total_week_savings = slice_df['Hourly_Savings_hr'].sum()
+                        total_week_customer_savings = (slice_df['Customer_Cost_Baseline_hr'] - slice_df['Customer_Cost_Proposed_hr']).sum()
+                        col_g1, col_g2 = st.columns(2)
+                        col_g1.caption(f"Total Grid Avoided Cost Value Created for `{current_range_label}`: **${total_week_savings:,.2f}**")
+                        col_g2.caption(f"Total Customer Retail Bill Savings for `{current_range_label}`: **${total_week_customer_savings:,.2f}**")
+                    with col_text:
+                        _chart_explainer(
+                            "This breaks the same week into four layers, from the grid's "
+                            "perspective to the homeowner's:\n\n"
+                            "- **Grid Avoided Cost ($/MWh)** — what it costs the grid per "
+                            "unit of energy, hour by hour. This is the same no matter which "
+                            "technology you pick — it depends on season, weather, and grid "
+                            "data only, not the technology being examined.\n"
+                            "- **Load Change (kW)** — how much less (green) or more (red) "
+                            "power the Proposed case uses vs. Baseline that hour.\n"
+                            "- **Grid Value Created vs. Lost Retail Revenue ($/hr)** — two "
+                            "things shown side by side, not netted together: Grid Value "
+                            "Created (green/red) is Grid Avoided Cost × Load Change, the "
+                            "dollars the technology is worth to the grid that hour; Lost "
+                            "Retail Revenue (green/pink) is what the utility collects less "
+                            "of in retail sales that same hour. A technology can create real "
+                            "grid value while still costing the utility retail revenue — "
+                            "seeing both bars together shows whether they're pulling the "
+                            "same direction or fighting each other hour by hour.\n"
+                            "- **Customer Retail Cost ($/hr)** — the customer's cost, "
+                            "Baseline vs. Proposed, plus the retail rate itself (dotted "
+                            "line)."
+                        )
+                        _cwf_methodology_caveat()
+
+                # --- Sub-tab 3: Utility Cost Tests (deeper — full year, component decomposition) ---
+                with chart_tab_annual:
+                    st.markdown("#### Annual Wholesale Cost")
+
+                    annual_view_mode = st.radio(
+                        "Annual View Mode",
+                        options=["Hourly Line (Full Year)", "Monthly Box & Whisker"],
+                        horizontal=True,
+                        help="The hourly line is dominated by a handful of extreme-price hours (cold snaps, heat waves). Switch to the box plot to see each month's typical range instead."
+                    )
+
+                    col_chart, col_text = st.columns([3, 2])
+                    with col_chart:
+                        fig_grid_full = build_annual_avoided_cost_chart(results_df, mode=annual_view_mode)
+                        st.plotly_chart(fig_grid_full, use_container_width=True)
+                    with col_text:
+                        _chart_explainer(
+                            "This shows the same $/MWh wholesale avoided-cost value as the "
+                            "top panel of Weekly Grid Economics, but stretched across the "
+                            "full year instead of one week. It's the grid's cost story "
+                            "only — not affected by which technology you've selected.\n\n"
+                            "A handful of extreme-price hours (cold snaps, heat waves) can "
+                            "dominate the hourly line and make the rest of the year look "
+                            "flat. Click and drag on the graph to zoom in, or switch to "
+                            "**Monthly Box & Whisker** to see each month's typical range "
+                            "instead. In Box & Whisker view, each box covers the middle 50% "
+                            "of that month's hours, the line inside is the median, and dots "
+                            "mark outlier hours."
+                        )
+                        _cwf_methodology_caveat()
+
+                # --- Sub-tab 4: Winter vs. Summer peak detail pair (makes sense together — same
+                # metric, two seasons) ---
+                with chart_tab_seasonal:
+                    st.markdown("#### Winter and Summer Peak Comparison")
+                    st.caption("Uses the same dynamically-computed Winter/Summer Peak Weeks as the Weekly Grid Economics selector above.")
+
+                    w_start, w_end = winter_window if winter_window else WEEK_WINDOWS["Winter Peak Week (Jan 1-7)"]
+                    s_start, s_end = summer_window if summer_window else WEEK_WINDOWS["Summer Peak Week (Jul 15-21)"]
+                    winter_slice = results_df.iloc[w_start:w_end]
+                    summer_slice = results_df.iloc[s_start:s_end]
+                    winter_panel_label = _week_label('', w_start, w_end).strip(' ()')
+                    summer_panel_label = _week_label('', s_start, s_end).strip(' ()')
+
+                    combined_totals = pd.concat([winter_slice['Total_Avoided_Cost_MWh'], summer_slice['Total_Avoided_Cost_MWh']])
+                    zoom_cap = max(float(np.percentile(combined_totals, 90)) * 1.15, 1.0)
+                    pct_visible = float((combined_totals <= zoom_cap).mean() * 100)
+
+                    col_chart, col_text = st.columns([3, 2])
+                    with col_chart:
+                        st.markdown("###### Full scope")
+                        fig_seasonal = build_winter_summer_comparison_chart(
+                            winter_slice, summer_slice,
+                            winter_label=winter_panel_label, summer_label=summer_panel_label
+                        )
+                        st.plotly_chart(fig_seasonal, use_container_width=True)
+
+                        st.markdown(f"###### Zoomed in — typical range ({pct_visible:.0f}% of hours fully visible, capped at ${zoom_cap:,.0f}/MWh)")
+                        fig_seasonal_zoom = build_winter_summer_comparison_chart(
+                            winter_slice, summer_slice,
+                            winter_label=winter_panel_label, summer_label=summer_panel_label,
+                            y_range=(0, zoom_cap)
+                        )
+                        st.plotly_chart(fig_seasonal_zoom, use_container_width=True)
+                    with col_text:
+                        _chart_explainer(
+                            "Side-by-side comparison of the same 5 wholesale avoided-cost "
+                            "components (Wholesale Energy, Generation Capacity, "
+                            "Transmission Deferral, Distribution Deferral, Emissions "
+                            "Compliance) during the year's highest-stress winter week and "
+                            "highest-stress summer week, plotted on matching axes so the "
+                            "two seasons can be compared directly. One shared legend "
+                            "covers both panels — click an entry to toggle that component "
+                            "on both sides at once.\n\n"
+                            "The **Full scope** chart shows every hour, including the "
+                            "handful of extreme-price hours that can dwarf everything "
+                            "else. The **Zoomed in** chart below it shows the exact same "
+                            "data with the y-axis capped so the typical, \"meat and "
+                            "potatoes\" range is actually readable — a few of the tallest "
+                            "hours run off the top of this one, but they're already fully "
+                            "visible in the chart above."
+                        )
+                        _cwf_methodology_caveat()
+
+                # --- Sub-tab 5: Peaker Carrying Cost Breakdown (optional — only when the
+                # advanced peaker-cost inputs are configured) ---
+                with chart_tab_peaker:
+                    st.markdown("#### Next Planned Peaker Carrying Cost Breakdown")
+                    if ct_calc is not None:
+                        col_chart, col_text = st.columns([3, 2])
+                        with col_chart:
+                            st.caption("Annual gross carrying cost annuity and net avoided capacity credit ($/kW-yr).")
+                            fig_peaker_wf = plot_peaker_carrying_cost_breakdown(ct_calc)
+                            st.plotly_chart(fig_peaker_wf, use_container_width=True)
+                        with col_text:
+                            _chart_explainer(
+                                "This builds up the **Generation Capacity ($/kW-yr)** value "
+                                "used throughout the rest of the tool, using the Next "
+                                "Planned Peaker — an SCCT gas plant — as the benchmark for "
+                                "what new capacity costs the utility to build:\n\n"
+                                "- **Capital Recovery = CAPEX × FCR** — the annualized cost "
+                                "of building 1 kW of the peaker. FCR (Fixed Charge Rate) "
+                                "works like a mortgage rate, converting that upfront cost "
+                                "into a yearly payment based on WACC, economic life, taxes, "
+                                "and depreciation.\n"
+                                "- **+ Fixed O&M** — the annual cost to staff and maintain "
+                                "the plant, whether or not it actually runs.\n"
+                                "- **= Gross Carrying Cost** — what it costs to simply own "
+                                "the plant for a year, per kW.\n"
+                                "- **− E&AS Offset** (if any) — energy/ancillary revenue "
+                                "the peaker earns when it does run; usually $0 in Southeast "
+                                "IRPs, which price capacity and energy separately.\n"
+                                "- **= Net Avoided Capacity** — the final number, fed back "
+                                "in as the Generation Capacity scalar everywhere else in "
+                                "this tool.\n\n"
+                                "This tab only has something to show when \"Capacity "
+                                "Valuation Method\" in the sidebar is set to \"Carrying "
+                                "cost of a CT Builder\" instead of a direct IRP scalar."
+                            )
+                            _cwf_methodology_caveat()
+                    else:
+                        st.info("Peaker carrying cost inputs aren't configured for this run — nothing to show here. Enable the advanced capacity cost calculator in the sidebar to populate this chart.")
+
+                # --- Sub-tab 6: Capacity Risk Distribution & Local Feeder Stress pair (makes
+                # sense together — risk shape vs. where it's felt on the system) ---
+                with chart_tab_cwf:
+                    st.markdown("#### Southeast Capacity Risk Distribution & Local Feeder Stress")
+                    col_cwf1, col_cwf2, col_text = st.columns([3, 3, 2])
+                    with col_cwf1:
+                        fig_cwf_dist = plot_southeast_cwf_distribution(cwft_array, datetime_series)
+                        st.plotly_chart(fig_cwf_dist, use_container_width=True)
+                    with col_cwf2:
+                        fig_feeder = plot_feeder_vs_system_load(dist_weight_array, results_df['PCAF_Weight'].to_numpy(), datetime_series)
+                        st.plotly_chart(fig_feeder, use_container_width=True)
+                    with col_text:
+                        _chart_explainer(
+                            "Two diagnostic views of *when during the day* risk "
+                            "concentrates, based on the sidebar's chosen allocation "
+                            "methodology — not a dollar chart.\n\n"
+                            "- **Capacity Risk by Hour of Day** collapses the year's CWFT "
+                            "weights into a typical 24-hour shape, split Winter vs. "
+                            "Summer. It shows when Generation Capacity risk concentrates, "
+                            "and is a good way to sanity-check whether your chosen "
+                            "methodology lands where you'd expect.\n"
+                            "- **Feeder vs. Bulk Transmission Peaking** compares your "
+                            "chosen *local* feeder assumption (pink) against the *system-"
+                            "wide* top-100-price-hour weighting that always drives "
+                            "Transmission Deferral dollars (blue dashed, not "
+                            "configurable). If the two curves diverge, your local feeder "
+                            "assumption doesn't match system-wide price stress timing — "
+                            "worth a second look."
+                        )
+                        _cwf_methodology_caveat()
+
+                # --- Sub-tab 7: Overall Scorecard (most technical — lifetime discounted cash flow) ---
+                with chart_tab_lifetime:
+                    st.markdown("#### Lifetime Cash Flow")
+                    perspective = st.radio(
+                        "Perspective",
+                        options=["Utility", "Customer"],
+                        horizontal=True,
+                        help="Utility: grid savings captured vs. retail revenue given up. Customer: "
+                             "their bill savings vs. the net equipment cost they pay after any "
+                             "utility rebate."
+                    )
+                    col_chart, col_text = st.columns([3, 2])
+                    with col_chart:
+                        grid_savings_disc = annual_grid_savings * grid_pv_multipliers
+                        # Same underlying $ stream either way — one side's lost retail
+                        # revenue is the other side's bill savings — but discounted at
+                        # each party's own rate (utility WACC vs. the sidebar's Customer
+                        # Discount Rate), which can differ.
+
+                        if perspective == "Utility":
+                            retail_stream_disc = annual_lost_revenue * retail_pv_multipliers
+                            fig_lifetime = build_lifetime_npv_chart(
+                                years, grid_savings_disc, cost_stream=retail_stream_disc,
+                                benefit_name="Grid Savings (PV)",
+                                benefit_negative_name="Grid Cost (PV)",
+                                cost_name="Lost Retail Revenue (PV)",
+                                cost_negative_name="Revenue Gain (PV)",
+                                upfront_cost=utility_incentive + utility_admin_cost,
+                                upfront_name="Program Cost (Incentive + Admin)"
+                            )
+                        else:
+                            customer_stream_disc = annual_lost_revenue * customer_pv_multipliers
+                            fig_lifetime = build_lifetime_npv_chart(
+                                years, customer_stream_disc,
+                                benefit_name="Bill Savings (PV)",
+                                benefit_negative_name="Bill Increase (PV)",
+                                upfront_cost=net_customer_cost,
+                                upfront_name="Upfront Cost (after rebate)"
+                            )
+                        st.plotly_chart(fig_lifetime, use_container_width=True)
+                    with col_text:
+                        if perspective == "Utility":
+                            st.markdown(
+                                "**Utility view — dollars are in today's present value.** Future "
+                                "amounts are discounted back to present value, the same way the "
+                                "payback period and NPV figures on the Cost-Effectiveness Table are "
+                                "calculated, so this chart is the year-by-year detail behind those "
+                                "two headline numbers."
+                            )
+                            st.markdown(
+                                "- **Green bars** — whatever is *helping* the utility's net "
+                                "position that year: grid-side value created (avoided generation "
+                                "capacity, transmission, distribution, energy, and emissions "
+                                "costs), and — in the rare case the customer's bill actually goes "
+                                "*up* under Proposed — the extra retail revenue that comes with it."
+                            )
+                            st.markdown(
+                                "- **Red / pink bars** — whatever is *hurting* the utility's net "
+                                "position that year: the one-time \"Year 0\" program cost (rebate/"
+                                "incentive plus admin & marketing, both set in the sidebar, bright "
+                                "red), the recurring lost retail revenue from the customer buying "
+                                "less electricity (pink), or — in the rare case the technology adds "
+                                "grid stress instead of reducing it — negative grid savings."
+                            )
+                            st.markdown(
+                                "- **Dark line** — the running total (every green bar minus every "
+                                "red/pink one, added up year over year, starting from the Year 0 "
+                                "program cost). Where it crosses from negative to positive is the "
+                                "utility's **discounted payback year**; its value in the final year "
+                                "is the **net NPV**."
+                            )
+                            st.caption(
+                                "Colors follow each year's actual sign, not a fixed category — so a "
+                                "bar's color always means \"helps\" or \"hurts,\" even in an unusual "
+                                "year. This is the same cost basis as the Rate Impact Measure (RIM) "
+                                "test on the Cost-Effectiveness Table."
+                            )
+                            _cwf_methodology_caveat()
+                        else:
+                            st.markdown(
+                                "**Customer view — what the participant actually pays and gets "
+                                "back.** The \"Year 0\" red bar is their net out-of-pocket cost: "
+                                "full equipment/installation cost *minus* the utility incentive/"
+                                "rebate (both set in the sidebar)."
+                            )
+                            st.markdown(
+                                "- **Green bars** — the customer's retail bill savings each year "
+                                "from using less energy — the same underlying dollars as the Utility "
+                                "view's \"Lost Retail Revenue,\" just from the other side of the "
+                                "meter, and discounted at the sidebar's Customer Discount Rate "
+                                "instead of the utility's WACC."
+                            )
+                            st.markdown(
+                                "- **Red bars (beyond Year 0)** — only appear if the customer's "
+                                "bill actually goes *up* under Proposed in a given year; colors "
+                                "follow each year's actual sign, not a fixed category."
+                            )
+                            st.markdown(
+                                "- **Dark line** — cumulative net position, starting *negative* at "
+                                "the upfront cost. Where it crosses from negative to positive is the "
+                                "customer's own **discounted payback year** — the same number "
+                                "behind the Participant Cost Test (PCT) on the Cost-Effectiveness "
+                                "Table."
+                            )
+
+                # --- Sub-tab 8: Cost Duration Curve (full hourly detail, one month at a time) ---
+                with chart_tab_duration:
+                    st.markdown("#### Cost Duration Curve")
+                    st.caption(
+                        "Baseline vs. Proposed hourly cost for one month at a time, ordered by the sort mode "
+                        "below, with the hour-by-hour change shown underneath (green = Proposed saves money "
+                        "that hour, red = it costs more). Baseline and Proposed always stay paired to the "
+                        "same hour — the shape of the change panel is real hour-by-hour variability, not two "
+                        "independently-smoothed curves."
+                    )
+
+                    # KNOWN GAP (deferred 2026-09-25): under DR Mode, this simplified
+                    # load_reduction x Total_Avoided_Cost_MWh basis does NOT apply the
+                    # sidebar's Capacity Accreditation Factor derate that annual_grid_savings
+                    # (Scorecard / Lifetime Cash Flow) applies to just the Gen Capacity
+                    # component -- so this tab can overstate grid savings vs. those tabs
+                    # while DR Mode is active. Punted for now; revisit if DR Mode usage grows.
+                    grid_avoided = results_df['Total_Avoided_Cost_MWh'].to_numpy()
+                    all_temp_vals = results_df['Temperature_F'].to_numpy()
+                    all_datetimes = pd.to_datetime(results_df['Datetime'])
+
+                    month_label_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                    month_dropdown_options = month_label_list + ["Full Year"]
+                    col_month, col_basis, col_sort = st.columns(3)
+                    with col_month:
+                        selected_month_label = st.selectbox("Month", options=month_dropdown_options, index=0)
+                    is_full_year = selected_month_label == "Full Year"
+                    period_label = "the full year" if is_full_year else selected_month_label
+                    with col_basis:
+                        cost_basis = st.radio(
+                            "Cost basis",
+                            options=["Customer Bill Cost ($/hr)", "Grid Avoided Cost ($/hr)"],
+                            help="Customer = retail rate x load. Grid = wholesale/capacity avoided cost x load."
+                        )
+                    with col_sort:
+                        sort_mode = st.radio(
+                            "Sort by",
+                            options=["Cost (High to Low)", "Chronological", "Outdoor Temperature (Cold to Hot)"],
+                            help="Cost sorts into a classic duration-curve shape within the selected month. "
+                                 "Chronological is a normal time series. Temperature sorts coldest-to-hottest "
+                                 "left to right, using each hour's ODT."
+                        )
+
+                    if cost_basis == "Customer Bill Cost ($/hr)":
+                        baseline_cost_curve = baseline_cost_hr
+                        proposed_cost_curve = proposed_cost_hr
+                        duration_y_title = "Customer Bill Cost ($/hr)"
+                    else:
+                        baseline_cost_curve = (baseline_load / 1000.0) * grid_avoided
+                        proposed_cost_curve = (proposed_load / 1000.0) * grid_avoided
+                        duration_y_title = "Grid Avoided Cost ($/hr)"
+
+                    if is_full_year:
+                        month_mask = np.ones(len(all_datetimes), dtype=bool)
+                    else:
+                        selected_month_num = month_label_list.index(selected_month_label) + 1
+                        month_mask = all_datetimes.dt.month.to_numpy() == selected_month_num
+                    month_baseline = baseline_cost_curve[month_mask]
+                    month_proposed = proposed_cost_curve[month_mask]
+                    month_temp = all_temp_vals[month_mask]
+                    month_dt = all_datetimes[month_mask]
+
+                    if sort_mode == "Cost (High to Low)":
+                        order = np.argsort(-month_baseline)
+                        x_vals = np.arange(1, len(order) + 1)
+                        duration_x_title = f"Hour Rank within {period_label}, sorted by Baseline cost (highest to lowest)"
+                    elif sort_mode == "Outdoor Temperature (Cold to Hot)":
+                        order = np.argsort(month_temp)
+                        x_vals = np.arange(1, len(order) + 1)
+                        duration_x_title = f"Hour Rank within {period_label}, sorted by outdoor temperature (coldest to hottest)"
+                    else:
+                        order = np.arange(len(month_baseline))
+                        x_vals = month_dt
+                        duration_x_title = "Date"
+
+                    # Cap the y-axis at 10x the month's median hour, but never below the actual
+                    # max (so a normal, non-skewed month is never artificially clipped) -- a
+                    # single cold-snap or heat-wave hour can otherwise dwarf a whole month's view.
+                    combined_for_cap = np.concatenate([month_baseline, month_proposed])
+                    median_val = float(np.median(combined_for_cap))
+                    actual_max = float(np.max(combined_for_cap))
+                    duration_y_cap = min(actual_max, max(median_val * 10.0, 1.0)) if median_val > 0 else actual_max
+                    n_capped = int((combined_for_cap > duration_y_cap).sum()) if duration_y_cap < actual_max else 0
+
+                    fig_duration = build_cost_duration_chart(
+                        x_vals, month_baseline[order], month_proposed[order],
+                        x_title=duration_x_title, y_title=duration_y_title,
+                        change_y_title="Change ($/hr)",
+                        y_range=(0, duration_y_cap) if duration_y_cap < actual_max else None
+                    )
+                    st.plotly_chart(fig_duration, use_container_width=True)
+
+                    if n_capped > 0:
+                        st.caption(f"Y-axis capped at ${duration_y_cap:,.0f}/hr (10x {period_label}'s "
+                                   f"median hour) — **{n_capped}** hour(s) run higher than that, up to "
+                                   f"**${actual_max:,.0f}/hr**.")
+
+                    total_change = float((month_baseline - month_proposed).sum())
+                    st.caption(f"Total change in {period_label} under this cost basis: **${total_change:,.2f}** "
+                               f"({'net savings' if total_change >= 0 else 'net cost increase'}).")
+
+                    st.markdown("---")
+                    if is_full_year:
+                        st.markdown("##### Is It Predictable? (Hour of Day x Month, full year)")
+                        st.caption(
+                            "Average dollar impact in each hour-of-day / month cell across the whole year, "
+                            "using the cost basis selected above. A clean, consistent block of color means "
+                            "the pattern is predictable; a speckled, inconsistent grid means it's closer to "
+                            "random. The colorbar labels which direction is good and which is bad."
+                        )
+                        heatmap_values = baseline_cost_curve - proposed_cost_curve
+                        fig_heatmap = build_hour_month_heatmap(
+                            results_df['Datetime'], heatmap_values,
+                            title=f"{duration_y_title.replace(' ($/hr)', '')} Impact by Hour x Month",
+                            colorbar_title="$/hr"
+                        )
+                    else:
+                        st.markdown(f"##### Is It Predictable? (Day x Hour within {selected_month_label})")
+                        st.caption(
+                            "Actual dollar impact for each day/hour in this month (real values, not averaged "
+                            "away like the full-year view), using the cost basis selected above. A clean, "
+                            "consistent block of color means the pattern is predictable within the month; a "
+                            "speckled, inconsistent grid means it's closer to random. The colorbar labels which "
+                            "direction is good and which is bad. Pick \"Full Year\" above to see the "
+                            "season-level version instead."
+                        )
+                        heatmap_values = month_baseline - month_proposed
+                        fig_heatmap = build_day_hour_heatmap(
+                            month_dt, heatmap_values,
+                            title=f"{duration_y_title.replace(' ($/hr)', '')} Impact by Day x Hour ({selected_month_label})",
+                            colorbar_title="$/hr"
+                        )
+                    st.plotly_chart(fig_heatmap, use_container_width=True)
+
+                    st.markdown(
+                        "*Grid-side values above depend on the sidebar's CWF Allocation Methodology and Feeder "
+                        "Peaking Type — see this Charts tab's CWF-related sub-tabs for details.*"
+                    )
+
+                # --- Sub-tab 9: Cumulative Annual Cost (running total, utility + customer) ---
+                with chart_tab_cumulative:
+                    st.markdown("#### Annual Cumulative Cost to Operate")
+                    utility_cost_basis = st.radio(
+                        "Utility cost basis",
+                        options=[
+                            "RIM (Grid Savings vs. Lost Retail Revenue)",
+                            "TRC (Grid Savings Only — No Revenue Netting)",
+                        ],
+                        help="RIM (Rate Impact Measure): does this measure raise costs for other "
+                             "ratepayers? Nets grid savings against the utility's lost retail revenue. "
+                             "TRC (Total Resource Cost): is the wholesale/grid value created positive on "
+                             "its own, ignoring the retail-revenue transfer between utility and customer? "
+                             "Shows grid savings alone. Both mirror the same-named tests on the "
+                             "Cost-Effectiveness Table, but scoped to just this year's energy usage — "
+                             "neither one includes the one-time equipment, incentive, or admin cost; see "
+                             "the Lifetime Cash Flow tab for the full picture including those."
+                    )
+                    col_chart, col_text = st.columns([3, 2])
+                    with col_chart:
+                        # KNOWN GAP (deferred 2026-09-25): see matching note on the Cost
+                        # Duration Curve tab -- this tab's grid savings also don't apply
+                        # DR Mode's Capacity Accreditation Factor derate, so they can run
+                        # ahead of annual_grid_savings while DR Mode is active.
+                        grid_avoided_arr = results_df['Total_Avoided_Cost_MWh'].to_numpy()
+                        baseline_grid_cost_hr = (baseline_load / 1000.0) * grid_avoided_arr
+                        proposed_grid_cost_hr = (proposed_load / 1000.0) * grid_avoided_arr
+                        grid_diff_hr = proposed_grid_cost_hr - baseline_grid_cost_hr
+                        cust_diff_hr = proposed_cost_hr - baseline_cost_hr
+
+                        if utility_cost_basis.startswith("RIM"):
+                            # A drop in the customer's bill is retail revenue the utility no
+                            # longer collects, i.e. a cost to the utility -- subtracted, not added.
+                            utility_net_hr = grid_diff_hr - cust_diff_hr
+                            utility_row_title = "Utility Perspective — RIM Test (Grid Savings minus Lost Retail Revenue)"
+                        else:
+                            utility_net_hr = grid_diff_hr
+                            utility_row_title = "Utility Perspective — TRC Test (Grid Savings Only)"
+
+                        fig_cumulative = build_cumulative_cost_chart(
+                            results_df['Datetime'], utility_net_hr,
+                            baseline_cost_hr, proposed_cost_hr,
+                            utility_row_title=utility_row_title
+                        )
+                        st.plotly_chart(fig_cumulative, use_container_width=True)
+
+                        utility_net_annual = float(utility_net_hr.sum())
+                        cust_net_annual = float(cust_diff_hr.sum())
+                        st.caption(
+                            f"By Dec 31 — **Utility ({'RIM' if utility_cost_basis.startswith('RIM') else 'TRC'}):** "
+                            f"net {'benefit' if utility_net_annual <= 0 else 'cost'} of "
+                            f"${abs(utility_net_annual):,.0f} from this year's energy usage alone. "
+                            f"**Customer:** {'saves' if cust_net_annual <= 0 else 'costs'} "
+                            f"${abs(cust_net_annual):,.0f} on their bill."
+                        )
+                    with col_text:
+                        st.markdown(
+                            "**What this shows:** pure year-1 operating cash flow from energy usage — "
+                            "each hour's cost difference (Proposed minus Baseline) is added to a running "
+                            "total, so a line's height at any date is *the net effect Proposed has had so "
+                            "far that year*, and its height on Dec 31 is the full annual net difference. "
+                            "**Green (below zero) = cumulative savings so far; red (above zero) = "
+                            "cumulative added cost so far.** Both lines start at $0 on Jan 1 — one-time "
+                            "capital costs (equipment, incentive, admin) are deliberately left out here; "
+                            "see the Lifetime Cash Flow tab for those, plus the multi-year discounted "
+                            "payback and NPV they produce."
+                        )
+                        st.markdown(
+                            "- **Top panel — Utility** — nets grid-side savings (same Grid Avoided Cost "
+                            "basis as the Cost Duration Curve tab) against whichever cost-effectiveness "
+                            "test is selected above (RIM or TRC)."
+                        )
+                        st.markdown(
+                            "- **Bottom panel — Customer/Occupant** — the building's own retail electric "
+                            "bill difference, using the sidebar's selected tariff, accumulated the same way "
+                            "(this one doesn't change with the toggle above — the customer's bill is the "
+                            "customer's bill regardless of which utility-side test is selected)."
+                        )
+                        st.markdown(
+                            "- A line that keeps sinking further into green means the technology is "
+                            "consistently saving money in that perspective all year; a line that flattens, "
+                            "climbs back toward zero, or crosses into red means some months are giving "
+                            "that back — check the Cost Duration Curve or Weekly Grid Economics tabs for "
+                            "the hourly detail behind any inflection point you notice here."
+                        )
+                        st.caption(
+                            "*RIM and TRC here use one representative year's energy-usage dollars — "
+                            "whichever Planning Year is selected in the sidebar — with no capital cost and "
+                            "no multi-year escalation, degradation, or discounting applied. For the full "
+                            "multi-year, discounted version of these same tests (including PCT, the "
+                            "customer's own cost-effectiveness "
+                            "ratio), see the Cost-Effectiveness Table and Lifetime Cash Flow tabs.*"
+                        )
 
             # ------------------------------------------------------------------
-            # TAB 5: WEATHER & PEAK COINCIDENCE DIAGNOSTICS
-            # ------------------------------------------------------------------
-            with tab_weather_diag:
-                st.markdown("### Temperature & grid coincidence diagnostics")
-
-                # Hourly grid avoided-cost value ($/hr) of serving Baseline vs. Proposed load,
-                # used as the bubble-size dimension below.
-                baseline_grid_cost_hr = (baseline_load / 1000.0) * results_df['Total_Avoided_Cost_MWh'].to_numpy()
-                proposed_grid_cost_hr = (proposed_load / 1000.0) * results_df['Total_Avoided_Cost_MWh'].to_numpy()
-
-                st.markdown("#### Temperature vs. Cost vs. Power")
-                st.caption("Each dot is one hour of the year. X = outdoor temperature, Y = grid avoided cost ($/hr) of serving that hour, bubble size = building power demand (kW).")
-                bubble_front = st.radio(
-                    "Bring to front",
-                    options=["Proposed", "Baseline"],
-                    horizontal=True,
-                    help="The selected case is drawn on top at full opacity; the other case is faded into the background."
-                )
-                fig_temp_power_cost = build_temp_power_cost_bubble_chart(
-                    temp_vals=results_df['Temperature_F'].to_numpy(),
-                    baseline_load=baseline_load,
-                    proposed_load=proposed_load,
-                    baseline_cost_hr=baseline_grid_cost_hr,
-                    proposed_cost_hr=proposed_grid_cost_hr,
-                    datetime_vals=results_df['Datetime'],
-                    front=bubble_front,
-                )
-                st.plotly_chart(fig_temp_power_cost, use_container_width=True)
-
-                st.markdown("<hr>", unsafe_allow_html=True)
-
-                # Extreme temperature statistics
-                temp_vals = results_df['Temperature_F'].to_numpy()
-                min_t = temp_vals.min()
-                max_t = temp_vals.max()
-                hrs_15 = (temp_vals < 15.0).sum()
-                hrs_95 = (temp_vals > 95.0).sum()
-                hrs_100 = (temp_vals > 100.0).sum()
-                
-                # CWFT during coldest and hottest hours
-                coldest_20_idx = np.argsort(temp_vals)[:20]
-                hottest_20_idx = np.argsort(-temp_vals)[:20]
-                avg_cwft_coldest = cwft_array[coldest_20_idx].mean()
-                avg_cwft_hottest = cwft_array[hottest_20_idx].mean()
-                
-                st.markdown("#### Temperature distribution check")
-                col_diag1, col_diag2, col_diag3, col_diag4, col_diag5 = st.columns(5)
-                with col_diag1:
-                    st.metric("Minimum temp", f"{min_t:.1f} °F")
-                with col_diag2:
-                    st.metric("Maximum temp", f"{max_t:.1f} °F")
-                with col_diag3:
-                    st.metric("Hours < 15°F", f"{hrs_15} hrs")
-                with col_diag4:
-                    st.metric("Hours > 95°F", f"{hrs_95} hrs")
-                with col_diag5:
-                    st.metric("Hours > 100°F", f"{hrs_100} hrs")
-                    
-                col_coinc1, col_coinc2 = st.columns(2)
-                with col_coinc1:
-                    st.metric("Avg CWFT during coldest 20 hours", f"{avg_cwft_coldest:.6f}")
-                with col_coinc2:
-                    st.metric("Avg CWFT during hottest 20 hours", f"{avg_cwft_hottest:.6f}")
-                    
-                st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown("#### Peak coincidence metrics")
-                st.markdown(
-                    "For Baseline/Proposed load, compares average demand during the year's highest-stress hours to average demand across "
-                    "the whole year (a ratio of **2.0x** means the load draws twice as much power during those hours as it does normally). "
-                    "For Load reduction, shows the **% cut in demand** during that same window, relative to baseline demand in that window. "
-                    "Hover the ⓘ next to each row label for the exact formula."
-                )
-
-                # Compute window averages for display: show peak-window avg with annual avg in parens
-                base_peak50 = baseline_load[top_50_cwft_indices].mean()
-                prop_peak50 = proposed_load[top_50_cwft_indices].mean()
-                red_peak50 = load_reduction[top_50_cwft_indices].mean()
-
-                base_peak100 = baseline_load[top_100_cwft_indices].mean()
-                prop_peak100 = proposed_load[top_100_cwft_indices].mean()
-                red_peak100 = load_reduction[top_100_cwft_indices].mean()
-
-                base_price100 = baseline_load[top_100_price_indices].mean()
-                prop_price100 = proposed_load[top_100_price_indices].mean()
-                red_price100 = load_reduction[top_100_price_indices].mean()
-
-                coinc_rows = [
-                    (
-                        "Top 50 CWFT hrs (~2 days) \u2014 the peakiest capacity-risk hours",
-                        "Average demand during the 50 hours with the highest capacity-risk weighting (CWFT). Display: window avg (annual avg). Reduction shows % of baseline window avg.",
-                        f"{base_peak50:.2f} kW ({avg_full_base:.2f} kW)",
-                        f"{prop_peak50:.2f} kW ({avg_full_prop:.2f} kW)",
-                        (f"{pct_reduct_50:.1f}% ({avg_full_base:.2f} kW ann avg)" if load_reduction.sum() > 0 else "0.0%")
-                    ),
-                    (
-                        "Top 100 CWFT hrs (~4 days) \u2014 the peakiest capacity-risk hours",
-                        "Average demand during the 100 hours with the highest capacity-risk weighting (CWFT). Display: window avg (annual avg). Reduction shows % of baseline window avg.",
-                        f"{base_peak100:.2f} kW ({avg_full_base:.2f} kW)",
-                        f"{prop_peak100:.2f} kW ({avg_full_prop:.2f} kW)",
-                        (f"{pct_reduct_100:.1f}% ({avg_full_base:.2f} kW ann avg)" if load_reduction.sum() > 0 else "0.0%")
-                    ),
-                    (
-                        "Top 100 price hrs (~4 days) \u2014 highest wholesale energy prices",
-                        "Average demand during the 100 hours with the highest wholesale energy prices. Display: window avg (annual avg). Reduction shows % of baseline window avg.",
-                        f"{base_price100:.2f} kW ({avg_full_base:.2f} kW)",
-                        f"{prop_price100:.2f} kW ({avg_full_prop:.2f} kW)",
-                        (f"{pct_reduct_price:.1f}% ({avg_full_base:.2f} kW ann avg)" if load_reduction.sum() > 0 else "0.0%")
-                    ),
-                    (
-                        "Effective Peak Contribution (EPC)",
-                        "Weighted average load during peak-risk hours: sum(Load \u00d7 CWFT). For Load reduction, this is the technical/undiminished coincident reduction, before any capacity accreditation derate.",
-                        f"{epc_baseline:.2f} kW",
-                        f"{epc_proposed:.2f} kW",
-                        f"{epc_reduction:.2f} kW"
-                    ),
-                    (
-                        "Peak Coincidence Factor",
-                        "EPC expressed as a share of the load shape's OWN peak: EPC \u00f7 Peak Load. Describes how 'peaky' baseline/proposed demand is relative to system risk hours. Not defined for Load reduction (no single 'peak' to normalize against \u2014 see Capacity Accreditation below).",
-                        f"{coincidence_baseline * 100:.1f}%",
-                        f"{coincidence_proposed * 100:.1f}%",
-                        "\u2014"
-                    ),
-                    (
-                        "Capacity Accreditation (ELCC/UCAP %)",
-                        "Accredited Capacity (EPC Reduction \u00d7 performance derate) \u00f7 Nameplate (enrolled DR capacity, or peak measured reduction outside DR Mode). This is the standard ELCC/UCAP framing: share of nameplate counted as firm capacity. Only meaningful for the Load reduction resource.",
-                        "\u2014",
-                        "\u2014",
-                        (f"{elcc_reduction * 100:.1f}%" if load_reduction.max() > 0 else "0.0%")
-                    ),
-                ]
-
-                coinc_rows_html = "".join(
-                    f"<tr>"
-                    f"<td style='padding:6px 10px; border-bottom:1px solid rgba(128,128,128,0.3); text-align:left;'>"
-                    f"<span title=\"{tooltip}\" style='cursor:help;'>{label} \u24d8</span></td>"
-                    f"<td style='padding:6px 10px; border-bottom:1px solid rgba(128,128,128,0.3); text-align:center;'>{base_val}</td>"
-                    f"<td style='padding:6px 10px; border-bottom:1px solid rgba(128,128,128,0.3); text-align:center;'>{prop_val}</td>"
-                    f"<td style='padding:6px 10px; border-bottom:1px solid rgba(128,128,128,0.3); text-align:center;'>{reduct_val}</td>"
-                    f"</tr>"
-                    for label, tooltip, base_val, prop_val, reduct_val in coinc_rows
-                )
-                coinc_table_html = f"""
-                <table style='width:100%; border-collapse:collapse;'>
-                    <thead>
-                        <tr>
-                            <th style='padding:6px 10px; border-bottom:2px solid rgba(128,128,128,0.5); text-align:left;'>Metric</th>
-                            <th style='padding:6px 10px; border-bottom:2px solid rgba(128,128,128,0.5); text-align:center;'>Baseline load</th>
-                            <th style='padding:6px 10px; border-bottom:2px solid rgba(128,128,128,0.5); text-align:center;'>Proposed load</th>
-                            <th style='padding:6px 10px; border-bottom:2px solid rgba(128,128,128,0.5); text-align:center;'>Load reduction</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {coinc_rows_html}
-                    </tbody>
-                </table>
-                """
-                st.markdown(coinc_table_html, unsafe_allow_html=True)
-                # Debug expander showing raw averages used to compute reduction %s
-                with st.expander("Debug: window averages & reductions", expanded=False):
-                    dbg = pd.DataFrame({
-                        "Window": ["Top50_CWFT", "Top100_CWFT", "Top100_Price"],
-                        "Baseline avg (kW)": [
-                            baseline_load[top_50_cwft_indices].mean(),
-                            baseline_load[top_100_cwft_indices].mean(),
-                            baseline_load[top_100_price_indices].mean()
-                        ],
-                        "Proposed avg (kW)": [
-                            proposed_load[top_50_cwft_indices].mean(),
-                            proposed_load[top_100_cwft_indices].mean(),
-                            proposed_load[top_100_price_indices].mean()
-                        ],
-                        "Reduction avg (kW)": [
-                            load_reduction[top_50_cwft_indices].mean(),
-                            load_reduction[top_100_cwft_indices].mean(),
-                            load_reduction[top_100_price_indices].mean()
-                        ],
-                        "% Reduction of baseline": [
-                            pct_reduct_50,
-                            pct_reduct_100,
-                            pct_reduct_price
-                        ]
-                    })
-                    st.table(dbg.round(4))
-
-            # ------------------------------------------------------------------
-            # TAB 6: SCENARIO MANAGER (save/compare runs)
+            # TAB 5: SCENARIO MANAGER (save/compare runs)
             # ------------------------------------------------------------------
             with tab_scenarios:
                 st.markdown("### Scenario Manager")
@@ -2001,11 +2425,11 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     st.info("No saved runs. Give your current configuration a name and click **Save Current Run** to build a comparison database.")
 
             # ------------------------------------------------------------------
-            # TAB 7: DIAGNOSTICS & TOP HOURS EXPORT
+            # TAB 6: DIAGNOSTICS & TOP HOURS EXPORT
             # ------------------------------------------------------------------
             with tab_diagnostics:
-                st.markdown("### Top avoided cost constraint hours")
-                st.markdown("Exposes hours with highest value to verify temperature coincidences and clean calendar shifts.")
+                st.markdown("### Diagnostics & Load Response")
+                st.markdown("Validation checks, a capacity-math trace, and hour-by-hour tables showing whether the technology actually responded to grid price signals.")
 
                 with st.expander("Validation checks & capacity math trace", expanded=False):
                     # Check validation items
@@ -2049,53 +2473,119 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
 """
                     )
 
-                top_limit = st.slider("Select number of peak hours to export", min_value=10, max_value=100, value=50, step=10)
-                
-                sort_col = st.selectbox("Sort top hours by:", ["Total avoided cost rate ($/MWh)", "CWFT weight", "Wholesale marginal energy price ($/MWh)"])
-                
-                results_df_present = results_df.copy()
-                results_df_present.rename(columns={
-                    'Hour': 'Hour index',
-                    'Datetime': 'Date & Time',
-                    'Cambium_Energy_MWh': 'Wholesale marginal energy price ($/MWh)',
-                    'Gen_Capacity_Value_MWh': 'Generation capacity component ($/MWh)',
-                    'Trans_Value_MWh': 'Transmission component ($/MWh)',
-                    'Dist_Value_MWh': 'Distribution component ($/MWh)',
-                    'Emissions_Value_MWh': 'Emissions component ($/MWh)',
-                    'Total_Avoided_Cost_MWh': 'Total avoided cost rate ($/MWh)',
-                    'CWFT': 'CWFT weight'
-                }, inplace=True)
-                
-                top_hours = results_df_present.sort_values(by=sort_col, ascending=False).head(top_limit)
-                
-                st.dataframe(
-                    top_hours[[
-                        'Hour index', 'Date & Time', 'Temperature_F', 'Wholesale marginal energy price ($/MWh)',
-                        'Generation capacity component ($/MWh)', 'Transmission component ($/MWh)',
-                        'Distribution component ($/MWh)', 'Emissions component ($/MWh)',
-                        'Total avoided cost rate ($/MWh)', 'CWFT weight'
-                    ]].style.format({
-                        'Date & Time': lambda x: x.strftime('%b %d, %H:%M'),
-                        'Temperature_F': '{:.1f} °F',
-                        'Wholesale marginal energy price ($/MWh)': '${:,.2f}',
-                        'Generation capacity component ($/MWh)': '${:,.2f}',
-                        'Transmission component ($/MWh)': '${:,.2f}',
-                        'Distribution component ($/MWh)': '${:,.2f}',
-                        'Emissions component ($/MWh)': '${:,.2f}',
-                        'Total avoided cost rate ($/MWh)': '${:,.2f}',
-                        'CWFT weight': '{:.6f}'
-                    }),
-                    use_container_width=True, hide_index=True
+                st.markdown("---")
+                st.markdown("#### Load Response Diagnostics")
+                st.caption(
+                    "Cross-references each hour's grid cost against whether the technology actually "
+                    "responded to it, surfacing four patterns: expensive hours where it helped (or hurt), "
+                    "expensive hours where it did nothing, cheap hours where it shifted load in to take "
+                    "advantage, and cheap hours where it did nothing. Uses the same Grid Avoided Cost "
+                    "basis as the Cost Duration Curve tab. 'High' and 'low' cost are evaluated **within "
+                    "each calendar month**, not against the whole year — otherwise a uniformly cheap month "
+                    "(e.g. April) would crowd out every other month's low-cost pool, and a technology "
+                    "would get unfairly penalized for not shifting load into August's cheapest hours just "
+                    "because they're still pricier than a typical April hour."
                 )
-                
-                debug_csv = top_hours.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label=f"Download Top {top_limit} Stress Hours CSV",
-                    data=debug_csv,
-                    file_name=f"top_{top_limit}_stress_hours.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
+
+                col_p1, col_p2, col_p3 = st.columns(3)
+                with col_p1:
+                    hours_per_month = st.slider(
+                        "Hours per month defining 'high' / 'low' cost", min_value=5, max_value=150, value=40, step=5,
+                        help="Within each calendar month, the N highest-cost and N lowest-cost hours (by "
+                             "Grid Avoided Cost) define that month's contribution to the 'high cost' and "
+                             "'low cost' pools below -- so every month is judged against its own price "
+                             "range, not the year's."
+                    )
+                with col_p2:
+                    response_threshold_pct = st.slider(
+                        "Response threshold (% of baseline load)", min_value=0.0, max_value=25.0, value=5.0, step=0.5,
+                        help="A load change smaller than this percentage of that hour's baseline load counts "
+                             "as 'no response' rather than a real behavioral change."
+                    )
+                with col_p3:
+                    rows_per_table = st.slider("Rows per table", min_value=10, max_value=200, value=100, step=10)
+
+                grid_avoided_diag = results_df['Total_Avoided_Cost_MWh'].to_numpy()
+                diag_cost_hr = (baseline_load / 1000.0) * grid_avoided_diag
+                diag_value_hr = (load_reduction / 1000.0) * grid_avoided_diag  # + = saved, - = cost more
+
+                response_mask = np.abs(load_reduction) >= (response_threshold_pct / 100.0) * np.maximum(baseline_load, 1e-6)
+
+                # High/low cost are ranked WITHIN each calendar month rather than across the
+                # whole year, so every month contributes its own relatively-expensive and
+                # relatively-cheap hours instead of one uniformly cheap/pricey month dominating
+                # the pool (see caption above).
+                month_of_hour = pd.to_datetime(results_df['Datetime']).dt.month.to_numpy()
+                high_cost_mask = np.zeros(len(diag_cost_hr), dtype=bool)
+                low_cost_mask = np.zeros(len(diag_cost_hr), dtype=bool)
+                for m in range(1, 13):
+                    month_idx = np.where(month_of_hour == m)[0]
+                    if len(month_idx) == 0:
+                        continue
+                    month_costs = diag_cost_hr[month_idx]
+                    k = min(hours_per_month, len(month_idx))
+                    high_cost_mask[month_idx[np.argsort(-month_costs)[:k]]] = True
+                    low_cost_mask[month_idx[np.argsort(month_costs)[:k]]] = True
+
+                diag_df = pd.DataFrame({
+                    "Date & Time": pd.to_datetime(results_df['Datetime']).dt.strftime('%b %d, %H:%M'),
+                    "Temperature (°F)": results_df['Temperature_F'].to_numpy(),
+                    "Grid Avoided Cost ($/hr)": diag_cost_hr,
+                    "Baseline Load (kW)": baseline_load,
+                    "Proposed Load (kW)": proposed_load,
+                    "Load Change (kW)": load_reduction,
+                    "$ Impact ($/hr)": diag_value_hr,
+                })
+
+                def _response_table(title, caption, mask, sort_col, ascending):
+                    subset = diag_df[mask].sort_values(sort_col, ascending=ascending).head(rows_per_table)
+                    with st.container(border=True):
+                        st.markdown(f"##### {title}")
+                        st.caption(f"{caption} ({int(mask.sum())} qualifying hour(s); showing up to {rows_per_table}.)")
+                        st.dataframe(
+                            subset.style.format({
+                                "Temperature (°F)": "{:.1f}",
+                                "Grid Avoided Cost ($/hr)": "${:,.2f}",
+                                "Baseline Load (kW)": "{:.2f}",
+                                "Proposed Load (kW)": "{:.2f}",
+                                "Load Change (kW)": "{:+.2f}",
+                                "$ Impact ($/hr)": "${:+,.2f}",
+                            }),
+                            use_container_width=True, hide_index=True, height=320
+                        )
+                        st.download_button(
+                            "Download CSV", subset.to_csv(index=False).encode('utf-8'),
+                            file_name=f"{title.lower().replace(' ', '_').replace('—', '-')}.csv",
+                            mime="text/csv", use_container_width=True, key=f"dl_{title}"
+                        )
+
+                row1_col1, row1_col2 = st.columns(2)
+                with row1_col1:
+                    _response_table(
+                        "High Cost — Technology Responded",
+                        "Best savings hours: hours that were expensive relative to their own month where the technology cut load and captured that value (a negative $ Impact here means it made an expensive hour worse).",
+                        high_cost_mask & response_mask, "$ Impact ($/hr)", False
+                    )
+                with row1_col2:
+                    _response_table(
+                        "High Cost — No Response",
+                        "Missed-opportunity hours: hours that were expensive relative to their own month where the technology's load barely changed.",
+                        high_cost_mask & ~response_mask, "Grid Avoided Cost ($/hr)", False
+                    )
+
+                row2_col1, row2_col2 = st.columns(2)
+                with row2_col1:
+                    _response_table(
+                        "Low Cost — Load Shifted Here",
+                        "Cheap-hour arbitrage: hours that were inexpensive relative to their own month where the technology deliberately used more power (e.g. pre-heating/cooling, battery charging).",
+                        low_cost_mask & response_mask, "Load Change (kW)", True
+                    )
+                with row2_col2:
+                    _response_table(
+                        "Low Cost — No Response",
+                        "Unused opportunity: hours that were inexpensive relative to their own month where the technology didn't take advantage.",
+                        low_cost_mask & ~response_mask, "Grid Avoided Cost ($/hr)", True
+                    )
 
         except Exception as e:
             st.error(f"**Data Processing/CSV Parsing Error:** {str(e)}")

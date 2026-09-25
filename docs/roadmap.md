@@ -2,8 +2,14 @@
 
 > **Living Document** — Update as milestones are completed, priorities shift, or new requirements emerge.
 >
-> **Last Updated:** 2026-08-26
-> **Cross-references:** [needs_and_gaps.md](./needs_and_gaps.md) · [glossary.md](./glossary.md) · Project Abstract & Phased Plan
+> **Last Updated:** 2026-09-25
+> **Cross-references:** [needs_and_gaps.md](./needs_and_gaps.md) · [glossary.md](./glossary.md) · [CHANGELOG.md](./CHANGELOG.md) · Project Abstract & Phased Plan
+>
+> **[Assistant, 2026-09-25]:** Charts tab expanded to 9 sub-tabs (incl. two new ones —
+> Cost Duration Curve, Cumulative Annual Cost), CWF default/alpha fixed for
+> building-independence, and a full cross-tab QA review completed with fixes. See
+> `CHANGELOG.md` [2026-09-25] for the full writeup; only directly-affected rows below
+> were updated, so other sections may still be stale.
 
 ---
 
@@ -666,7 +672,7 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 1.4 Weather file | 🔨 BUILD | 🟢 **v1 Done** | AI | 2012 AMY EPW files generated via `diyepw` for Atlanta (WMO 722190) and Birmingham (WMO 722280). Saved to `Weather_Data_raw/Baseline/`. App weather generator tab also functional. |
 | ↳ 1.5 File upload UX | 🔨 BUILD | ⬜ Not Started | AI | "Straightforward request to the AI" |
 | ↳ 1.6 Code modularization | 🔨 BUILD | ✅ **Phase 3 Done** | JB + AI | Phase 1: `calculations.py` + `billing.py`. Phase 2: `data_loaders.py`. Phase 3: `visualizations.py` + `config.py` + `dispatch_dr_program` → `calculations.py`. app.py now ~1,210 lines. All modules are Streamlit-free and independently testable. |
-| ↳ 1.7 Error handling | 🔨 BUILD | ⬜ Not Started | AI | AI to suggest fix + add appropriate testing |
+| ↳ 1.7 Error handling | 🔨 BUILD | 🟢 **Done (2026-09-25)** | AI | Cambium scanner now returns `(df, ingestion_warnings)`; failed-to-parse files surface via `st.warning()` instead of silently disappearing. |
 | ↳ 1.8 Unused file cleanup | ❓ DISCUSS | ⬜ Not Started | Justin (JH) | Check with Justin on role of `southeast_avoided_costs_AL_GA.csv` |
 | **M2: Utility Value Story** | 🔀 MODIFY | | | **Goal updated:** Not just showing to planning team, but getting team buy-in for limited ongoing support/maintenance. |
 | ↳ 2.1 TRC test | 🔨 BUILD | 🟢 **v1 Done** | JB lead, JH+SC review | Calculated as `NPV Avoided Grid Costs / (Gross Measure Cost + Utility Admin)`. Configurable in sidebar. |
@@ -674,9 +680,9 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 2.3 Capacity methodology docs | 📦 EXTERNAL | ⬜ Not Started | JH lead | JH to lead methodology documentation |
 | ↳ 2.4 T&D deferral docs | 📦 EXTERNAL | ⬜ Not Started | JH lead | JH to lead methodology documentation |
 | ↳ 2.5 Emissions options | ⏸️ DEFER | ⬜ Not Started | Unassigned | "To assign later" |
-| ↳ 2.6 Visualization polish | ⏸️ DEFER | ⬜ Not Started | — | "To revisit after progress above" (after 2.1–2.5) |
+| ↳ 2.6 Visualization polish | ⏸️ DEFER | 🟡 **Substantial progress (2026-09-25)** | AI | Charts tab restructured into 9 sub-tabs with real explainer copy, consistent green/red signed-color convention, 2 new tabs (Cost Duration Curve, Cumulative Annual Cost). Monthly aggregation views and a printable executive summary (this row's original asks) still not done. |
 | **M3: Vendor Experience** | | | | |
-| ↳ 3.1 Cost-of-ownership / payback | 🔨 BUILD | 🟢 **v1 Done** | JB + AI, Al/Mitch review | Simple and Discounted Payback Periods (Years) calculated and displayed in Tab 1 Overview Scorecard. |
+| ↳ 3.1 Cost-of-ownership / payback | 🔨 BUILD | 🟢 **v2 Done (2026-09-25)** | JB + AI, Al/Mitch review | Simple and Discounted Payback Periods (Years) calculated and displayed in Tab 1 Overview Scorecard. **2026-09-25:** added a separate sidebar "Customer Discount Rate" (defaults to match utility WACC) — PCT, discounted payback, and the Lifetime Cash Flow Customer view now discount at this rate instead of silently reusing the utility's WACC. |
 | ↳ 3.2 Performance target engine | 🔨 BUILD | ⬜ Not Started | JB lead, JH support | JB leads; Justin flags utility-perspective items JB might overlook |
 | ↳ 3.3 Cost-effectiveness gap calc | ❓ DISCUSS | ⬜ Not Started | Needs brainstorm | "A lot of very interesting possibilities — deserves a dedicated brainstorm" |
 | ↳ 3.4 Vendor-facing visualizations | 🔨 BUILD | ⬜ Not Started | JB lead | "Finalize plan as we get closer" |

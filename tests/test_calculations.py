@@ -119,7 +119,7 @@ sys.modules["streamlit"] = _st_stub
 
 # Import the extracted modules directly — no Streamlit stub needed for these
 # since they are pure Python with no UI dependencies.
-from calculations import calculate_avoided_costs, dispatch_dr_program  # noqa: E402
+from calculations import calculate_avoided_costs, dispatch_dr_program, find_peak_week  # noqa: E402
 from billing import calculate_urdb_bill, get_hourly_energy_rate  # noqa: E402
 import config  # noqa: E402
 from visualizations import (  # noqa: E402
@@ -128,7 +128,13 @@ from visualizations import (  # noqa: E402
     build_weekly_grid_economics_chart,
     build_annual_avoided_cost_chart,
     build_stacked_components_chart,
+    build_winter_summer_comparison_chart,
     build_lifetime_npv_chart,
+    build_temp_power_cost_bubble_chart,
+    build_cost_duration_chart,
+    build_hour_month_heatmap,
+    build_day_hour_heatmap,
+    build_cumulative_cost_chart,
 )
 import plotly.graph_objects as go  # noqa: E402
 
@@ -538,6 +544,54 @@ class TestCapacityMetrics:
         assert pytest.approx(cwft_peaked.sum(), abs=1e-6) == 1.0
 
 
+class TestFindPeakWeek:
+    """Validates find_peak_week(), which replaced the old fixed-calendar-week
+    assumption ('the peak week is always Jan 1-7 / Jul 15-21') with a search
+    over the actual loaded data. See the BirminghamTES July 6 investigation,
+    2026-09-24, where a real peak hour fell outside the old fixed window."""
+
+    def test_finds_true_spike_outside_fixed_window(self, datetime_2012):
+        """A single huge spike hour that falls outside the old hardcoded
+        'Summer Peak Week (Jul 15-21)' window must still be captured."""
+        n = 8760
+        vals = np.random.default_rng(0).uniform(20, 40, n)
+        # July 6 (hour index 4488-4511) -- outside the old fixed Jul 15-21
+        # window (indices 4680-4848) -- gets a massive spike.
+        vals[4495] = 5000.0
+        window = find_peak_week(datetime_2012, vals, month_filter=[6, 7, 8, 9], mode="max")
+        assert window is not None
+        start, end = window
+        assert start <= 4495 < end, "the window found should contain the actual spike hour"
+        assert end - start == 168
+
+    def test_window_stays_within_month_filter(self, datetime_2012):
+        """The returned window must never spill into a month outside the filter."""
+        n = 8760
+        vals = np.random.default_rng(1).uniform(0, 1, n)
+        window = find_peak_week(datetime_2012, vals, month_filter=[12, 1, 2], mode="max")
+        assert window is not None
+        start, end = window
+        months_in_window = pd.to_datetime(datetime_2012.iloc[start:end]).dt.month
+        assert set(months_in_window.unique()).issubset({12, 1, 2})
+
+    def test_min_mode_finds_lowest_stress_window(self, datetime_2012):
+        """A deliberately quiet week (day-of-year 100, hour 2400) with a sum
+        far below every other candidate window should be the one found."""
+        n = 8760
+        vals = np.random.default_rng(2).uniform(50, 100, n)
+        vals[2400:2568] = 1.0
+        window = find_peak_week(datetime_2012, vals, month_filter=[3, 4, 5, 10, 11], mode="min")
+        assert window == (2400, 2568)
+
+    def test_returns_none_when_no_window_fits(self, datetime_2012):
+        """An empty month filter can never contain a window, so this must
+        return None rather than raising or silently returning a bad window."""
+        n = 8760
+        vals = np.ones(n)
+        window = find_peak_week(datetime_2012, vals, month_filter=[], mode="max")
+        assert window is None
+
+
 # ======================================================================
 #  TEST SUITE 5: dispatch_dr_program()
 # ======================================================================
@@ -709,17 +763,110 @@ class TestVisualizations:
         # Test stacked mode
         fig_stacked = build_weekly_grid_economics_chart(slice_df, mode="Stacked Components")
         assert isinstance(fig_stacked, go.Figure)
-        assert len(fig_stacked.data) == 10  # 5 component areas + 1 load reduction + 1 cost delta + 3 customer cost/rate traces
+        assert len(fig_stacked.data) == 14  # 5 component areas + 2 load-reduction (pos/neg) + 2 grid-value (pos/neg) + 2 lost-revenue (pos/neg) + baseline/proposed/rate lines
 
         # Test individual lines mode
         fig_lines = build_weekly_grid_economics_chart(slice_df, mode="Individual Component Lines")
         assert isinstance(fig_lines, go.Figure)
-        assert len(fig_lines.data) == 11  # 5 component lines + 1 total cost line + 1 load reduction + 1 cost delta + 3 customer cost/rate traces
+        assert len(fig_lines.data) == 15  # 5 component lines + 1 total cost line + 2 load-reduction (pos/neg) + 2 grid-value (pos/neg) + 2 lost-revenue (pos/neg) + baseline/proposed/rate lines
 
         # Test total marginal cost mode
         fig_total = build_weekly_grid_economics_chart(slice_df, mode="Total Marginal Cost ($/MWh)")
         assert isinstance(fig_total, go.Figure)
-        assert len(fig_total.data) == 6  # 1 total cost line + 1 load reduction + 1 cost delta + 3 customer cost/rate traces
+        assert len(fig_total.data) == 10  # 1 total cost line + 2 load-reduction (pos/neg) + 2 grid-value (pos/neg) + 2 lost-revenue (pos/neg) + baseline/proposed/rate lines
+
+        # The positive (green) traces should carry the constant positive test
+        # values; the negative (red) traces should be all-NaN since none of
+        # the test data goes negative.
+        reduction_pos_trace = next(t for t in fig_stacked.data if t.name == 'Reduces Demand (kW)')
+        reduction_neg_trace = next(t for t in fig_stacked.data if t.name == 'Increases Demand (kW)')
+        assert np.allclose(reduction_pos_trace.y, 0.5)
+        assert np.all(np.isnan(np.array(reduction_neg_trace.y, dtype=float)))
+
+        # Utility revenue effect = Proposed (0.20) - Baseline (0.30) = -0.10
+        # constant: the utility collects less retail revenue every hour here.
+        lost_revenue_trace = next(t for t in fig_stacked.data if t.name == 'Lost Retail Revenue ($/hr)')
+        revenue_gain_trace = next(t for t in fig_stacked.data if t.name == 'Revenue Gain ($/hr)')
+        assert np.allclose(lost_revenue_trace.y, -0.1)
+        assert np.all(np.isnan(np.array(revenue_gain_trace.y, dtype=float)))
+
+        # Baseline/Proposed customer cost lines should keep their own distinct
+        # colors (purple/amber), separate from the green/red bar convention.
+        baseline_line = next(t for t in fig_stacked.data if t.name == 'Customer Cost - Baseline ($/hr)')
+        proposed_line = next(t for t in fig_stacked.data if t.name == 'Customer Cost - Proposed ($/hr)')
+        assert baseline_line.line.color == config.COLORS["purple"]
+        assert proposed_line.line.color == config.COLORS["amber"]
+
+    def test_weekly_grid_economics_chart_signed_area_split(self, grid_df_8760, cwft_uniform, datetime_2012):
+        """A technology (like a battery) that draws MORE than baseline some
+        hours should land in the red 'Increases Demand' / 'Costs More'
+        traces for exactly those hours, and in the green traces otherwise —
+        this is the good/bad color coding requested for rows 2 and 3."""
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        results["Datetime"] = datetime_2012.values
+        slice_df = results.iloc[0:168].copy()
+
+        reduction = np.ones(168) * 0.5
+        reduction[10] = -2.0  # e.g. a battery charging that hour
+        slice_df['Load_Reduction_kW'] = reduction
+        slice_df['Customer_Cost_Baseline_hr'] = np.ones(168) * 0.30
+        slice_df['Customer_Cost_Proposed_hr'] = np.ones(168) * 0.20
+        slice_df['Retail_Rate_kWh'] = np.ones(168) * 0.15
+
+        fig = build_weekly_grid_economics_chart(slice_df, mode="Total Marginal Cost ($/MWh)")
+
+        reduction_pos = np.array(next(t for t in fig.data if t.name == 'Reduces Demand (kW)').y, dtype=float)
+        reduction_neg = np.array(next(t for t in fig.data if t.name == 'Increases Demand (kW)').y, dtype=float)
+        assert np.isnan(reduction_pos[10])
+        assert reduction_neg[10] == -2.0
+        assert reduction_pos[0] == 0.5
+        assert np.isnan(reduction_neg[0])
+
+        savings_pos = np.array(next(t for t in fig.data if t.name == 'Grid Value Created ($/hr)').y, dtype=float)
+        savings_neg = np.array(next(t for t in fig.data if t.name == 'Grid Value Lost ($/hr)').y, dtype=float)
+        # With positive avoided-cost scalars, the charging hour's negative
+        # reduction must flow through to a negative ($/hr) value.
+        assert np.isnan(savings_pos[10])
+        assert savings_neg[10] < 0
+
+    def test_weekly_grid_economics_chart_revenue_gain_hour_is_distinct_from_grid_value(
+        self, grid_df_8760, cwft_uniform, datetime_2012
+    ):
+        """
+        An hour where the customer's bill goes UP under Proposed (e.g. backup
+        resistance heat kicking in) is a revenue GAIN for the utility, not a
+        loss -- it should land in the green 'Revenue Gain' bucket, distinct
+        from (and independently signed from) that same hour's grid value.
+        """
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        results["Datetime"] = datetime_2012.values
+        slice_df = results.iloc[0:168].copy()
+
+        slice_df['Load_Reduction_kW'] = np.ones(168) * 0.5  # grid value stays positive throughout
+        baseline_cost = np.ones(168) * 0.30
+        proposed_cost = np.ones(168) * 0.20
+        proposed_cost[20] = 0.45  # hour 20: proposed costs MORE than baseline
+        slice_df['Customer_Cost_Baseline_hr'] = baseline_cost
+        slice_df['Customer_Cost_Proposed_hr'] = proposed_cost
+        slice_df['Retail_Rate_kWh'] = np.ones(168) * 0.15
+
+        fig = build_weekly_grid_economics_chart(slice_df, mode="Total Marginal Cost ($/MWh)")
+
+        lost_revenue = np.array(next(t for t in fig.data if t.name == 'Lost Retail Revenue ($/hr)').y, dtype=float)
+        revenue_gain = np.array(next(t for t in fig.data if t.name == 'Revenue Gain ($/hr)').y, dtype=float)
+        grid_value = np.array(next(t for t in fig.data if t.name == 'Grid Value Created ($/hr)').y, dtype=float)
+
+        # Hour 20: revenue gain of 0.15 (0.45 proposed - 0.30 baseline), not a loss.
+        assert np.isnan(lost_revenue[20])
+        assert revenue_gain[20] == pytest.approx(0.15)
+        # Every other hour: a loss of -0.10, as in the baseline test case.
+        assert lost_revenue[0] == pytest.approx(-0.10)
+        assert np.isnan(revenue_gain[0])
+        # Grid value is unaffected by the bill swing -- stays positive throughout,
+        # confirming the two series are independent, not netted together.
+        assert grid_value[20] > 0
 
     def test_annual_avoided_cost_returns_figure(self, grid_df_8760, cwft_uniform):
         from calculations import calculate_avoided_costs
@@ -727,6 +874,38 @@ class TestVisualizations:
         fig = build_annual_avoided_cost_chart(results)
         assert isinstance(fig, go.Figure)
         assert len(fig.data) == 1  # single trace
+        assert fig.layout.yaxis.title.text == "Wholesale Avoided Cost ($/MWh)"
+
+    def test_annual_avoided_cost_monthly_boxplot(self, grid_df_8760, cwft_uniform):
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        fig = build_annual_avoided_cost_chart(results, mode="Monthly Box & Whisker")
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 1
+        assert fig.data[0].type == "box"
+        assert len(fig.data[0].y) == len(results)
+
+    def test_annual_avoided_cost_boxplot_caps_yaxis_and_annotates_outliers(self, datetime_2012):
+        """A year with a handful of extreme-price hours should get a capped,
+        legible y-axis (not stretched to the max spike) plus a text
+        annotation on whichever month(s) had hours above that cap."""
+        n = 8760
+        vals = np.random.default_rng(0).uniform(20, 50, n)
+        vals[100] = 4000.0  # one huge January spike hour
+        results = pd.DataFrame({
+            'Datetime': datetime_2012.values,
+            'Total_Avoided_Cost_MWh': vals
+        })
+
+        fig = build_annual_avoided_cost_chart(results, mode="Monthly Box & Whisker")
+
+        y_ceiling = fig.layout.yaxis.range[1]
+        assert y_ceiling < 4000.0, "y-axis should be capped well below the spike, not stretched to fit it"
+        assert y_ceiling > 50.0, "y-axis should still comfortably cover the normal range"
+
+        annotation_texts = " ".join(a.text for a in fig.layout.annotations)
+        assert "1 hr" in annotation_texts
+        assert "4,000" in annotation_texts or "4000" in annotation_texts
 
     def test_stacked_components_returns_figure(self, grid_df_8760, cwft_uniform):
         from calculations import calculate_avoided_costs
@@ -744,14 +923,291 @@ class TestVisualizations:
         for trace in fig.data:
             assert trace.showlegend is False
 
+    def test_winter_summer_comparison_shares_one_legend(self, grid_df_8760, cwft_uniform):
+        """The combined two-panel chart should carry all 10 traces (5
+        components x 2 panels) but only the first panel's 5 should show in
+        the legend, since the two panels share one legend across the top."""
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        winter_slice = results.iloc[0:168]
+        summer_slice = results.iloc[4680:4848]
+        fig = build_winter_summer_comparison_chart(
+            winter_slice, summer_slice, winter_label="Dec 6-12", summer_label="Jul 6-12"
+        )
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 10
+        legend_visible = [t for t in fig.data if t.showlegend]
+        legend_hidden = [t for t in fig.data if t.showlegend is False]
+        assert len(legend_visible) == 5
+        assert len(legend_hidden) == 5
+
+    def test_winter_summer_comparison_y_range_caps_both_panels(self, grid_df_8760, cwft_uniform):
+        """Passing y_range should cap BOTH subplot y-axes (not just one),
+        for the 'zoomed in' companion chart next to the full-scope one."""
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        winter_slice = results.iloc[0:168]
+        summer_slice = results.iloc[4680:4848]
+        fig = build_winter_summer_comparison_chart(
+            winter_slice, summer_slice, winter_label="Dec 6-12", summer_label="Jul 6-12",
+            y_range=(0, 500)
+        )
+        assert list(fig.layout.yaxis.range) == [0, 500]
+        assert list(fig.layout.yaxis2.range) == [0, 500]
+
+    def test_cost_duration_chart_returns_figure(self):
+        n = 744  # roughly a month's worth of hours
+        rng = np.random.default_rng(0)
+        x_vals = np.arange(1, n + 1)
+        baseline = rng.uniform(0, 50, n)
+        proposed = baseline - rng.normal(2, 5, n)  # sometimes saves, sometimes costs more
+        fig = build_cost_duration_chart(x_vals, baseline, proposed, x_title="Hour Rank", y_title="Cost ($/hr)")
+        assert isinstance(fig, go.Figure)
+        # 2 lines (Baseline, Proposed) in row 1 + 2 signed fill areas (Saves/Costs) in row 2
+        assert len(fig.data) == 4
+        assert all(t.type == "scatter" for t in fig.data)
+        trace_names = [t.name for t in fig.data]
+        assert trace_names == ["Baseline", "Proposed", "Saves Money", "Costs More"]
+
+    def test_cost_duration_chart_change_matches_baseline_minus_proposed(self):
+        x_vals = np.array([1, 2, 3])
+        baseline = np.array([10.0, 20.0, 5.0])
+        proposed = np.array([8.0, 25.0, 5.0])  # hour 1: saves 2, hour 2: costs 5 more, hour 3: no change
+        fig = build_cost_duration_chart(x_vals, baseline, proposed, x_title="Hour Rank")
+        saves_trace = next(t for t in fig.data if t.name == "Saves Money")
+        costs_trace = next(t for t in fig.data if t.name == "Costs More")
+
+        # Each trace is a series of isolated (x, 0) -> (x, value) -> break
+        # stems, not one y-value per input hour, so index into stem triplets
+        # by matching on x rather than position.
+        def stem_value(trace, x):
+            xs = np.asarray(trace.x)
+            ys = np.asarray(trace.y, dtype=float)
+            idx = np.where(xs == x)[0][0]  # first occurrence: the (x, 0) anchor
+            return ys[idx + 1]  # the (x, value) point right after it
+
+        assert stem_value(saves_trace, 1) == pytest.approx(2.0)
+        assert 2 not in np.asarray(saves_trace.x)  # hour 2 costs more, not in the saves stems at all
+        assert stem_value(costs_trace, 2) == pytest.approx(-5.0)
+        assert stem_value(saves_trace, 3) == pytest.approx(0.0)  # zero change counts as "not negative" -> saves bucket
+
+    def test_cost_duration_chart_y_range_caps_row1_axis(self):
+        x_vals = np.array([1, 2, 3])
+        baseline = np.array([100.0, 100.0, 5000.0])  # hour 3 is a huge outlier
+        proposed = np.array([90.0, 95.0, 4800.0])
+        fig = build_cost_duration_chart(x_vals, baseline, proposed, x_title="Hour Rank", y_range=(0, 500))
+        assert list(fig.layout.yaxis.range) == [0, 500]
+        # row 2 (Change) must stay uncapped -- only row 1 gets the cap
+        assert fig.layout.yaxis2.range is None
+
+    def test_cost_duration_chart_no_y_range_means_no_cap(self):
+        x_vals = np.array([1, 2])
+        baseline = np.array([100.0, 200.0])
+        proposed = np.array([90.0, 190.0])
+        fig = build_cost_duration_chart(x_vals, baseline, proposed, x_title="Hour Rank")
+        assert fig.layout.yaxis.range is None
+
+    def test_hour_month_heatmap_returns_figure(self, datetime_2012):
+        n = 8760
+        rng = np.random.default_rng(1)
+        values = rng.normal(0, 5, n)
+        fig = build_hour_month_heatmap(datetime_2012, values, title="Test Heatmap")
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 1
+        assert fig.data[0].type == "heatmap"
+        assert fig.data[0].z.shape == (24, 12)
+
+    def test_hour_month_heatmap_colorbar_labels_good_and_bad(self, datetime_2012):
+        n = 8760
+        rng = np.random.default_rng(2)
+        values = rng.normal(0, 5, n)
+        fig = build_hour_month_heatmap(
+            datetime_2012, values, title="Test Heatmap",
+            good_label="Saves Money", bad_label="Costs More"
+        )
+        colorbar = fig.data[0].colorbar
+        assert any("Saves Money" in t for t in colorbar.ticktext)
+        assert any("Costs More" in t for t in colorbar.ticktext)
+
+    def test_day_hour_heatmap_returns_figure(self, datetime_2012):
+        jan_mask = datetime_2012.dt.month == 1
+        jan_dt = datetime_2012[jan_mask]
+        rng = np.random.default_rng(3)
+        values = rng.normal(0, 5, jan_mask.sum())
+        fig = build_day_hour_heatmap(jan_dt, values, title="Test Day x Hour Heatmap")
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 1
+        assert fig.data[0].type == "heatmap"
+        assert fig.data[0].z.shape == (24, 31)  # January has 31 days
+
+    def test_day_hour_heatmap_colorbar_labels_good_and_bad(self, datetime_2012):
+        jan_mask = datetime_2012.dt.month == 1
+        jan_dt = datetime_2012[jan_mask]
+        rng = np.random.default_rng(4)
+        values = rng.normal(0, 5, jan_mask.sum())
+        fig = build_day_hour_heatmap(
+            jan_dt, values, title="Test Day x Hour Heatmap",
+            good_label="Saves Money", bad_label="Costs More"
+        )
+        colorbar = fig.data[0].colorbar
+        assert any("Saves Money" in t for t in colorbar.ticktext)
+        assert any("Costs More" in t for t in colorbar.ticktext)
+
+    def test_cumulative_cost_chart_returns_figure(self, datetime_2012):
+        n = 8760
+        rng = np.random.default_rng(5)
+        baseline_grid = rng.uniform(0, 10, n)
+        proposed_grid = baseline_grid - rng.uniform(0, 2, n)
+        utility_net_hr = proposed_grid - baseline_grid
+        baseline_cust = rng.uniform(0, 20, n)
+        proposed_cust = baseline_cust - rng.uniform(0, 5, n)
+        fig = build_cumulative_cost_chart(
+            datetime_2012, utility_net_hr, baseline_cust, proposed_cust
+        )
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 4  # Savings/Added Cost x Utility/Customer rows
+        assert all(t.type == "scatter" for t in fig.data)
+        trace_names = [t.name for t in fig.data]
+        assert trace_names == [
+            "Cumulative Savings", "Cumulative Added Cost",
+            "Cumulative Savings", "Cumulative Added Cost",
+        ]
+
+    def test_cumulative_cost_chart_is_the_proposed_minus_baseline_running_total(self):
+        years_as_hours = pd.Series(pd.date_range("2012-01-01", periods=4, freq="h"))
+        # Proposed cheaper every hour in both perspectives -> cumulative diff sinks negative (savings).
+        utility_net_hr = np.array([-4.0, -4.0, -4.0, -4.0])  # e.g. grid savings of $4/hr, no netting
+        baseline_cust = np.array([20.0, 20.0, 20.0, 20.0])
+        proposed_cust = np.array([15.0, 15.0, 15.0, 15.0])
+        fig = build_cumulative_cost_chart(
+            years_as_hours, utility_net_hr, baseline_cust, proposed_cust
+        )
+        # Row 1 (utility): Savings trace then Added Cost trace.
+        savings_grid = fig.data[0]
+        cost_grid = fig.data[1]
+        assert list(savings_grid.y) == pytest.approx([-4.0, -8.0, -12.0, -16.0])
+        assert all(np.isnan(v) for v in cost_grid.y)  # never positive here -> all-NaN, not shown
+        # Row 2 (customer): Savings trace then Added Cost trace.
+        savings_cust = fig.data[2]
+        cost_cust = fig.data[3]
+        assert list(savings_cust.y) == pytest.approx([-5.0, -10.0, -15.0, -20.0])
+        assert all(np.isnan(v) for v in cost_cust.y)
+        # Only the top row's traces show in the (shared) legend.
+        assert fig.data[0].showlegend is not False
+        assert fig.data[1].showlegend is not False
+        assert fig.data[2].showlegend is False
+        assert fig.data[3].showlegend is False
+
+    def test_cumulative_cost_chart_shows_added_cost_when_proposed_is_more_expensive(self):
+        years_as_hours = pd.Series(pd.date_range("2012-01-01", periods=3, freq="h"))
+        utility_net_hr = np.array([4.0, 4.0, 4.0])  # Proposed costs more every hour
+        baseline_cust = np.array([20.0, 20.0, 20.0])
+        proposed_cust = np.array([20.0, 20.0, 20.0])
+        fig = build_cumulative_cost_chart(
+            years_as_hours, utility_net_hr, baseline_cust, proposed_cust
+        )
+        cost_grid = fig.data[1]
+        assert list(cost_grid.y) == pytest.approx([4.0, 8.0, 12.0])
+
     def test_lifetime_npv_returns_figure(self):
         years = np.arange(1, 16)
-        nominal = np.ones(15) * 100
         disc_grid = np.ones(15) * 80
         disc_lost = np.ones(15) * 60
-        fig = build_lifetime_npv_chart(years, nominal, disc_grid, disc_lost)
+        fig = build_lifetime_npv_chart(years, disc_grid, disc_lost)
         assert isinstance(fig, go.Figure)
-        assert len(fig.data) == 3  # 3 bar traces
+        assert len(fig.data) == 3  # 2 bar traces (savings, lost revenue) + cumulative net line
+        assert fig.data[0].type == "bar"
+        assert fig.data[1].type == "bar"
+        assert fig.data[2].type == "scatter"
+
+    def test_lifetime_npv_lost_revenue_is_negative_and_cumulative_nets_out(self):
+        years = np.arange(1, 4)
+        disc_grid = np.array([100.0, 100.0, 100.0])
+        disc_lost = np.array([30.0, 30.0, 30.0])
+        fig = build_lifetime_npv_chart(years, disc_grid, disc_lost)
+        lost_trace = next(t for t in fig.data if t.name == "Lost Retail Revenue (PV)")
+        cumulative_trace = next(t for t in fig.data if "Cumulative" in t.name)
+        assert list(lost_trace.y) == pytest.approx([-30.0, -30.0, -30.0])
+        assert list(cumulative_trace.y) == pytest.approx([70.0, 140.0, 210.0])
+
+    def test_lifetime_npv_customer_perspective_adds_year_zero_upfront_cost(self):
+        years = np.arange(1, 4)
+        bill_savings = np.array([40.0, 40.0, 40.0])
+        fig = build_lifetime_npv_chart(
+            years, bill_savings, benefit_name="Bill Savings (PV)",
+            upfront_cost=100.0, upfront_name="Upfront Cost (after rebate)"
+        )
+        upfront_trace = next(t for t in fig.data if t.name == "Upfront Cost (after rebate)")
+        savings_trace = next(t for t in fig.data if t.name == "Bill Savings (PV)")
+        cumulative_trace = next(t for t in fig.data if "Cumulative" in t.name)
+
+        # A "Year 0" column is prepended for the upfront cost.
+        assert list(upfront_trace.x) == [0, 1, 2, 3]
+        assert list(upfront_trace.y) == pytest.approx([-100.0, 0.0, 0.0, 0.0])
+        assert list(savings_trace.y) == pytest.approx([0.0, 40.0, 40.0, 40.0])
+        # Cumulative starts negative (the upfront cost) and crosses zero as savings accrue.
+        assert list(cumulative_trace.y) == pytest.approx([-100.0, -60.0, -20.0, 20.0])
+
+    def test_lifetime_npv_utility_combines_recurring_cost_and_upfront_program_cost(self):
+        years = np.arange(1, 4)
+        grid_savings = np.array([100.0, 100.0, 100.0])
+        lost_revenue = np.array([30.0, 30.0, 30.0])
+        fig = build_lifetime_npv_chart(
+            years, grid_savings, cost_stream=lost_revenue,
+            benefit_name="Grid Savings (PV)", cost_name="Lost Retail Revenue (PV)",
+            upfront_cost=50.0, upfront_name="Program Cost (Incentive + Admin)"
+        )
+        # 4 traces: grid savings, upfront program cost, recurring lost revenue, cumulative line.
+        assert len(fig.data) == 4
+        upfront_trace = next(t for t in fig.data if t.name == "Program Cost (Incentive + Admin)")
+        lost_trace = next(t for t in fig.data if t.name == "Lost Retail Revenue (PV)")
+        cumulative_trace = next(t for t in fig.data if "Cumulative" in t.name)
+
+        assert list(upfront_trace.x) == [0, 1, 2, 3]
+        assert list(upfront_trace.y) == pytest.approx([-50.0, 0.0, 0.0, 0.0])
+        assert list(lost_trace.y) == pytest.approx([0.0, -30.0, -30.0, -30.0])
+        # Year 0: just -program cost. Years 1-3: +100 savings -30 lost revenue = +70/yr.
+        assert list(cumulative_trace.y) == pytest.approx([-50.0, 20.0, 90.0, 160.0])
+
+    def test_lifetime_npv_chart_has_no_in_figure_title(self):
+        years = np.arange(1, 4)
+        fig = build_lifetime_npv_chart(years, np.array([1.0, 1.0, 1.0]))
+        assert fig.layout.title.text is None
+
+    def test_lifetime_npv_colors_follow_sign_not_fixed_category(self):
+        """
+        Regression test: a negative `cost_stream` value (e.g. a year where the
+        customer's bill actually went UP under Proposed, so the utility
+        gained retail revenue instead of losing it) must render as a GREEN
+        "gain" bar, not a red/pink "cost" bar drawn upside-down above zero.
+        Likewise a negative `benefit_stream` value must render red, not
+        green. Bug: originally a fixed color was assigned per named series
+        regardless of that year's actual sign.
+        """
+        years = np.arange(1, 3)
+        grid_savings = np.array([-20.0, 100.0])  # year 1: technology adds grid stress
+        lost_revenue = np.array([-15.0, 30.0])   # year 1: customer bill went UP -> revenue gain
+        fig = build_lifetime_npv_chart(
+            years, grid_savings, cost_stream=lost_revenue,
+            benefit_name="Grid Savings (PV)", benefit_negative_name="Grid Cost (PV)",
+            cost_name="Lost Retail Revenue (PV)", cost_negative_name="Revenue Gain (PV)"
+        )
+        grid_cost_trace = next(t for t in fig.data if t.name == "Grid Cost (PV)")
+        revenue_gain_trace = next(t for t in fig.data if t.name == "Revenue Gain (PV)")
+        grid_savings_trace = next(t for t in fig.data if t.name == "Grid Savings (PV)")
+        lost_revenue_trace = next(t for t in fig.data if t.name == "Lost Retail Revenue (PV)")
+
+        # The flipped-sign year (year 1) shows up in the "negative" buckets, colored red...
+        assert list(grid_cost_trace.y) == pytest.approx([-20.0, 0.0])
+        assert grid_cost_trace.marker.color == config.COLORS["red"]
+        # ...and the revenue gain shows up GREEN, not red, since it helped that year.
+        assert list(revenue_gain_trace.y) == pytest.approx([15.0, 0.0])
+        assert revenue_gain_trace.marker.color == config.COLORS["green"]
+        # Year 2 (normal sign) still lands in the usual named/colored buckets.
+        assert list(grid_savings_trace.y) == pytest.approx([0.0, 100.0])
+        assert grid_savings_trace.marker.color == config.COLORS["green"]
+        assert list(lost_revenue_trace.y) == pytest.approx([0.0, -30.0])
+        assert lost_revenue_trace.marker.color == config.COLORS["red"]
 
     def test_economic_balance_chart_returns_figure(self):
         from visualizations import build_economic_balance_chart
@@ -763,6 +1219,44 @@ class TestVisualizations:
         assert isinstance(fig, go.Figure)
         assert len(fig.data) == 1
         assert fig.data[0].type == "waterfall"
+        # No program cost given -> no extra bar, just the original 3 steps.
+        assert list(fig.data[0].y) == ["Grid Avoided Costs", "Utility Lost Revenue", "Net Valuation NPV"]
+
+    def test_economic_balance_chart_adds_program_cost_bar_when_given(self):
+        from visualizations import build_economic_balance_chart
+        fig = build_economic_balance_chart(
+            npv_grid_savings=5000.0,
+            npv_retail_lost_revenue=6000.0,
+            npv_net_savings=-1600.0,
+            npv_program_cost=600.0
+        )
+        wf = fig.data[0]
+        assert list(wf.y) == [
+            "Grid Avoided Costs", "Utility Lost Revenue", "Utility Program Cost", "Net Valuation NPV"
+        ]
+        assert list(wf.x) == [5000.0, -6000.0, -600.0, 0]
+        assert list(wf.measure) == ["relative", "relative", "relative", "total"]
+
+    def test_economic_balance_chart_labels_follow_actual_sign_not_hardcoded_prefix(self):
+        """
+        Regression test: a negative npv_grid_savings previously always got a
+        hardcoded "+" prefix, printing nonsense like "+$-474". Each label
+        should carry its own bar's real sign instead.
+        """
+        from visualizations import build_economic_balance_chart
+        fig = build_economic_balance_chart(
+            npv_grid_savings=-474.0,          # grid value is net negative
+            npv_retail_lost_revenue=-1590.0,  # a revenue GAIN, not a loss
+            npv_net_savings=-1264.0,
+            npv_program_cost=200.0
+        )
+        wf = fig.data[0]
+        texts = dict(zip(wf.y, wf.text))
+        assert texts["Grid Avoided Costs"] == "-$474"
+        # Bar value is -(-1590) = +1590 (a gain), so the label must read positive too.
+        assert texts["Utility Lost Revenue"] == "+$1,590"
+        assert texts["Utility Program Cost"] == "-$200"
+        assert texts["Net Valuation NPV"] == "-$1,264"
 
     def test_two_sided_cost_effectiveness_chart_returns_figure(self):
         from visualizations import build_two_sided_cost_effectiveness_chart
@@ -794,6 +1288,25 @@ class TestVisualizations:
         )
         assert isinstance(fig_neg, go.Figure)
         assert len(fig_neg.data) == 8
+
+    def test_bubble_chart_handles_nan_load_defensively(self):
+        """Regression test: a stray NaN in baseline/proposed load (e.g. from
+        an upstream data gap that slipped through ingestion) must not crash
+        Plotly's marker-size validation, which rejects NaN outright."""
+        n = 100
+        temp_vals = np.linspace(30, 90, n)
+        baseline_load = np.full(n, 1.5)
+        proposed_load = np.full(n, 1.2)
+        proposed_load[10] = np.nan
+        baseline_cost_hr = np.full(n, 5.0)
+        proposed_cost_hr = np.full(n, 4.0)
+
+        fig = build_temp_power_cost_bubble_chart(
+            temp_vals, baseline_load, proposed_load, baseline_cost_hr, proposed_cost_hr
+        )
+        assert isinstance(fig, go.Figure)
+        for trace in fig.data:
+            assert not np.isnan(trace.marker.size).any()
 
 
 
@@ -990,7 +1503,7 @@ class TestIntegrationPipeline:
         # Chart 4: Lifetime NPV (takes arrays, not DataFrame)
         years = np.arange(1, 16)
         fig4 = build_lifetime_npv_chart(
-            years, np.ones(15) * 100, np.ones(15) * 80, np.ones(15) * 60
+            years, np.ones(15) * 80, np.ones(15) * 60
         )
         assert isinstance(fig4, go.Figure)
 
@@ -1068,6 +1581,37 @@ class TestLoadProfileIngestion:
             assert df["Total No TES"].notna().all()
             assert df["Total TES"].mean() > 0.1
 
+    def test_missing_hour_is_interpolated_not_left_as_nan(self, tmp_path):
+        """Regression test: a single blank cell in an otherwise-complete load
+        profile export (e.g. one missing hour) should be linearly
+        interpolated, not passed through as NaN — a stray NaN in the load
+        array crashes downstream Plotly marker-size charts. See the
+        BirminghamTES_ETS_Case.xlsx bug report, 2026-09-22."""
+        from data_loaders import load_load_profiles_from_csv
+        n = 8760
+        clean_vals = np.linspace(1.0, 2.0, n)
+        gappy_vals = clean_vals.copy()
+        gap_idx = 19
+        gappy_vals[gap_idx] = np.nan
+        src_df = pd.DataFrame({
+            "Date": pd.date_range("2012-01-01", periods=n, freq="h"),
+            "Total_WithoutETS": clean_vals,
+            "Total_WithETS": gappy_vals,
+        })
+        filepath = tmp_path / "gap_test.xlsx"
+        src_df.to_excel(filepath, index=False)
+
+        result = load_load_profiles_from_csv(str(filepath))
+
+        assert not result["Total_WithETS"].isna().any()
+        neighbor_avg = (result["Total_WithETS"].iloc[gap_idx - 1] + result["Total_WithETS"].iloc[gap_idx + 1]) / 2
+        assert abs(result["Total_WithETS"].iloc[gap_idx] - neighbor_avg) < 1e-9
+
+        warnings = result.attrs.get("ingestion_warnings", [])
+        assert len(warnings) == 1
+        assert "Total_WithETS" in warnings[0]
+        assert "Total_WithoutETS" not in " ".join(warnings)  # the clean column shouldn't be flagged
+
     def test_beopt_native_export_format_parsing(self):
         """Native BEopt hourly CSV export: 'wxDVFileHeaderVer.1' line, then headers,
         then two index rows (0.5 / 1.0) and a units row before the 8760 data rows."""
@@ -1132,6 +1676,60 @@ class TestCostEffectivenessTests:
         assert pytest.approx(res["simple_payback"], abs=1e-3) == 2500.0 / 300.0
         # Discounted payback = 2500 / (300 * 0.8) = 2500 / 240 = 10.417 years
         assert pytest.approx(res["discounted_payback"], abs=1e-3) == 10.416666
+
+    def test_zero_cost_ratios_are_infinite_not_misleadingly_zero(self):
+        """
+        A real benefit against $0 cost (e.g. a user zeroes out Gross Measure
+        Cost while testing) is infinitely favorable and should read that way,
+        not as a 0.0 that looks like a failing/worthless ratio.
+        """
+        from calculations import calculate_cost_effectiveness_tests
+
+        res = calculate_cost_effectiveness_tests(
+            npv_grid_savings=5000.0, npv_lost_revenue=0.0, npv_customer_bill_savings=3000.0,
+            gross_measure_cost=0.0, utility_incentive=0.0, utility_admin_cost=0.0,
+            annual_customer_savings_stream=np.ones(15) * 300.0, pv_multipliers=np.ones(15) * 0.8
+        )
+        assert res["trc_ratio"] == float('inf')
+        assert res["pct_ratio"] == float('inf')
+        assert res["rim_ratio"] == float('inf')
+
+    def test_zero_cost_and_zero_benefit_ratio_is_neutral_zero(self):
+        from calculations import calculate_cost_effectiveness_tests
+
+        res = calculate_cost_effectiveness_tests(
+            npv_grid_savings=0.0, npv_lost_revenue=0.0, npv_customer_bill_savings=0.0,
+            gross_measure_cost=0.0, utility_incentive=0.0, utility_admin_cost=0.0,
+            annual_customer_savings_stream=np.zeros(15), pv_multipliers=np.ones(15) * 0.8
+        )
+        assert res["trc_ratio"] == 0.0
+        assert res["pct_ratio"] == 0.0
+        assert res["rim_ratio"] == 0.0
+
+    def test_negative_cost_basis_returns_nan_not_a_sign_flipped_ratio(self):
+        """
+        Regression test for a real Electric Thermal Storage case: the
+        technology's proposed load used enough MORE total energy that the
+        customer's bill went up, making annual_lost_revenue negative (a
+        revenue GAIN, not a loss) large enough that RIM's cost basis
+        (lost revenue + program cost) goes negative overall. Dividing a
+        negative grid-savings benefit by that negative cost would flip the
+        sign and read as a deceptively positive ("passing") ratio -- it
+        must come back as NaN instead, distinct from the true zero-cost
+        cases above.
+        """
+        from calculations import calculate_cost_effectiveness_tests
+
+        res = calculate_cost_effectiveness_tests(
+            npv_grid_savings=-632.0, npv_lost_revenue=-1590.0, npv_customer_bill_savings=-1590.0,
+            gross_measure_cost=100.0, utility_incentive=100.0, utility_admin_cost=100.0,
+            annual_customer_savings_stream=np.full(15, -175.0), pv_multipliers=np.ones(15) * 0.8
+        )
+        # rim_costs = -1590 + (100 + 100) = -1390 < 0 -> degenerate, not a real ratio.
+        assert np.isnan(res["rim_ratio"])
+        # -632 / -1390 would otherwise be +0.4547 -- a deceptively "almost passing"
+        # number for a scenario where both sides are actually unfavorable.
+        assert res["rim_ratio"] != pytest.approx(-632.0 / -1390.0)
 
 
 # ======================================================================
