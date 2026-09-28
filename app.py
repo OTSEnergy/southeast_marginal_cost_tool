@@ -88,7 +88,8 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 #                     See: calculate_avoided_costs(), dispatch_dr_program()
 #
 #   billing.py      - URDB-compliant retail billing engine + tariff data
-#                     See: calculate_urdb_bill(), GP_R31_URDB, AL_FD_URDB
+#                     See: calculate_urdb_bill(), GP_R31_URDB, AL_FD_URDB,
+#                          AL_FDD_URDB, AL_RTA_URDB, AL_RTA_E_URDB
 #
 #   data_loaders.py - All file I/O, data ingestion, and mock generators:
 #                     * Cambium CSV scanner + column mapping engine
@@ -108,13 +109,22 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 # Run: python -m pytest
 # ==============================================================================
 from calculations import calculate_avoided_costs, dispatch_dr_program
-from billing import calculate_urdb_bill, get_hourly_energy_rate, GP_R31_URDB, AL_FD_URDB
+from billing import (
+    calculate_urdb_bill,
+    get_hourly_energy_rate,
+    GP_R31_URDB,
+    AL_FD_URDB,
+    AL_FDD_URDB,
+    AL_RTA_URDB,
+    AL_RTA_E_URDB,
+)
 from data_loaders import (
     INPUT_DIRECTORY,
     generate_default_cwft_file,
     load_cwft_from_csv,
     generate_default_load_profiles_file,
     load_load_profiles_from_csv,
+    get_load_profile_warnings,
     generate_mock_state_file,
     file_matches_scenario,
     parse_cambium_columns,
@@ -122,6 +132,7 @@ from data_loaders import (
     load_and_aggregate_data,
     fetch_urdb_rate,
     load_wmo_station_lookup,
+    sanitize_filepath,
 )
 from cambium_downloader import (
     check_missing_cambium_data,
@@ -455,22 +466,27 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
         )
 
         if "Custom path" in selected_load_option:
-            load_profiles_filepath = st.text_input("Custom Load Profiles Path", value="load_profiles.csv")
+            load_profiles_filepath = st.text_input(
+                "Custom Load Profiles Path", 
+                value="load_profiles.csv",
+                help="Supports single CSV/Excel files (e.g. C:\\data\\hp_data.xlsx) or entire directories. Windows quoted paths ('Copy as path') are sanitized automatically."
+            )
         elif "Load_Profiles_raw" in selected_load_option:
             load_profiles_filepath = "Load_Profiles_raw"
         else:
             load_profiles_filepath = "load_profiles.csv"
 
+        load_profiles_filepath = sanitize_filepath(load_profiles_filepath)
+
     # Load profile case selection (Baseline vs Proposed)
     try:
-        generate_default_load_profiles_file(load_profiles_filepath if load_profiles_filepath != "Load_Profiles_raw" else "load_profiles.csv")
+        if load_profiles_filepath == "load_profiles.csv":
+            generate_default_load_profiles_file("load_profiles.csv")
         load_profiles_df = load_load_profiles_from_csv(load_profiles_filepath)
         profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
-        for w in load_profiles_df.attrs.get('ingestion_warnings', []):
-            st.warning(f"Load profile data gap: {w}")
 
         is_folder_mode = os.path.isdir(load_profiles_filepath)
-        file_basename = os.path.basename(load_profiles_filepath)
+        file_basename = os.path.basename(load_profiles_filepath) or load_profiles_filepath
 
         if selected_example:
             baseline_col = selected_example["baseline_col"] if selected_example["baseline_col"] in profile_columns else profile_columns[0]
@@ -518,9 +534,15 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
             # Single File Mode: Explicit column picker asking "which column?" without keyword guessing
             st.caption(f"Single file mode: select which column in `{file_basename}` represents each case.")
 
-            # Positional defaults for single file mode (1st column = Baseline, 2nd column = Proposed if available)
+            # Smart default indices for single file mode
             default_base_idx = 0
             default_prop_idx = 1 if len(profile_columns) > 1 else 0
+            for idx, p in enumerate(profile_columns):
+                p_low = p.lower()
+                if any(k in p_low for k in ["erheat", "baseline", "standard", "electricresistance", "base", "no tes", "no_tes", "notes"]):
+                    default_base_idx = idx
+                elif any(k in p_low for k in ["heatpump", "proposed", "highefficiency", "hp", "tes", "efficient"]) and not any(k in p_low for k in ["no tes", "no_tes", "notes"]):
+                    default_prop_idx = idx
 
             if dr_mode:
                 baseline_col = st.selectbox(
@@ -544,6 +566,10 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
                     index=default_prop_idx,
                     help=f"Select which numeric column from '{file_basename}' contains the Proposed load profile."
                 )
+
+        active_cols = [baseline_col] if dr_mode else [baseline_col, proposed_col]
+        for w in get_load_profile_warnings(load_profiles_df, active_cols):
+            st.warning(f"Load profile data gap: {w}")
 
         if baseline_col == proposed_col and not dr_mode and len(profile_columns) > 1:
             st.warning("Baseline and Proposed profiles are identical. Select two different columns for savings calculations.")
@@ -573,66 +599,90 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         "Capacity Valuation Method",
         options=["Direct IRP Scaler ($/kW-year)", "Carrying cost of a CT Builder"],
         index=0,
-        help="Enter a direct commission-approved IRP scalar or build avoided capacity from Southeast utility Next Planned Peaker carrying cost."
+        help="Default: Direct IRP scalar pre-populated with calculated NREL ATB 2024 Combustion Turbine (CT) economic carrying cost ($110.20/kW-yr), or build custom capacity value using the CT Carrying Cost Builder."
     )
 
     ct_calc = None
     if "Carrying cost of a CT Builder" in cap_mode:
         selected_peaker_preset = st.selectbox(
-            "Southeast Peaker Preset",
+            "Combustion Turbine (CT) Benchmark Preset",
             options=list(SOUTHEAST_PEAKER_PRESETS.keys()) + ["Custom Peaker Parameters"],
             index=0,
-            help="Choose a pre-configured peaker benchmark from Southeast utility IRP dockets or NREL ATB."
+            help="Choose a pre-configured peaker benchmark from NREL Annual Technology Baseline (ATB 2024) or Southeast utility IRP dockets."
         )
 
         if selected_peaker_preset in SOUTHEAST_PEAKER_PRESETS:
             preset_data = SOUTHEAST_PEAKER_PRESETS[selected_peaker_preset]
             st.caption(preset_data["description"])
+            if "source" in preset_data:
+                st.caption(f"**Data Source:** {preset_data['source']}")
             def_capex = preset_data["capex_kw"]
             def_fom = preset_data["fom_kw_yr"]
-            def_wacc = preset_data["wacc"] * 100.0
-            def_life = preset_data["life"]
-            def_tax = preset_data["tax_rate"] * 100.0
-            def_eas = preset_data["eas_offset_kw_yr"]
+            def_fcr = preset_data.get("fcr", 0.082) * 100.0
+            def_wacc = preset_data.get("wacc", 0.070) * 100.0
+            def_life = preset_data.get("life", 30)
+            def_tax = preset_data.get("tax_rate", 0.257) * 100.0
+            def_eas = preset_data.get("eas_offset_kw_yr", 0.0)
         else:
-            def_capex, def_fom, def_wacc, def_life, def_tax, def_eas = 1080.0, 15.0, 7.1, 30, 25.0, 0.0
+            def_capex, def_fom, def_fcr, def_wacc, def_life, def_tax, def_eas = 1100.0, 20.0, 8.20, 7.0, 30, 25.7, 0.0
 
         col_ct1, col_ct2 = st.columns(2)
         with col_ct1:
-            ct_capex = st.number_input("Overnight CAPEX ($/kW)", min_value=100.0, max_value=3000.0, value=def_capex, step=25.0, format="%.1f")
-            ct_wacc = st.number_input("Utility WACC (%)", min_value=1.0, max_value=15.0, value=def_wacc, step=0.1, format="%.2f")
-            ct_tax = st.number_input("Corporate Tax (%)", min_value=0.0, max_value=40.0, value=def_tax, step=0.5, format="%.1f")
+            ct_capex = st.number_input("Overnight CAPEX ($/kW)", min_value=100.0, max_value=3000.0, value=def_capex, step=25.0, format="%.1f",
+                                       help="Overnight capital expenditure ($/kW) from NREL ATB (typical CT range: $950 – $1,250/kW).")
+            ct_fcr = st.number_input("Fixed Charge Rate (FCR %)", min_value=1.0, max_value=30.0, value=def_fcr, step=0.1, format="%.2f",
+                                     help="Annual Fixed Charge Rate (FCR) accounting for WACC, depreciation, taxes, and asset life (NREL ATB Regulated Utility: 7.5%–8.8%, Merchant: 9.5%–11.2%).")
         with col_ct2:
-            ct_fom = st.number_input("Fixed O&M ($/kW-yr)", min_value=0.0, max_value=100.0, value=def_fom, step=0.5, format="%.2f")
-            ct_life = st.number_input("Economic Life (yrs)", min_value=10, max_value=50, value=def_life, step=1)
+            ct_fom = st.number_input("Fixed O&M ($/kW-yr)", min_value=0.0, max_value=100.0, value=def_fom, step=0.5, format="%.2f",
+                                     help="Annual fixed operations and maintenance cost ($/kW-yr) from NREL ATB (typical CT range: $15 – $25/kW-yr).")
             ct_eas = st.number_input("E&AS Offset ($/kW-yr)", min_value=0.0, max_value=50.0, value=def_eas, step=0.5, format="%.2f",
-                                     help="Inframarginal energy/ancillary profit offset. Often 0 in Southeast cost-of-service IRPs.")
+                                     help="Inframarginal energy/ancillary profit offset. Often $0 in Southeast cost-of-service IRPs (Gross CONE).")
 
-        fcr = calculate_regulated_fcr(wacc=ct_wacc/100.0, economic_life=ct_life, tax_rate=ct_tax/100.0)
+        with st.expander("Financing & Tax Depreciation Detail (WACC / MACRS)", expanded=False):
+            st.caption("Optionally calculate FCR from underlying utility WACC and 15-year MACRS depreciation tax shield:")
+            col_fin1, col_fin2 = st.columns(2)
+            with col_fin1:
+                ct_wacc = st.number_input("Utility WACC (%)", min_value=1.0, max_value=15.0, value=def_wacc, step=0.1, format="%.2f")
+                ct_tax = st.number_input("Corporate Tax (%)", min_value=0.0, max_value=40.0, value=def_tax, step=0.5, format="%.1f")
+            with col_fin2:
+                ct_life = st.number_input("Economic Life (yrs)", min_value=10, max_value=50, value=def_life, step=1)
+                calc_fcr_toggle = st.checkbox("Use Synthesized WACC/MACRS FCR", value=False,
+                                              help="When checked, computes FCR dynamically via Capital Recovery Factor (CRF) and MACRS depreciation rather than using the direct NREL ATB FCR.")
+
+        if calc_fcr_toggle:
+            fcr = calculate_regulated_fcr(wacc=ct_wacc/100.0, economic_life=ct_life, tax_rate=ct_tax/100.0)
+            st.caption(f"Synthesized Regulated FCR: **{fcr*100:.2f}%**")
+        else:
+            fcr = ct_fcr / 100.0
+
         ct_calc = calculate_ct_carrying_cost(ct_capex, ct_fom, fcr, eas_offset_kw_yr=ct_eas)
         cap_value = ct_calc["net_capacity_cost"]
         st.metric(
             label="Calculated Avoided Capacity",
             value=f"${cap_value:,.2f}/kW-yr",
-            delta=f"FCR: {fcr*100:.2f}% | Gross: ${ct_calc['gross_carrying_cost']:,.2f}"
+            delta=f"FCR: {fcr*100:.2f}% | Cap Recovery: ${ct_calc['capital_recovery_annuity']:,.2f} | FOM: ${ct_calc['fom_kw_yr']:,.2f}"
         )
+        st.caption("Source: [Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)")
     else:
         cap_value = st.number_input(
             "Total Economic Carrying Cost of a CT ($/kW-year)",
             min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1], value=DEFAULT_CAP_VALUE, step=CAP_VALUE_RANGE[2], format="%.2f",
-            help="Commission-approved avoided generation capacity credit from utility IRP or PURPA docket (Total ECC of a CT)."
+            help="Commission-approved avoided generation capacity credit from utility IRP or PURPA docket (Total ECC of a CT). Default $110.20/kW-yr from NLR ATB 2024."
         )
+        st.caption("Source: [Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)")
+        # Populate benchmark breakdown for waterfall visualization when default is unchanged
+        if abs(cap_value - DEFAULT_CAP_VALUE) < 1e-4:
+            ct_calc = calculate_ct_carrying_cost(1100.0, 20.00, 0.082)
 
 # 5. Capacity Risk Allocation (CWF)
-with st.sidebar.expander("Capacity Risk Allocation (CWF)", expanded=False):
+with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation", expanded=False):
     selected_cwf_method = st.selectbox(
         "Allocation Methodology",
         options=CWF_METHOD_OPTIONS,
-        index=CWF_METHOD_OPTIONS.index("Cambium Price-Exceedance LOLP Proxy (Exponential)"),
+        index=0,
         help="Determines how the annual capacity value ($/kW-yr) is distributed across the 8,760 hours of the year. "
-             "Defaults to a Cambium-price-based method (alpha=4, spread across ~6,000 hours rather than "
-             "concentrated in a handful) so capacity risk reflects system-wide grid stress, not the shape of "
-             "whichever single building's load happens to be selected as Baseline."
+             "Defaults to Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM), weighted by ambient temperature severity "
+             "from the aligned 8,760 EPW weather dataset."
     )
 
     cwft_filepath = "CWFT.csv"
@@ -645,10 +695,17 @@ with st.sidebar.expander("Capacity Risk Allocation (CWF)", expanded=False):
     peaker_gas_price = 3.50
 
     if "Southeast Dual-Peak" in selected_cwf_method:
-        st.caption("Allocates risk across Southeast winter morning freeze events (6–9 AM Dec–Feb) and summer afternoon heat domes (2–6 PM Jun–Sep).")
+        st.caption("Allocates annual capacity risk across Southeast utility reliability windows (Winter 6–9 AM Dec–Feb and Summer 2–6 PM Jun–Sep), weighted by ambient temperature severity from the aligned 8,760 EPW weather dataset.")
         winter_split_pct = st.slider("Winter Morning Risk Share (%)", min_value=0.0, max_value=100.0, value=50.0, step=5.0,
                                      help="Percent of annual capacity value assigned to winter morning freeze hours (remainder goes to summer afternoon).")
         st.caption(f"Seasonal split: **{winter_split_pct:.0f}% Winter Morning** / **{100.0 - winter_split_pct:.0f}% Summer Afternoon**")
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            freeze_threshold_f = st.number_input("Freeze Threshold (°F)", min_value=10.0, max_value=45.0, value=32.0, step=1.0,
+                                                 help="Hours below this temperature in winter mornings accrue heating capacity risk.")
+        with col_t2:
+            heat_threshold_f = st.number_input("Heat Threshold (°F)", min_value=75.0, max_value=110.0, value=90.0, step=1.0,
+                                               help="Hours above this temperature in summer afternoons accrue cooling capacity risk.")
     elif "Ambient Temperature Severity" in selected_cwf_method:
         st.caption("Allocates capacity value directly based on ambient dry-bulb temperature severity during Southeast winter freeze mornings (6–9 AM Dec–Feb) and summer heat waves (2–6 PM Jun–Sep).")
         winter_split_pct = st.slider("Winter Freeze Risk Share (%)", min_value=0.0, max_value=100.0, value=50.0, step=5.0,
@@ -682,6 +739,7 @@ with st.sidebar.expander("Capacity Risk Allocation (CWF)", expanded=False):
             peaker_gas_price = st.number_input("Gas Price ($/MMBtu)", min_value=1.0, max_value=20.0, value=3.50, step=0.25)
     else:  # Uploaded / Default CSV
         cwft_filepath = st.text_input("CWFT CSV File Path", value="CWFT.csv")
+        cwft_filepath = sanitize_filepath(cwft_filepath)
 
 # 6. Transmission & Distribution Deferral & Feeder
 with st.sidebar.expander("T&D Deferral & Feeder Constraints", expanded=False):
@@ -722,7 +780,7 @@ with st.sidebar.expander("T&D Deferral & Feeder Constraints", expanded=False):
     )
 
 # 5. Retail Tariff & URDB Selector
-with st.sidebar.expander("Retail Tariff (NREL URDB)", expanded=True):
+with st.sidebar.expander("Retail Tariff Structure", expanded=True):
     tariff_type = st.selectbox(
         "Retail Utility Tariff Type",
         options=TARIFF_OPTIONS,
@@ -743,6 +801,12 @@ with st.sidebar.expander("Retail Tariff (NREL URDB)", expanded=True):
         active_tariff_json = GP_R31_URDB
     elif tariff_type == "Alabama Power - Rate FD (Family Dwelling)":
         active_tariff_json = AL_FD_URDB
+    elif tariff_type == "Alabama Power - Rate FD-D (Family Dwelling Demand)" or "FD-D" in tariff_type:
+        active_tariff_json = AL_FDD_URDB
+    elif tariff_type == "Alabama Power - Rate RTA (Residential Time Advantage - Demand)" or ("RTA" in tariff_type and "Energy Only" not in tariff_type and "RTA-E" not in tariff_type):
+        active_tariff_json = AL_RTA_URDB
+    elif tariff_type == "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)" or "RTA-E" in tariff_type or "Energy Only" in tariff_type:
+        active_tariff_json = AL_RTA_E_URDB
     elif tariff_type == "Import from NREL URDB (API Label)":
         urdb_label = st.text_input(
             "URDB Rate Label", 
@@ -986,10 +1050,12 @@ else:
 
         try:
             # 1. Load profiles and grid aggregated data
-            default_load_path = generate_default_load_profiles_file(load_profiles_filepath)
+            if load_profiles_filepath == "load_profiles.csv":
+                generate_default_load_profiles_file("load_profiles.csv")
             load_profiles_df = load_load_profiles_from_csv(load_profiles_filepath)
             profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
-            for w in load_profiles_df.attrs.get('ingestion_warnings', []):
+            active_cols = [baseline_col] if dr_mode else [baseline_col, proposed_col]
+            for w in get_load_profile_warnings(load_profiles_df, active_cols):
                 st.warning(f"Load profile data gap: {w}")
             
             raw_df, cambium_ingestion_warnings = load_and_aggregate_data(
@@ -1010,18 +1076,23 @@ else:
             # Setup Baseline and Proposed loads
             baseline_load = load_profiles_df[baseline_col].to_numpy()
 
+            # Extract hourly temperature array (if present from EPW weather)
+            temp_arr = raw_df['Temperature_F'].to_numpy() if 'Temperature_F' in raw_df.columns else None
+
             # Capacity Risk Allocation (CWF Array)
             if "Southeast Dual-Peak" in selected_cwf_method:
                 cwft_array = calculate_southeast_dual_peak_cwf(
                     datetime_series=datetime_series,
                     winter_weight=winter_split_pct / 100.0,
                     summer_weight=(100.0 - winter_split_pct) / 100.0,
-                    load_array=baseline_load
+                    temperature_array=temp_arr,
+                    freeze_threshold_f=freeze_threshold_f,
+                    heat_threshold_f=heat_threshold_f
                 )
             elif "Ambient Temperature Severity" in selected_cwf_method:
-                temp_arr = raw_df['Temperature_F'].to_numpy() if 'Temperature_F' in raw_df.columns else np.full(len(datetime_series), 65.0)
+                weather_arr = temp_arr if temp_arr is not None else np.full(len(datetime_series), 65.0)
                 cwft_array = calculate_cwf_temperature_exceedance(
-                    temperature_array=temp_arr,
+                    temperature_array=weather_arr,
                     datetime_series=datetime_series,
                     freeze_threshold_f=freeze_threshold_f,
                     heat_threshold_f=heat_threshold_f,
@@ -1035,7 +1106,8 @@ else:
             elif "Wholesale Peaker Rent" in selected_cwf_method:
                 cwft_array = calculate_cwf_peaker_rent(raw_df['Cambium_Energy_MWh'].to_numpy(), heat_rate=peaker_heat_rate, gas_price=peaker_gas_price)
             else:
-                generate_default_cwft_file(cwft_filepath)
+                if cwft_filepath == "CWFT.csv":
+                    generate_default_cwft_file("CWFT.csv")
                 cwft_array = load_cwft_from_csv(cwft_filepath)
 
             # Localized Feeder Distribution Weights
@@ -1387,7 +1459,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 with kpi_col1:
                     _ratio_card("Total Resource Cost (TRC)", trc_ratio, "NPV Grid / (Measure + Admin)")
                 with kpi_col2:
-                    _ratio_card("Ratepayer Impact (RIM)", rim_ratio, "NPV Grid / (Lost Rev + Program)")
+                    _ratio_card("Rate Impact Measure (RIM)", rim_ratio, "NPV Grid / (Lost Rev + Program)")
                 with kpi_col3:
                     sp_str = f"{simple_payback:.1f} yrs" if simple_payback != float('inf') else "N/A"
                     dp_str = f"{discounted_payback:.1f} yrs" if discounted_payback != float('inf') else "N/A"
@@ -1478,6 +1550,8 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     energy_only_json = active_tariff_json.copy()
                     energy_only_json["demandratestructure"] = None
                     energy_only_json["demandratewindow"] = None
+                    energy_only_json["demandweekdayschedule"] = None
+                    energy_only_json["demandweekendschedule"] = None
                     
                     bill_base_e, _ = calculate_urdb_bill(baseline_load, datetime_series, energy_only_json)
                     bill_prop_e, _ = calculate_urdb_bill(proposed_load, datetime_series, energy_only_json)
@@ -1955,26 +2029,23 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             _chart_explainer(
                                 "This builds up the **Generation Capacity ($/kW-yr)** value "
                                 "used throughout the rest of the tool, using the Next "
-                                "Planned Peaker — an SCCT gas plant — as the benchmark for "
-                                "what new capacity costs the utility to build:\n\n"
+                                "Planned Peaker — a Simple-Cycle Combustion Turbine (CT / SCCT) — "
+                                "as the benchmark for what new capacity costs the utility to build:\n\n"
                                 "- **Capital Recovery = CAPEX × FCR** — the annualized cost "
-                                "of building 1 kW of the peaker. FCR (Fixed Charge Rate) "
-                                "works like a mortgage rate, converting that upfront cost "
-                                "into a yearly payment based on WACC, economic life, taxes, "
-                                "and depreciation.\n"
+                                "of building 1 kW of the peaker ($1,100/kW × 8.20% = $90.20/kW-yr "
+                                "under central NREL ATB 2024 Moderate values). FCR (Fixed Charge Rate) "
+                                "accounts for utility WACC, depreciation tax shield (MACRS), corporate tax, "
+                                "and economic project life.\n"
                                 "- **+ Fixed O&M** — the annual cost to staff and maintain "
-                                "the plant, whether or not it actually runs.\n"
+                                "the plant ($20.00/kW-yr in NREL ATB 2024).\n"
                                 "- **= Gross Carrying Cost** — what it costs to simply own "
-                                "the plant for a year, per kW.\n"
-                                "- **− E&AS Offset** (if any) — energy/ancillary revenue "
-                                "the peaker earns when it does run; usually $0 in Southeast "
-                                "IRPs, which price capacity and energy separately.\n"
+                                "and maintain the plant for a year ($110.20/kW-yr benchmark).\n"
+                                "- **− E&AS Offset** (if any) — energy/ancillary profit offset; "
+                                "usually $0 in Southeast cost-of-service IRPs (Gross CONE).\n"
                                 "- **= Net Avoided Capacity** — the final number, fed back "
-                                "in as the Generation Capacity scalar everywhere else in "
-                                "this tool.\n\n"
-                                "This tab only has something to show when \"Capacity "
-                                "Valuation Method\" in the sidebar is set to \"Carrying "
-                                "cost of a CT Builder\" instead of a direct IRP scalar."
+                                "as the Generation Capacity scalar everywhere in this tool.\n\n"
+                                "**Data Source:** [Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data), "
+                                "*Electricity > Fossil Energy Technologies > Natural Gas: Combustion Turbine (CT)*."
                             )
                             _cwf_methodology_caveat()
                     else:

@@ -71,6 +71,30 @@ WMO_STATION_LOOKUP_PATH = "./data/wmo_station_lookup.csv"
 
 
 # ==============================================================================
+# PATH UTILITIES
+# ==============================================================================
+
+def sanitize_filepath(filepath):
+    """
+    Sanitize a file or directory path string by:
+    - Stripping leading and trailing whitespace
+    - Stripping wrapping single or double quotation marks (common with Windows 'Copy as path')
+    - Expanding user directory shortcuts (e.g. ~) and environment variables (%VAR%)
+    - Normalizing path separators via os.path.normpath
+    """
+    if not isinstance(filepath, str):
+        return filepath
+    cleaned = filepath.strip()
+    if (cleaned.startswith('"') and cleaned.endswith('"')) or (cleaned.startswith("'") and cleaned.endswith("'")):
+        cleaned = cleaned[1:-1].strip()
+    cleaned = cleaned.strip('"\'').strip()
+    if not cleaned:
+        return cleaned
+    cleaned = os.path.expandvars(os.path.expanduser(cleaned))
+    return os.path.normpath(cleaned)
+
+
+# ==============================================================================
 # WMO WEATHER STATION LOOKUP — City/State -> WMO Station ID
 # ==============================================================================
 
@@ -106,8 +130,11 @@ def generate_default_cwft_file(filepath="CWFT.csv"):
 
     Returns the filepath (for chaining).
     """
+    filepath = sanitize_filepath(filepath)
     if not os.path.exists(filepath):
-        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+        dirname = os.path.dirname(os.path.abspath(filepath))
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         cwft = np.zeros(8760)
         winter_hours = []
         summer_hours = []
@@ -142,6 +169,9 @@ def load_cwft_from_csv(filepath):
     Returns: np.ndarray of shape (8760,)
     Raises: ValueError on invalid format
     """
+    filepath = sanitize_filepath(filepath)
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"CWFT CSV file not found: '{filepath}'. Please check that the file exists.")
     try:
         df = pd.read_csv(filepath)
         if 'CWFT' not in df.columns:
@@ -154,6 +184,8 @@ def load_cwft_from_csv(filepath):
         if not np.isclose(cwft_sum, 1.0, atol=1e-3):
             cwft_array = cwft_array / cwft_sum
         return cwft_array
+    except (ValueError, FileNotFoundError):
+        raise
     except Exception as e:
         raise ValueError(f"Failed to parse CWFT CSV: {str(e)}")
 
@@ -170,8 +202,11 @@ def generate_default_load_profiles_file(filepath="load_profiles.csv"):
 
     Returns the filepath (for chaining).
     """
+    filepath = sanitize_filepath(filepath)
     if not os.path.exists(filepath):
-        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+        dirname = os.path.dirname(os.path.abspath(filepath))
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         hours = np.arange(1, 8761)
         np.random.seed(88)
 
@@ -197,6 +232,7 @@ def generate_default_load_profiles_file(filepath="load_profiles.csv"):
 
 def _read_profile_file(filepath):
     """Helper to read CSV or Excel (.xlsx / .xls) files into a DataFrame."""
+    filepath = sanitize_filepath(filepath)
     ext = os.path.splitext(filepath)[1].lower()
     if ext in ['.xlsx', '.xls']:
         return pd.read_excel(filepath)
@@ -292,8 +328,14 @@ def load_load_profiles_from_csv(filepath):
       their load profiles, and merges them into a single 8760-hour DataFrame.
 
     Returns: pd.DataFrame with 'Hour' + numeric profile columns in kW
-    Raises: ValueError on invalid format
+    Raises: FileNotFoundError if path does not exist, ValueError on invalid format
     """
+    filepath = sanitize_filepath(filepath)
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(
+            f"Load profiles path not found: '{filepath}'. Please check that the file or directory exists."
+        )
+
     try:
         # If filepath is a directory, load all CSV and Excel files in that directory
         if os.path.isdir(filepath):
@@ -307,6 +349,7 @@ def load_load_profiles_from_csv(filepath):
             
             merged_dict = {'Hour': np.arange(1, 8761)}
             ingestion_warnings = []
+            column_warnings = {}
             for fp in sorted(files):
                 stem = os.path.splitext(os.path.basename(fp))[0]
                 sub_df = _read_profile_file(fp)
@@ -320,7 +363,9 @@ def load_load_profiles_from_csv(filepath):
                         col_key = col_name if col_name not in merged_dict else f"{stem} - {col_name}"
                         merged_dict[col_key] = vals
                         if n_filled > 0:
-                            ingestion_warnings.append(f"'{fp}': {n_filled} missing hour(s) in '{col_key}' filled via linear interpolation.")
+                            msg = f"'{fp}': {n_filled} missing hour(s) in '{col_key}' filled via linear interpolation."
+                            ingestion_warnings.append(msg)
+                            column_warnings.setdefault(col_key, []).append(msg)
                 else:
                     # Filter out date/time columns
                     non_date_cols = [c for c in sub_df.columns if not _is_date_or_time_col(c)]
@@ -330,12 +375,15 @@ def load_load_profiles_from_csv(filepath):
                         col_key = col if col not in merged_dict else f"{stem} - {col}"
                         merged_dict[col_key] = vals
                         if n_filled > 0:
-                            ingestion_warnings.append(f"'{fp}': {n_filled} missing hour(s) in '{col_key}' filled via linear interpolation.")
+                            msg = f"'{fp}': {n_filled} missing hour(s) in '{col_key}' filled via linear interpolation."
+                            ingestion_warnings.append(msg)
+                            column_warnings.setdefault(col_key, []).append(msg)
 
             res_df = pd.DataFrame(merged_dict)
             if len(res_df.columns) <= 1:
                 raise ValueError(f"Could not extract load profiles from files in '{filepath}'")
             res_df.attrs['ingestion_warnings'] = ingestion_warnings
+            res_df.attrs['column_warnings'] = column_warnings
             return res_df
 
         # Otherwise, process single file
@@ -352,10 +400,14 @@ def load_load_profiles_from_csv(filepath):
                     'Hour': np.arange(1, 8761),
                     col_name: vals
                 })
+                ingestion_warnings = []
+                column_warnings = {}
                 if n_filled > 0:
-                    out_df.attrs['ingestion_warnings'] = [
-                        f"'{filepath}': {n_filled} missing hour(s) in '{col_name}' filled via linear interpolation."
-                    ]
+                    msg = f"'{filepath}': {n_filled} missing hour(s) in '{col_name}' filled via linear interpolation."
+                    ingestion_warnings.append(msg)
+                    column_warnings.setdefault(col_name, []).append(msg)
+                out_df.attrs['ingestion_warnings'] = ingestion_warnings
+                out_df.attrs['column_warnings'] = column_warnings
                 return out_df
             else:
                 raise ValueError(f"Could not find an electricity/facility load column in '{filepath}'")
@@ -367,18 +419,67 @@ def load_load_profiles_from_csv(filepath):
 
         out_dict = {'Hour': np.arange(1, 8761)}
         ingestion_warnings = []
+        column_warnings = {}
         for col in non_date_cols:
             vals = pd.to_numeric(df[col], errors='coerce').to_numpy()
             vals, n_filled = _fill_hourly_gaps(vals, 8760)
             out_dict[col] = vals
             if n_filled > 0:
-                ingestion_warnings.append(f"'{filepath}': {n_filled} missing hour(s) in '{col}' filled via linear interpolation.")
+                msg = f"'{filepath}': {n_filled} missing hour(s) in '{col}' filled via linear interpolation."
+                ingestion_warnings.append(msg)
+                column_warnings.setdefault(col, []).append(msg)
 
         out_df = pd.DataFrame(out_dict)
         out_df.attrs['ingestion_warnings'] = ingestion_warnings
+        out_df.attrs['column_warnings'] = column_warnings
         return out_df
+    except (ValueError, FileNotFoundError):
+        raise
     except Exception as e:
-        raise ValueError(f"Failed to parse Load Profiles file: {str(e)}")
+        raise ValueError(f"Failed to parse Load Profiles file '{filepath}': {str(e)}")
+
+
+def get_load_profile_warnings(load_df, active_cols=None):
+    """
+    Retrieve ingestion warnings for load profiles, optionally filtered to
+    only include columns currently in use (e.g. baseline and proposed).
+
+    Parameters
+    ----------
+    load_df : pd.DataFrame
+        DataFrame returned by load_load_profiles_from_csv.
+    active_cols : list or set or str, optional
+        Column name(s) being used in calculation. If None, returns all warnings.
+
+    Returns
+    -------
+    list of str
+        Warning messages applicable to the active columns.
+    """
+    if load_df is None or not hasattr(load_df, 'attrs'):
+        return []
+    if active_cols is None:
+        return list(load_df.attrs.get('ingestion_warnings', []))
+
+    if isinstance(active_cols, str):
+        active_cols = [active_cols]
+    active_set = {c for c in active_cols if c is not None and c != 'Hour'}
+
+    col_warnings = load_df.attrs.get('column_warnings')
+    if isinstance(col_warnings, dict):
+        warnings = []
+        for col in active_set:
+            if col in col_warnings:
+                warnings.extend(col_warnings[col])
+        return warnings
+
+    # Fallback to substring matching against ingestion_warnings
+    all_warnings = load_df.attrs.get('ingestion_warnings', [])
+    matched_warnings = []
+    for w in all_warnings:
+        if any(f"'{col}'" in w for col in active_set):
+            matched_warnings.append(w)
+    return matched_warnings
 
 
 # ==============================================================================
@@ -900,3 +1001,114 @@ def fetch_urdb_rate(rate_label, api_key="DEMO_KEY"):
                 raise ValueError(f"No rate found matching label: {rate_label}")
     except Exception as e:
         raise ConnectionError(f"Failed to connect to NREL URDB API: {str(e)}")
+
+
+# ==============================================================================
+# 7. NREL ATB DIRECT EXTRACTION ENGINE
+# ==============================================================================
+
+def extract_nrel_atb_ct_parameters(df_or_filepath, year=2024, scenario="Moderate", financial_case=None):
+    """
+    Extract Combustion Turbine (CT) CAPEX, Fixed O&M, and FCR parameters directly
+    from an NREL Annual Technology Baseline (ATB) flat CSV file or DataFrame, and
+    compute the standard annualized Economic Carrying Cost (Gross CONE).
+
+    Standard NREL ATB Flat Table Schema:
+      - technology: 'NaturalGas' / 'Natural Gas'
+      - techdetail: 'CT' / 'Combustion Turbine'
+      - core_metric_parameter / parameter: 'CAPEX', 'Fixed O&M', 'FCR'
+      - core_metric_variable / year: target projection year (e.g. 2024, 2030)
+      - scenario: 'Moderate', 'Conservative', 'Advanced'
+      - core_metric_case / financial_case: 'Market + Policies' (Regulated / Tax Credits) or 'R&D Only'
+      - value: numeric value
+
+    Formula:
+        Carrying Cost ($/kW-yr) = (CAPEX * FCR) + Fixed O&M
+
+    Parameters
+    ----------
+    df_or_filepath : str or pd.DataFrame
+        Path to the NREL ATB flat CSV file or an in-memory pandas DataFrame.
+    year : int or str, optional
+        Target projection year (default 2024).
+    scenario : str, optional
+        ATB cost scenario (default 'Moderate'). Matches case-insensitively.
+    financial_case : str, optional
+        Financial case (e.g. 'Market + Policies' or 'R&D Only'). Default None.
+
+    Returns
+    -------
+    dict
+        Extracted parameters, carrying cost breakdown, and attribution metadata.
+    """
+    from calculations import calculate_ct_carrying_cost
+
+    if isinstance(df_or_filepath, str):
+        df = pd.read_csv(df_or_filepath, low_memory=False)
+    elif isinstance(df_or_filepath, pd.DataFrame):
+        df = df_or_filepath.copy()
+    else:
+        raise TypeError("df_or_filepath must be a filepath string or a pandas DataFrame.")
+
+    # Match columns case-insensitively
+    cols_lower = {str(c).strip().lower(): c for c in df.columns}
+
+    tech_col = cols_lower.get('technology')
+    techdetail_col = cols_lower.get('techdetail')
+    param_col = cols_lower.get('core_metric_parameter') or cols_lower.get('parameter')
+    year_col = cols_lower.get('core_metric_variable') or cols_lower.get('year')
+    scen_col = cols_lower.get('scenario')
+    case_col = cols_lower.get('core_metric_case') or cols_lower.get('financial_case')
+    val_col = cols_lower.get('value')
+
+    if not param_col or not val_col:
+        raise ValueError("ATB table missing required 'parameter' (or 'core_metric_parameter') or 'value' column.")
+
+    # Filter for Natural Gas Combustion Turbine
+    filtered = df.copy()
+    if tech_col:
+        filtered = filtered[filtered[tech_col].astype(str).str.contains(r'natural\s*gas', case=False, na=False)]
+    if techdetail_col:
+        filtered = filtered[filtered[techdetail_col].astype(str).str.contains(r'\bct\b|combustion\s*turbine', case=False, na=False)]
+    if scen_col and scenario:
+        filtered_scen = filtered[filtered[scen_col].astype(str).str.lower() == str(scenario).lower()]
+        if not filtered_scen.empty:
+            filtered = filtered_scen
+    if year_col and year is not None:
+        filtered_yr = filtered[filtered[year_col].astype(str) == str(year)]
+        if not filtered_yr.empty:
+            filtered = filtered_yr
+    if case_col and financial_case:
+        filtered_case = filtered[filtered[case_col].astype(str).str.contains(str(financial_case), case=False, na=False)]
+        if not filtered_case.empty:
+            filtered = filtered_case
+
+    # Helper to extract parameter value
+    def _get_val(param_patterns, default_val):
+        for pattern in param_patterns:
+            sub = filtered[filtered[param_col].astype(str).str.contains(pattern, case=False, na=False)]
+            if not sub.empty:
+                try:
+                    return float(sub[val_col].iloc[0])
+                except (ValueError, TypeError):
+                    continue
+        return default_val
+
+    # Default fallback: NREL ATB 2024 Moderate values
+    capex_kw = _get_val([r'\bcapex\b', r'capital\s*expenditure'], 1100.0)
+    fom_kw_yr = _get_val([r'fixed\s*o&m', r'\bfom\b', r'fixed\s*operations'], 20.00)
+    fcr_val = _get_val([r'\bfcr\b', r'fixed\s*charge\s*rate'], 0.082)
+
+    # Normalize FCR if given as a percentage (e.g. 8.2 instead of 0.082)
+    if fcr_val > 1.0:
+        fcr_val = fcr_val / 100.0
+
+    calc_res = calculate_ct_carrying_cost(capex_kw, fom_kw_yr, fcr_val, eas_offset_kw_yr=0.0)
+    calc_res["capex_kw"] = capex_kw
+    calc_res["fcr"] = fcr_val
+    calc_res["year"] = year
+    calc_res["scenario"] = scenario
+    calc_res["source"] = f"NLR ATB ({year} {scenario} Gas CT: atb.nlr.gov)"
+
+    return calc_res
+

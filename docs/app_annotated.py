@@ -185,6 +185,50 @@ AL_FD_URDB = {
     ]
 }
 
+# Rate FD-D: Family Dwelling Demand (Flat energy + $8/kW peak period demand + 90% ratchet)
+_FDD_DEMAND_WD = [
+    [0]*6 + [1]*3 + [0]*15, [0]*6 + [1]*3 + [0]*15, [0]*6 + [1]*3 + [0]*15,
+    [0]*13 + [1]*4 + [0]*7, [0]*13 + [1]*4 + [0]*7, [0]*13 + [1]*4 + [0]*7,
+    [0]*13 + [1]*4 + [0]*7, [0]*13 + [1]*4 + [0]*7, [0]*13 + [1]*4 + [0]*7,
+    [0]*13 + [1]*4 + [0]*7, [0]*6 + [1]*3 + [0]*15, [0]*6 + [1]*3 + [0]*15,
+]
+AL_FDD_URDB = {
+    "name": "Alabama Power - Rate FD-D (Family Dwelling Demand)",
+    "fixedcharge": 15.58,
+    "energyratewindow": [[0]*24 for _ in range(12)],
+    "energyratestructure": [[{"rate": 0.105607}]],
+    "demandweekdayschedule": _FDD_DEMAND_WD,
+    "demandweekendschedule": [[0]*24 for _ in range(12)],
+    "demandratestructure": [[{"rate": 0.0}], [{"rate": 8.00}]],
+    "demandratchetpercentage": 0.90,
+}
+
+# Rate RTA & RTA-E TOU Energy Schedule
+_RTA_ENERGY_WD = [
+    [0]*5 + [2]*4 + [0]*15, [0]*5 + [2]*4 + [0]*15, [0]*5 + [2]*4 + [0]*15,
+    [0]*24, [0]*24,
+    [0]*13 + [1]*6 + [0]*5, [0]*13 + [1]*6 + [0]*5, [0]*13 + [1]*6 + [0]*5, [0]*13 + [1]*6 + [0]*5,
+    [0]*24,
+    [0]*5 + [2]*4 + [0]*15, [0]*5 + [2]*4 + [0]*15,
+]
+AL_RTA_URDB = {
+    "name": "Alabama Power - Rate RTA (Residential Time Advantage - Demand)",
+    "fixedcharge": 15.58,
+    "energyweekdayschedule": _RTA_ENERGY_WD,
+    "energyweekendschedule": [[0]*24 for _ in range(12)],
+    "energyratestructure": [[{"rate": 0.132092}], [{"rate": 0.282092}], [{"rate": 0.152092}]],
+    "demandratewindow": [[0]*24 for _ in range(12)],
+    "demandratestructure": [[{"rate": 1.50}]],
+}
+
+AL_RTA_E_URDB = {
+    "name": "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
+    "fixedcharge": 26.08,
+    "energyweekdayschedule": _RTA_ENERGY_WD,
+    "energyweekendschedule": [[0]*24 for _ in range(12)],
+    "energyratestructure": [[{"rate": 0.128554}], [{"rate": 0.328554}], [{"rate": 0.148554}]],
+}
+
 # Default directory where raw NREL Cambium grid data files are expected
 INPUT_DIRECTORY = "./Cambium_Hourly_Data_raw"
 
@@ -1055,6 +1099,12 @@ if tariff_type == "Georgia Power - Schedule R-31 (Residential)":
     active_tariff_json = GP_R31_URDB
 elif tariff_type == "Alabama Power - Rate FD (Family Dwelling)":
     active_tariff_json = AL_FD_URDB
+elif tariff_type == "Alabama Power - Rate FD-D (Family Dwelling Demand)" or "FD-D" in tariff_type:
+    active_tariff_json = AL_FDD_URDB
+elif tariff_type == "Alabama Power - Rate RTA (Residential Time Advantage - Demand)" or ("RTA" in tariff_type and "Energy Only" not in tariff_type and "RTA-E" not in tariff_type):
+    active_tariff_json = AL_RTA_URDB
+elif tariff_type == "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)" or "RTA-E" in tariff_type or "Energy Only" in tariff_type:
+    active_tariff_json = AL_RTA_E_URDB
 elif tariff_type == "Import from NREL URDB (API Label)":
     urdb_label = st.sidebar.text_input("URDB Rate Label", value="5d4b00595457a3e73a0e6988")
     urdb_api_key = st.sidebar.text_input("OpenEI API Key", value="DEMO_KEY", type="password")

@@ -123,7 +123,7 @@ EXAMPLE_BUILDINGS = [
 # GRID VALUATION SCALAR DEFAULTS
 # ==============================================================================
 
-DEFAULT_CAP_VALUE = 100.00       # $/kW-year  (Generation Capacity)
+DEFAULT_CAP_VALUE = 110.20       # $/kW-year  (Generation Capacity: NREL ATB 2024 CT Carrying Cost Benchmark: $1,100/kW * 8.2% FCR + $20/kW-yr FOM)
 DEFAULT_TRANS_VALUE = 15.00      # $/kW-year  (Transmission Deferral)
 DEFAULT_DIST_VALUE = 15.00       # $/kW-year  (Distribution Deferral)
 DEFAULT_CARBON_TAX = 30.00       # $/metric ton CO₂
@@ -139,10 +139,34 @@ CARBON_TAX_RANGE = (0.0, 100.0, 5.00)
 # ==============================================================================
 
 SOUTHEAST_PEAKER_PRESETS = {
+    "NREL ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)": {
+        "description": "NREL Annual Technology Baseline (ATB 2024) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario, Regulated Utility Financing. (CAPEX: $1,100/kW, FCR: 8.20%, FOM: $20.00/kW-yr -> ECC: $110.20/kW-yr).",
+        "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
+        "capex_kw": 1100.0,
+        "fom_kw_yr": 20.00,
+        "fcr": 0.082,
+        "wacc": 0.070,
+        "life": 30,
+        "tax_rate": 0.257,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "NREL ATB 2024: Natural Gas CT (Merchant / R&D Financing)": {
+        "description": "NREL ATB 2024 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (CAPEX: $1,100/kW, FCR: 10.20%, FOM: $20.00/kW-yr -> ECC: $132.20/kW-yr).",
+        "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
+        "capex_kw": 1100.0,
+        "fom_kw_yr": 20.00,
+        "fcr": 0.102,
+        "wacc": 0.085,
+        "life": 25,
+        "tax_rate": 0.257,
+        "eas_offset_kw_yr": 0.0,
+    },
     "Southern Company / Georgia Power IRP SCCT Benchmark": {
         "description": "Next planned F-Class simple cycle combustion turbine based on Southern Company 2022/2025 IRP dockets.",
+        "source": "Southern Company 2022/2025 Integrated Resource Plan (IRP) dockets",
         "capex_kw": 1080.0,
         "fom_kw_yr": 15.00,
+        "fcr": 0.084,
         "wacc": 0.071,
         "life": 30,
         "tax_rate": 0.25,
@@ -150,30 +174,25 @@ SOUTHEAST_PEAKER_PRESETS = {
     },
     "TVA Capacity Expansion SCCT Benchmark": {
         "description": "TVA 2019/2024 IRP capacity expansion peaker proxy with federal financing.",
+        "source": "TVA 2019/2024 IRP capacity expansion peaker proxy",
         "capex_kw": 1020.0,
         "fom_kw_yr": 14.00,
+        "fcr": 0.079,
         "wacc": 0.068,
         "life": 30,
         "tax_rate": 0.21,
         "eas_offset_kw_yr": 0.0,
     },
-    "NREL ATB 2024: Regulated Utility Finance SCCT": {
-        "description": "NREL Annual Technology Baseline (ATB 2024) Natural Gas Combustion Turbine - Industrial Frame, regulated investor-owned utility financing.",
-        "capex_kw": 1050.0,
-        "fom_kw_yr": 15.50,
-        "wacc": 0.070,
-        "life": 30,
-        "tax_rate": 0.257,
-        "eas_offset_kw_yr": 5.0,
-    },
     "NREL ATB 2024: Aeroderivative CT": {
         "description": "Fast-ramping aeroderivative peaker (e.g. LM6000) for winter morning cold snap / peak following.",
+        "source": "NREL ATB 2024 Natural Gas: Combustion Turbine (Aeroderivative)",
         "capex_kw": 1250.0,
         "fom_kw_yr": 18.00,
+        "fcr": 0.082,
         "wacc": 0.071,
         "life": 30,
         "tax_rate": 0.25,
-        "eas_offset_kw_yr": 8.0,
+        "eas_offset_kw_yr": 0.0,
     },
 }
 
@@ -302,6 +321,9 @@ COLORS = {
 TARIFF_OPTIONS = [
     "Georgia Power - Schedule R-31 (Residential)",
     "Alabama Power - Rate FD (Family Dwelling)",
+    "Alabama Power - Rate FD-D (Family Dwelling Demand)",
+    "Alabama Power - Rate RTA (Residential Time Advantage - Demand)",
+    "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
     "Import from NREL URDB (API Label)",
     "Paste Custom URDB V3 JSON",
     "Custom Flat Rate / Demand",

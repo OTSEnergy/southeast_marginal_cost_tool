@@ -53,7 +53,7 @@ Before cataloguing gaps, here is what the tool **does** have working today:
 - **CWFT-based capacity allocation** (EPC and ELCC proxy calculations)
 - **PCAF-based T&D deferral allocation** (top 100 price hours)
 - **URDB-compliant retail billing engine** (tiered blocks, seasonal periods, weekday/weekend, demand charges)
-- **Two pre-packaged retail tariffs** (Georgia Power R-31, Alabama Power FD)
+- **Five pre-packaged retail tariffs** (Georgia Power R-31, Alabama Power FD, Alabama Power FD-D, Alabama Power RTA Demand, Alabama Power RTA-E Energy Only)
 - **URDB API integration** (live tariff import from NREL OpenEI)
 - **Custom tariff input** (paste JSON or flat rate)
 - **Multi-year NPV discounting** with escalation, degradation, and WACC
@@ -90,23 +90,22 @@ Before cataloguing gaps, here is what the tool **does** have working today:
 ### 3.1 🟡 CWFT Generation & Allocation Engine Implemented (Proprietary IRP Calibration In Progress)
 **File:** `CWFT.csv` / `calculations.py` / `app.py`
 
-The tool now supports four robust allocation methodologies alongside custom file upload:
-1. **Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)** with configurable seasonal weight split and load exceedance weighting.
-2. **Cambium Price-Exceedance LOLP Proxy** using an exponential risk curve `exp(α · (P_h / P_peak - 1.0))` on Cambium's own hourly wholesale energy price to concentrate capacity value in extreme hours. (Previously mislabeled "EIA-930 Demand LOLP Proxy" — it was never fed real EIA-930 demand data; it inherits Cambium's weather-year alignment instead, which is why it's used in place of an external historical demand series.)
-3. **Top-N System Peak Hours** with uniform or exceedance weighting.
-4. **Wholesale Peaker Rent** spark spread proxy.
-5. **Direct CSV Upload** for utility-supplied proprietary shapes.
+The tool now supports six robust allocation methodologies alongside custom file upload:
+1. **Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM) [Default]** with configurable seasonal weight split, freeze/heat thresholds, and ambient temperature severity weighting from aligned 8,760 EPW dry-bulb weather data.
+2. **Ambient Temperature Severity (Weather-Triggered)** based directly on winter sub-freezing and summer heat dome severity.
+3. **Cambium Price-Exceedance LOLP Proxy** using an exponential risk curve `exp(α · (P_h / P_peak - 1.0))` on Cambium's own hourly wholesale energy price to concentrate capacity value in extreme hours. (Previously mislabeled "EIA-930 Demand LOLP Proxy" — it was never fed real EIA-930 demand data; it inherits Cambium's weather-year alignment instead, which is why it's used in place of an external historical demand series.)
+4. **Top-N System Peak Hours** with uniform or exceedance weighting.
+5. **Wholesale Peaker Rent** spark spread proxy.
+6. **Direct CSV Upload** for utility-supplied proprietary shapes.
 
 **Remaining Gap:** Awaiting proprietary 8,760 LOLP/CWFT matrices from Southern Company (Georgia Power / Alabama Power) 2024/2025 IRP dockets to provide calibrated utility baselines.
 
-> **[Assistant, 2026-09-25]:** Found and fixed a real building-dependence bug in the
-> default "Southeast Dual-Peak" method (it used the *selected Baseline building's own
-> load* to define grid stress hours, so swapping which technology was Baseline could
-> shift results ~37% for the same technology pair). Default switched to the
-> building-independent **Cambium Price-Exceedance LOLP Proxy**, and its `alpha`
-> reduced from 12 → 4 after finding the old default concentrated 40–58% of a whole
-> year's capacity credit onto a single hour on real Cambium data; alpha=4 keeps the
-> top hour's share under ~1%. See `CHANGELOG.md` [2026-09-25].
+> **[Assistant, 2026-09-28]:** Upgraded "Southeast Dual-Peak" to weight intra-window hours
+> by ambient temperature severity from the aligned 8,760 EPW dry-bulb weather data (colder
+> winter mornings and hotter summer afternoons get higher weights). Switched the default
+> methodology to Southeast Dual-Peak, completely eliminating building-load circularity
+> while providing physically grounded, utility-aligned capacity risk weighting. See
+> `CHANGELOG.md` [2026-09-28].
 
 ---
 

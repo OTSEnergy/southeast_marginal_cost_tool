@@ -292,11 +292,12 @@ Phase 2 (Additional Budget / Future Year)
 ### 2.3 Document & Upgrade Capacity Methodology
 *Ref: needs_and_gaps.md §4.3*
 
-- [x] **Next Planned Peaker Carrying Cost Builder (Implemented 2026-09-10):**
-  - Added economic carrying cost engine for Simple Cycle Combustion Turbines (SCCT) under regulated cost-of-service ratemaking: `Gross ECC = (CAPEX × FCR) + FOM`.
-  - Implemented regulated Fixed Charge Rate (FCR) calculator accounting for utility WACC, 30-year economic life, corporate income tax, and MACRS depreciation.
-  - Bundled empirical presets: Southern Company IRP Benchmark (~$105.70/kW-yr), TVA Capacity Expansion SCCT (~$98.50/kW-yr), and NREL ATB.
-- [x] Retain direct IRP scalar input field allowing utility users to enter commission-approved capacity credits directly.
+- [x] **Avoided Capacity Valuation & Peaker Carrying Cost Builder (Implemented 2026-09-10, Updated 2026-09-28):**
+  - Defaulted to **Direct IRP Scaler ($/kW-year)** pre-populated with the calculated NREL ATB 2024 Combustion Turbine economic carrying cost benchmark ($110.20/kW-yr: $1,100/kW CAPEX × 8.20% FCR + $20.00/kW-yr FOM).
+  - Economic carrying cost builder engine available on demand: `Carrying Cost = (CAPEX × FCR) + FOM`.
+  - Bundled empirical presets with official ATB citations: NREL ATB 2024 Regulated Utility Benchmark, NREL ATB 2024 Merchant Finance, Southern Company IRP Benchmark, TVA Capacity Expansion SCCT, and Aeroderivative CT.
+  - Supported direct FCR input as well as synthesized FCR via utility WACC, corporate tax, and 15-year MACRS depreciation schedule.
+  - Automatically initializes carrying cost breakdown so the peaker waterfall chart is fully populated on load.
 
 ### 2.4 Deferral Approximations & Localized Feeder Profiling
 *Ref: needs_and_gaps.md §4.4*
@@ -566,9 +567,8 @@ Phase 2 (Additional Budget / Future Year)
 
 ### 6.1 Multi-Region Expansion
 
-- [ ] Begin conversations with other Southeast utilities
-- [ ] Add tariff structures for additional utilities
-- [ ] Expand Cambium data to cover additional states/balancing authorities
+- [x] Add tariff structures for additional utilities
+  > **[Assistant, 2026-09-25]:** Added Alabama Power Rate FD-D (Family Dwelling Demand with 90% ratchet), Rate RTA (Residential Time Advantage - Demand), and Rate RTA-E (Residential Time Advantage - Energy Only). Five packaged Southeast residential tariffs now available.
 - [ ] Consider whether the "Southeast" framing should generalize to a national tool
 
 ### 6.2 Institutional Home Transition

@@ -2,6 +2,137 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-09-28] — Path Sanitization & Fix for External Directories / Quoted Custom Paths (WinError 123)
+
+### Context
+When users point **Load Profiles Source** to **Custom path...** and enter paths outside the repository (e.g. `C:\Users\jhill\Documents\hp_data.xlsx` or `C:\Users\jhill\Documents`), standard Windows interactions (like "Copy as path") wrap paths in quotation marks (`"C:\path..."`). The leading quotation mark caused Python's `os.path.isabs()` to treat the path as relative, prepending the project working directory into illegal path syntax (`C:\repo\"C:`), triggering `[WinError 123] The filename, directory name, or volume label syntax is incorrect`. Additionally, the pipeline was attempting to call `generate_default_load_profiles_file()` on user custom paths rather than reserving synthetic data generation strictly for the default `load_profiles.csv`.
+
+### Changes Made
+- **`data_loaders.py`**:
+  - Added `sanitize_filepath(filepath)`: Strips wrapping double or single quotes, removes leading/trailing whitespace, expands environment variables (`%VAR%`) and home shortcuts (`~`), and normalizes path separators with `os.path.normpath` while preserving drive roots (`C:\`).
+  - Integrated `sanitize_filepath` into `load_load_profiles_from_csv()`, `_read_profile_file()`, `load_cwft_from_csv()`, `generate_default_load_profiles_file()`, and `generate_default_cwft_file()`.
+  - Added explicit pre-check `if not os.path.exists(filepath): raise FileNotFoundError(...)` with clear guidance.
+  - Re-raised `FileNotFoundError` and `ValueError` directly instead of masking under generic parsing exceptions.
+- **`app.py`**:
+  - Sanitized `load_profiles_filepath` and `cwft_filepath` immediately upon input.
+  - Guarded `generate_default_load_profiles_file("load_profiles.csv")` to execute strictly when the default file is active, never attempting to overwrite or generate synthetic profiles at user-specified custom paths or folders.
+  - Handled folder and file basenames safely with `os.path.basename(path) or path` to support root drives and external directories.
+  - Added smart default column matching (`baseline`, `heatpump`, `efficient`, etc.) in Single File Mode as well as Folder Mode.
+- **`tests/test_calculations.py`**:
+  - Added `test_sanitize_filepath_quotes_and_expansion` to verify quote stripping, single quotes, whitespace, and path normalization.
+  - Added `test_load_profiles_with_quoted_custom_path` to verify directory and file loading wrapped in quotes.
+  - Added `test_load_profiles_nonexistent_path_raises_file_not_found`.
+  - All 133 tests passing.
+
+## [2026-09-28] — Defaulted Avoided Capacity to Direct IRP Scaler with Calculated NREL ATB Value ($110.20/kW-yr) and Waterfall Headroom Fix
+
+### Context
+Configured the sidebar Avoided Generation Capacity valuation method to default to **Direct IRP Scaler ($/kW-year)** (`index=0`), pre-populated with the calculated NREL Annual Technology Baseline (ATB 2024) Simple-Cycle Combustion Turbine (CT) economic carrying cost benchmark:
+$$\text{Carrying Cost (\$/kW-yr)} = (\text{CAPEX} \times \text{FCR}) + \text{Fixed O\&M}$$
+$$(\$1,100/\text{kW} \times 0.0820) + \$20.00/\text{kW-yr} = \mathbf{\$110.20/\text{kW-yr}}$$
+Users retain the ability to switch to the **Carrying cost of a CT Builder** to customize individual plant, financing, and WACC/MACRS depreciation parameters or choose from utility presets.
+
+Additionally, updated citations to point to the active official domain (`https://atb.nlr.gov/electricity/2024/data`, titled `Data | Electricity | 2024 | ATB | NLR`), and resolved outside label text clipping on horizontal waterfall charts by adding dynamic extent padding and disabling axis clipping.
+
+### Changes Made
+- **`config.py`**:
+  - Updated `DEFAULT_CAP_VALUE = 110.20` $/kW-year (derived from $1,100/kW CAPEX × 8.20% FCR + $20.00/kW-yr FOM).
+  - Configured `SOUTHEAST_PEAKER_PRESETS` with `"NREL ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)"` as the primary preset (CAPEX: $1,100/kW, FCR: 8.20%, FOM: $20.00/kW-yr, E&AS: $0.00), including direct source link to `[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)`.
+  - Added `"NREL ATB 2024: Natural Gas CT (Merchant / R&D Financing)"` (FCR: 10.20%, Carrying Cost: $132.20/kW-yr) and source metadata to existing presets.
+- **`calculations.py`**:
+  - Updated `calculate_ct_carrying_cost()` docstring with full NREL ATB standard formulation, variable definitions, central ATB benchmark values, and official data source link.
+- **`visualizations.py`**:
+  - In `build_economic_balance_chart()`, prevented outside text labels from being visually cut off (e.g. `+$2,878` clipping to `+$2` or `-$3,855` clipping to `855` at axis boundaries) by calculating cumulative waterfall bar extents, adding 25% margin padding to `xaxis.range`, and setting `cliponaxis=False`.
+- **`app.py`**:
+  - Set `cap_mode` radio default to `"Direct IRP Scaler ($/kW-year)"` (`index=0`), with `"Carrying cost of a CT Builder"` as the alternative option.
+  - Pre-populated the Direct IRP Scaler numeric input with `DEFAULT_CAP_VALUE` ($110.20/kW-yr) and added an explanatory caption showing the NREL ATB 2024 calculation with live link to `[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)`.
+  - Automatically initializes `ct_calc` with the benchmark carrying cost breakdown when using the default $110.20/kW-yr value so that the Peaker Carrying Cost waterfall chart (`chart_tab_peaker`) renders seamlessly on initial load.
+  - Updated CT builder controls to expose direct Fixed Charge Rate (`ct_fcr`, default 8.20%) matching the 3 primary NREL ATB parameters (CAPEX, FCR, FOM), with an optional collapsible expander to synthesize FCR dynamically from utility WACC and 15-year MACRS depreciation tax shields.
+- **`data_loaders.py`**:
+  - Added `extract_nrel_atb_ct_parameters()`: Extracts `CAPEX`, `Fixed O&M`, and `FCR` directly from NREL ATB flat CSVs / DataFrames filtered by `technology == "NaturalGas"`, `techdetail == "CT"`, `scenario == "Moderate"`, and target projection year, returning computed carrying cost and attribution metadata.
+- **`tests/test_calculations.py`**:
+  - Added `test_nrel_atb_ct_carrying_cost_benchmark` to verify calculation against NREL ATB 2024 parameters ($1,100 * 0.082 = $90.20 capital recovery + $20.00 FOM = $110.20/kW-yr carrying cost).
+  - Added `test_extract_nrel_atb_ct_parameters` to verify direct programmatic extraction and filtering from standard ATB flat table schemas.
+  - Verified `test_economic_balance_chart_*` tests pass with full dollar labels and `Net Valuation NPV` total bar.
+  - All 130 tests passing.
+- **Documentation Updated**:
+  - `docs/glossary.md`: Updated ECC and FCR definitions with NREL ATB 2024 benchmarks and citations.
+  - `docs/roadmap.md`: Updated Section 2.3 status to record CT Builder default and NREL ATB 2024 integration.
+  - `docs/app_code_tour.md`: Updated Chapter 7 summary of sidebar ECC expander.
+  - `docs/app_annotated.py` drift note: `app.py` is at 2,654 lines; full annotated teaching sync deferred.
+
+## [2026-09-28] — Active-Column Scoping for Load Profile Ingestion Warnings
+
+### Context
+When loading load profiles from a directory containing multiple files (such as `Load_Profiles_raw`), missing-data interpolation warnings (e.g. 1 missing hour in `Total_WithETS` from `BirminghamTES_ETS_Case.xlsx`) were previously rendered unconditionally across both the sidebar and the main valuation dashboard, even when the user had selected completely unrelated, clean profiles (such as the Birmingham BEopt Electric Resistance vs. Heat Pump example). Missing-data warnings are now scoped to only display when the affected data column is actively selected as Baseline or Proposed (or Baseline in DR mode).
+
+### Changes Made
+- **`data_loaders.py`**:
+  - Enhanced `load_load_profiles_from_csv()` to record a per-column warning mapping (`res_df.attrs['column_warnings'] = column_warnings`) in both folder mode and single-file mode alongside the existing global `ingestion_warnings` list.
+  - Added public helper function `get_load_profile_warnings(load_df, active_cols=None)` that filters warnings specifically to the columns actively in use. Falls back gracefully to string-matching against `ingestion_warnings` if `column_warnings` attribute is absent.
+- **`app.py`**:
+  - Imported `get_load_profile_warnings` from `data_loaders`.
+  - In the sidebar ("Building / Technology & Load Data"): Moved the warning display block from before column selection to after `baseline_col` and `proposed_col` are determined, passing active columns `[baseline_col]` (if DR mode) or `[baseline_col, proposed_col]`.
+  - In the main valuation dashboard: Updated the load profile warning block to filter to active columns `[baseline_col]` / `[baseline_col, proposed_col]`.
+- **`tests/test_calculations.py`**:
+  - Expanded `test_missing_hour_is_interpolated_not_left_as_nan` to assert that clean columns produce no active warnings and gappy columns produce the expected warning.
+  - Added `test_load_profiles_directory_warnings_filtered_to_active_columns` to verify directory-mode column filtering against `Load_Profiles_raw`.
+  - All 128 tests passing.
+- **Documentation Drift Note**:
+  - `docs/app_annotated.py`: `app.py` stands at 2,627 lines following import and warning-scoping changes; full annotated teaching sync deferred.
+
+## [2026-09-28] — Southeast Dual-Peak CWF Upgrade with Temperature Severity & Default Method Switch
+
+### Context
+Upgraded the **Southeast Dual-Peak** Capacity Worth Factor (CWF) methodology to allocate risk within Southeast utility reliability windows (Winter 6–9 AM Dec–Feb and Summer 2–6 PM Jun–Sep) based directly on ambient temperature severity from aligned 8,760 EPW dry-bulb weather data. Switched the default CWF method from Cambium Price-Exceedance LOLP Proxy to Southeast Dual-Peak.
+
+### Changes Made
+- **`calculations.py`**:
+  - Enhanced `calculate_southeast_dual_peak_cwf()` to accept `temperature_array`, `freeze_threshold_f=32.0`, and `heat_threshold_f=90.0`.
+  - Inside the defined Southeast windows, risk weights are now driven by physical weather extremes:
+    - Winter morning severity: $\max(0, T_{\text{freeze}} - T_h)$
+    - Summer afternoon severity: $\max(0, T_h - T_{\text{heat}})$
+  - If weather extremes are absent or temperature array is omitted, gracefully falls back to uniform distribution across the window hours. Maintained backward compatibility for legacy `load_array`.
+- **`app.py`**:
+  - Set default `selected_cwf_method` selectbox index to `0` (`"Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)"`).
+  - Added user inputs for `freeze_threshold_f` (default 32.0°F) and `heat_threshold_f` (default 90.0°F) in the Southeast Dual-Peak sidebar expander.
+  - Wired aligned hourly EPW dry-bulb temperature array (`raw_df['Temperature_F']`) into `calculate_southeast_dual_peak_cwf()`, completely severing circular reliance on individual building baseline load.
+- **`tests/test_calculations.py`**:
+  - Added unit tests: `test_southeast_dual_peak_cwf_with_temperature` and `test_southeast_dual_peak_cwf_temperature_mild_fallback`.
+  - All 127 tests in the suite passing.
+- **Documentation Updated**:
+  - `docs/needs_and_gaps.md`: Updated Section 3.1 to reflect temperature severity as the default within Southeast Dual-Peak.
+  - `docs/glossary.md`: Updated CWF and LOLP entries.
+  - `docs/app_code_tour.md`: Updated Chapter 3 description of CWF defaults.
+
+## [2026-09-25] — Addition of Alabama Power FD-D, RTA, and RTA-E Retail Tariffs & Demand Ratchet Engine
+
+### Context
+Implemented three additional Alabama Power residential retail rate structures per PSC rate schedules:
+1. **Rate FD-D (Family Dwelling Demand)**: Flat energy rate ($0.105607/kWh with ECR), seasonal peak-period demand charges ($8.00/kW billing capacity during Apr–Oct 1–5 PM weekdays and Nov–Mar 6–9 AM weekdays), and a 90% 11-month demand ratchet.
+2. **Rate RTA (Residential Time Advantage - Demand)**: TOU energy rates (Summer peak $0.282092/kWh, Winter peak $0.152092/kWh, Economy $0.132092/kWh) plus flat $1.50/kW monthly peak demand charge.
+3. **Rate RTA-E (Residential Time Advantage - Energy Only)**: TOU energy rates (Summer peak $0.328554/kWh, Winter peak $0.148554/kWh, Economy $0.128554/kWh), $26.08/month fixed charge ($25.00 base + $1.08 NDR), no demand charge.
+
+### Changes Made
+- **`billing.py`**:
+  - Added `AL_FDD_URDB`, `AL_RTA_URDB`, and `AL_RTA_E_URDB` pre-packaged tariff dictionaries matching NREL URDB V3 schema.
+  - Enhanced `calculate_urdb_bill()` to support demand ratchets (`demandratchetpercentage` / `demandlookbackpercentage`) across annual billing cycles while maintaining 100% backward compatibility.
+  - Ensured `get_hourly_energy_rate()` maps weekday/weekend schedules for TOU hourly operating cost visualizations.
+- **`config.py`**:
+  - Updated `TARIFF_OPTIONS` dropdown list to include all 5 pre-packaged tariffs.
+- **`app.py`**:
+  - Imported `AL_FDD_URDB`, `AL_RTA_URDB`, `AL_RTA_E_URDB` and wired them into the sidebar selector with robust pattern matching.
+  - Cleared all demand schedules (`demandweekdayschedule`, `demandweekendschedule`, `demandratewindow`, `demandratestructure`) in `energy_only_json` for accurate retail energy vs demand savings decomposition.
+- **`tests/test_calculations.py`**:
+  - Added unit tests for zero load, constant load, TOU energy periods, peak-window demand charges, and cross-season 90% demand ratchet behavior.
+  - Test suite expanded from 116 to 125 tests, all passing.
+- **Documentation Updated**:
+  - `docs/needs_and_gaps.md`: Updated Section 2 to 5 packaged tariffs.
+  - `docs/glossary.md`: Added definitions for Rate FD-D, Rate RTA, Rate RTA-E, and Demand Ratchet.
+  - `docs/roadmap.md`: Updated Milestone 6.1 tariff expansion item.
+  - `docs/app_code_tour.md`: Updated Chapter 2 and module table.
+  - `docs/app_annotated.py`: Updated teaching copy with the new tariff definitions and wiring.
+
 ## [2026-09-25] — Charts Tab Expansion, CWF Methodology Fix, and Comprehensive QA Review
 
 ### Context
