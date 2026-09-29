@@ -282,26 +282,37 @@ def generate_default_cwft_file(filepath="CWFT.csv"):
     return filepath
 
 
-def load_cwft_from_csv(filepath):
+def load_cwft_from_csv(file_or_path):
     """
-    Reads a CWFT CSV file from disk, verifies it contains exactly 8760 rows and a 'CWFT' column,
+    Reads a CWFT file from disk or uploaded buffer (.csv, .xlsx, .xls).
+    Verifies it contains exactly 8760 rows and a 'CWFT' column (or single numeric column),
     and normalizes the values so their sum equals 1.0.
     """
     try:
-        df = pd.read_csv(filepath)
-        if 'CWFT' not in df.columns:
-            raise ValueError("The CWFT CSV file must contain a 'CWFT' column.")
+        if isinstance(file_or_path, str):
+            if file_or_path.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(file_or_path)
+            else:
+                df = pd.read_csv(file_or_path)
+        else:
+            name = getattr(file_or_path, 'name', '')
+            if name.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(file_or_path)
+            else:
+                df = pd.read_csv(file_or_path)
+
+        col = 'CWFT' if 'CWFT' in df.columns else df.columns[0]
         if len(df) != 8760:
             raise ValueError(f"The CWFT file must contain exactly 8760 rows (found {len(df)}).")
-            
-        cwft_array = df['CWFT'].to_numpy()
+
+        cwft_array = pd.to_numeric(df[col], errors='coerce').to_numpy(dtype=float)
         cwft_sum = cwft_array.sum()
         # If sum is not extremely close to 1.0, re-normalize it
         if not np.isclose(cwft_sum, 1.0, atol=1e-3):
             cwft_array = cwft_array / cwft_sum
         return cwft_array
     except Exception as e:
-        raise ValueError(f"Failed to parse CWFT CSV: {str(e)}")
+        raise ValueError(f"Failed to parse CWFT file: {str(e)}")
 
 
 def generate_default_load_profiles_file(filepath="load_profiles.csv"):
@@ -615,7 +626,7 @@ def load_custom_weather_file(weather_case):
 # It tells Python: "Remember the output of this function in memory! If the user clicks 
 # buttons without changing inputs, don't re-run this 8,760-hour math loop from scratch."
 @st.cache_data
-def load_and_aggregate_data(target_states, selected_scenario, weather_case, target_year="2026", planning_year="2040", input_directory=INPUT_DIRECTORY):
+def load_and_aggregate_data(target_states, selected_scenario, weather_case, target_year="2026", planning_year="2030", input_directory=INPUT_DIRECTORY):
     """
     INGEST, AGGREGATE & WEATHER INJECTION PIPELINE (Cached):
     1. Loads scenario grid files for target states (e.g. AL, GA).
@@ -1021,7 +1032,7 @@ interpolates missing points, and builds a customized `.epw` file using NREL's TM
         )
         st.write("")
         st.write("")
-        generate_button = st.button("⚡ Generate AMY Weather File", type="primary", use_container_width=True, key=f"generate_btn_{key_suffix}")
+        generate_button = st.button("⚡ Generate AMY Weather File", type="primary", width="stretch", key=f"generate_btn_{key_suffix}")
     
     if generate_button:
         try:
@@ -1064,7 +1075,7 @@ st.sidebar.markdown(
 st.sidebar.markdown("### 🌤️ Grid Weather & Scenario")
 scenario_options = ["HighDemandGrowth", "MidCase", "LowCarbonConstraint", "LowDemandGrowth"]
 selected_scenario = st.sidebar.selectbox("NREL Future Scenario", options=scenario_options, index=0)
-planning_year = st.sidebar.selectbox("NREL Planning Year", options=["2025", "2030", "2035", "2040", "2045", "2050"], index=3)
+planning_year = st.sidebar.selectbox("NREL Planning Year", options=["2025", "2030", "2035", "2040", "2045", "2050"], index=1)
 weather_case = st.sidebar.selectbox("Grid Weather Case", options=["2012 (Cambium-aligned baseline)", "Extreme Winter", "Extreme Summer"], index=0)
 target_states = st.sidebar.multiselect("Target States", options=["AL", "GA", "FL", "TN", "MS", "NC", "SC"], default=["AL", "GA"])
 
@@ -1108,7 +1119,7 @@ elif tariff_type == "Alabama Power - Rate RTA-E (Residential Time Advantage - En
 elif tariff_type == "Import from NREL URDB (API Label)":
     urdb_label = st.sidebar.text_input("URDB Rate Label", value="5d4b00595457a3e73a0e6988")
     urdb_api_key = st.sidebar.text_input("OpenEI API Key", value="DEMO_KEY", type="password")
-    if st.sidebar.button("📥 Fetch Tariff Structure", use_container_width=True):
+    if st.sidebar.button("📥 Fetch Tariff Structure", width="stretch"):
         with st.spinner("Downloading rate from NREL OpenEI..."):
             try:
                 fetched_rate = fetch_urdb_rate(urdb_label, urdb_api_key)
@@ -1163,7 +1174,7 @@ meta_load_weather = st.sidebar.text_input("Load Profile Weather Year", value="20
 meta_cambium_weather = st.sidebar.text_input("Cambium Weather Year", value="2012")
 meta_cwft_weather = st.sidebar.text_input("CWFT Weather Year", value="2012")
 
-run_simulation = st.sidebar.button("🚀 Run Valuation Engine", type="primary", use_container_width=True)
+run_simulation = st.sidebar.button("🚀 Run Valuation Engine", type="primary", width="stretch")
 
 if 'simulation_executed' not in st.session_state:
     st.session_state['simulation_executed'] = False

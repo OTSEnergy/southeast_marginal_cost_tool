@@ -228,6 +228,102 @@ AL_RTA_E_URDB = {
     ],
 }
 
+# ------------------------------------------------------------------------------
+# Duke Energy Carolinas — Schedule RES (Residential Service)
+# ------------------------------------------------------------------------------
+# Base Charge: $14.00/mo
+# Energy Charge:
+#   - Summer (Jun–Sep): 12.85¢/kWh ($0.128500/kWh)
+#   - Winter (Oct–May): 11.82¢/kWh ($0.118200/kWh)
+# ------------------------------------------------------------------------------
+DUKE_RES_URDB = {
+    "name": "Duke Energy Carolinas - Schedule RES (Residential)",
+    "fixedcharge": 14.00,
+    "energyratewindow": [
+        [0]*24, [0]*24, [0]*24, [0]*24, [0]*24,  # Jan–May  (Winter = Period 0)
+        [1]*24, [1]*24, [1]*24, [1]*24,           # Jun–Sep  (Summer = Period 1)
+        [0]*24, [0]*24, [0]*24                    # Oct–Dec  (Winter = Period 0)
+    ],
+    "energyratestructure": [
+        [{"rate": 0.118200}],  # Period 0 — Winter: 11.82¢/kWh
+        [{"rate": 0.128500}]   # Period 1 — Summer: 12.85¢/kWh
+    ]
+}
+
+# ------------------------------------------------------------------------------
+# Tennessee Valley Authority (TVA) LPC — Standard Residential Benchmark
+# ------------------------------------------------------------------------------
+# Base Customer Charge: $15.00/mo composite average across LPCs
+# Energy Charge: Flat 11.50¢/kWh ($0.115000/kWh) base + standard FCA
+# ------------------------------------------------------------------------------
+TVA_LPC_URDB = {
+    "name": "TVA LPC - Standard Residential Benchmark",
+    "fixedcharge": 15.00,
+    "energyratewindow": [[0]*24 for _ in range(12)],
+    "energyratestructure": [
+        [{"rate": 0.115000}]   # Flat 11.50¢/kWh (base + composite fuel cost adjustment)
+    ]
+}
+
+# ------------------------------------------------------------------------------
+# Mississippi Power — Rate Schedule RS (Residential Service)
+# ------------------------------------------------------------------------------
+# Base Customer Charge: $15.00/mo
+# Energy Charge:
+#   - Summer (Jun–Sep): 14.50¢/kWh ($0.145000/kWh)
+#   - Winter (Oct–May): 13.20¢/kWh ($0.132000/kWh)
+# ------------------------------------------------------------------------------
+MS_RS_URDB = {
+    "name": "Mississippi Power - Rate Schedule RS (Residential)",
+    "fixedcharge": 15.00,
+    "energyratewindow": [
+        [0]*24, [0]*24, [0]*24, [0]*24, [0]*24,  # Jan–May  (Winter = Period 0)
+        [1]*24, [1]*24, [1]*24, [1]*24,           # Jun–Sep  (Summer = Period 1)
+        [0]*24, [0]*24, [0]*24                    # Oct–Dec  (Winter = Period 0)
+    ],
+    "energyratestructure": [
+        [{"rate": 0.132000}],  # Period 0 — Winter: 13.20¢/kWh
+        [{"rate": 0.145000}]   # Period 1 — Summer: 14.50¢/kWh
+    ]
+}
+
+# ------------------------------------------------------------------------------
+# Entergy Mississippi — Rate Schedule RS (Residential)
+# ------------------------------------------------------------------------------
+# Base Customer Charge: $12.50/mo
+# Energy Charge:
+#   - Summer (Jun–Sep): 13.80¢/kWh ($0.138000/kWh)
+#   - Winter (Oct–May): 12.50¢/kWh ($0.125000/kWh)
+# ------------------------------------------------------------------------------
+ENTERGY_RS_URDB = {
+    "name": "Entergy Mississippi - Rate Schedule RS (Residential)",
+    "fixedcharge": 12.50,
+    "energyratewindow": [
+        [0]*24, [0]*24, [0]*24, [0]*24, [0]*24,  # Jan–May  (Winter = Period 0)
+        [1]*24, [1]*24, [1]*24, [1]*24,           # Jun–Sep  (Summer = Period 1)
+        [0]*24, [0]*24, [0]*24                    # Oct–Dec  (Winter = Period 0)
+    ],
+    "energyratestructure": [
+        [{"rate": 0.125000}],  # Period 0 — Winter: 12.50¢/kWh
+        [{"rate": 0.138000}]   # Period 1 — Summer: 13.80¢/kWh
+    ]
+}
+
+# ------------------------------------------------------------------------------
+# Southeast Regional Average Tariff Benchmark (EIA Composite)
+# ------------------------------------------------------------------------------
+# Base Customer Charge: $15.00/mo
+# Energy Charge: Flat 13.50¢/kWh ($0.135000/kWh) EIA Southeast composite average
+# ------------------------------------------------------------------------------
+SOUTHEAST_AVG_URDB = {
+    "name": "Southeast Regional Average Tariff ($0.135/kWh)",
+    "fixedcharge": 15.00,
+    "energyratewindow": [[0]*24 for _ in range(12)],
+    "energyratestructure": [
+        [{"rate": 0.135000}]   # Flat 13.50¢/kWh
+    ]
+}
+
 
 # ==============================================================================
 # BILLING CALCULATION ENGINE

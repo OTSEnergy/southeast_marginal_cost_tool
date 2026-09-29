@@ -304,11 +304,12 @@ Phase 2 (Additional Budget / Future Year)
 
 - [x] Decoupled bulk transmission deferral from local distribution deferral in calculation engine.
 - [x] Added **Feeder Peaking Profile Selection** (`FEEDER_TYPE_OPTIONS`):
-  - Winter-Peaking Feeder (Southeast Heating / Cold Snap 6–9 AM Dec–Feb)
-  - Summer-Peaking Feeder (Southeast Cooling 2–6 PM Jun–Sep)
+  - System Coincident (Top 100 Peak Hours)
+  - Winter-Peaking Feeder (Southeast Heating / Dec–Feb 6–9 AM)
+  - Summer-Peaking Feeder (Southeast Cooling / Jun–Sep 2–6 PM)
   - Dual-Peaking Feeder (Suburban Mixed 50/50)
-  - Wholesale Price PCAF (Top 100 Hours)
-- [x] Bundled Southeast empirical rate case benchmarks (Georgia Power, Alabama Power, LBNL). 
+- [x] Bundled Southeast empirical rate case benchmarks (Georgia Power, Alabama Power, LBNL, High Growth Corridor) plus "$0 / Exclude T&D" sensitivity preset.
+- [x] Added dynamic combined T&D rate badge and relocated Carbon Penalty slider to Grid Scenario & Region. 
 
 
 

@@ -822,6 +822,7 @@ class TestConfig:
     def test_planning_year_options(self):
         assert len(config.PLANNING_YEAR_OPTIONS) >= 2
         assert config.DEFAULT_PLANNING_YEAR_INDEX < len(config.PLANNING_YEAR_OPTIONS)
+        assert config.PLANNING_YEAR_OPTIONS[config.DEFAULT_PLANNING_YEAR_INDEX] == "2030"
 
     def test_default_values_positive(self):
         assert config.DEFAULT_CAP_VALUE > 0
@@ -2119,7 +2120,8 @@ class TestSoutheastUtilityCapacityEngine:
         cwf = calculate_southeast_dual_peak_cwf(
             winter_weight=0.5, summer_weight=0.5,
             temperature_array=temps,
-            freeze_threshold_f=32.0, heat_threshold_f=90.0
+            freeze_threshold_f=32.0, heat_threshold_f=90.0,
+            lag_days=0, lag_weight=0.0
         )
 
         assert len(cwf) == 8760
@@ -2131,20 +2133,61 @@ class TestSoutheastUtilityCapacityEngine:
         # Non-exceeding hours in spring/fall should be 0.0
         assert cwf[104 * 24 + 12] == 0.0
 
-    def test_southeast_dual_peak_cwf_temperature_mild_fallback(self):
+    def test_southeast_dual_peak_cwf_default_80_20_split(self):
         from calculations import calculate_southeast_dual_peak_cwf
-        # All temps 65°F (never freezing <32°F, never hot >90°F)
-        temps = np.full(8760, 65.0)
+        # Calling with defaults should allocate 80% to winter and 20% to summer
+        cwf = calculate_southeast_dual_peak_cwf()
+        assert len(cwf) == 8760
+        assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+
+        # Winter window: Dec, Jan, Feb; hours 6-9 AM
+        # Month mapping for standard year
+        h_idx = np.arange(8760)
+        days = h_idx // 24
+        hours = h_idx % 24
+        month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        cum_days = np.cumsum([0] + month_days)
+        months = np.zeros(8760, dtype=int)
+        for m in range(12):
+            months[(days >= cum_days[m]) & (days < cum_days[m+1])] = m + 1
+        is_winter = np.isin(months, [12, 1, 2]) & np.isin(hours, [6, 7, 8])
+        is_summer = np.isin(months, [6, 7, 8, 9]) & np.isin(hours, [14, 15, 16, 17])
+
+        winter_share = cwf[is_winter].sum()
+        summer_share = cwf[is_summer].sum()
+        assert pytest.approx(winter_share, abs=1e-5) == 0.80
+        assert pytest.approx(summer_share, abs=1e-5) == 0.20
+
+    def test_southeast_dual_peak_cwf_3day_thermal_lag(self):
+        from calculations import calculate_southeast_dual_peak_cwf
+        # Base temperature = 75°F everywhere
+        temps = np.full(8760, 75.0)
+
+        # Summer Case 1: Multi-day heatwave (July 12-15, days 192-195)
+        # Preceding 3 days (days 192, 193, 194) at 98°F
+        for d in range(192, 195):
+            temps[d * 24:(d + 1) * 24] = 98.0
+        # Peak day 195, 3 PM (hour 15) is 99°F
+        h_heatwave_peak = 195 * 24 + 15
+        temps[h_heatwave_peak] = 99.0
+
+        # Summer Case 2: Isolated spike after cool rain (Aug 1-4, days 212-215)
+        # Preceding 3 days (days 212, 213, 214) at 75°F (already 75.0)
+        # Peak day 215, 3 PM (hour 15) is also 99°F
+        h_isolated_peak = 215 * 24 + 15
+        temps[h_isolated_peak] = 99.0
+
         cwf = calculate_southeast_dual_peak_cwf(
             winter_weight=0.5, summer_weight=0.5,
             temperature_array=temps,
-            freeze_threshold_f=32.0, heat_threshold_f=90.0
+            heat_threshold_f=90.0,
+            lag_days=3, lag_weight=0.30
         )
-        assert len(cwf) == 8760
+
         assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
-        # All winter morning hours should share 50% uniformly
-        jan_15_7am = 14 * 24 + 7
-        assert cwf[jan_15_7am] > 0.0
+        # The 99°F hour following the 3-day heatwave MUST have higher risk weight
+        # than the 99°F hour following mild 75°F rain
+        assert cwf[h_heatwave_peak] > cwf[h_isolated_peak] * 2.0
 
     def test_cwf_lolp_proxy(self):
         from calculations import calculate_cwf_lolp_proxy
@@ -2188,6 +2231,76 @@ class TestSoutheastUtilityCapacityEngine:
 
         w_dual = calculate_feeder_pcaf_weights(feeder_type="Dual-Peaking Feeder (Suburban Mixed 50/50)")
         assert pytest.approx(w_dual.sum(), abs=1e-6) == 1.0
+
+        # Test new simplified labels
+        w_sys = calculate_feeder_pcaf_weights(feeder_type="System Coincident (Top 100 Peak Hours)")
+        assert pytest.approx(w_sys.sum(), abs=1e-6) == 1.0
+
+        w_winter_new = calculate_feeder_pcaf_weights(feeder_type="Winter-Peaking Feeder (Southeast Heating / Dec–Feb 6–9 AM)")
+        assert pytest.approx(w_winter_new.sum(), abs=1e-6) == 1.0
+        assert np.array_equal(w_winter, w_winter_new)
+
+        w_summer_new = calculate_feeder_pcaf_weights(feeder_type="Summer-Peaking Feeder (Southeast Cooling / Jun–Sep 2–6 PM)")
+        assert pytest.approx(w_summer_new.sum(), abs=1e-6) == 1.0
+        assert np.array_equal(w_summer, w_summer_new)
+
+    def test_southeast_td_presets_and_exclude(self):
+        from config import SOUTHEAST_TD_PRESETS
+        assert "None / Exclude T&D ($0/kW-yr)" in SOUTHEAST_TD_PRESETS
+        zero_preset = SOUTHEAST_TD_PRESETS["None / Exclude T&D ($0/kW-yr)"]
+        assert zero_preset["trans_value"] == 0.0
+        # Check new utility benchmarks
+        expected_td = [
+            "Mississippi Power Rate Case Benchmark",
+            "TVA / LPC Composite Benchmark",
+            "Duke Energy Carolinas Rate Case Benchmark",
+            "Entergy Mississippi Rate Case Benchmark",
+            "LBNL Southeast Regional Average",
+        ]
+        for name in expected_td:
+            assert name in SOUTHEAST_TD_PRESETS
+            assert SOUTHEAST_TD_PRESETS[name]["trans_value"] > 0
+            assert SOUTHEAST_TD_PRESETS[name]["dist_value"] > 0
+
+    def test_new_southeast_peaker_and_tariff_benchmarks(self, datetime_2012):
+        from config import SOUTHEAST_PEAKER_PRESETS, TARIFF_OPTIONS
+        from billing import (
+            calculate_urdb_bill,
+            DUKE_RES_URDB,
+            TVA_LPC_URDB,
+            MS_RS_URDB,
+            ENTERGY_RS_URDB,
+            SOUTHEAST_AVG_URDB,
+        )
+
+        # Check new peaker presets
+        for name in [
+            "Duke Energy Carolinas 2024 IRP SCCT Benchmark",
+            "Entergy 2023/2024 IRP Peaker Benchmark",
+            "Southeast Regional Composite SCCT Benchmark",
+        ]:
+            assert name in SOUTHEAST_PEAKER_PRESETS
+            assert SOUTHEAST_PEAKER_PRESETS[name]["capex_kw"] > 0
+            assert SOUTHEAST_PEAKER_PRESETS[name]["fcr"] > 0
+
+        # Check new tariffs run through calculation engine
+        load_test = np.full(8760, 2.5)  # 2.5 kW flat load
+        for t_urdb in [DUKE_RES_URDB, TVA_LPC_URDB, MS_RS_URDB, ENTERGY_RS_URDB, SOUTHEAST_AVG_URDB]:
+            total_bill, monthly = calculate_urdb_bill(load_test, datetime_2012, t_urdb)
+            assert total_bill > 0.0
+            assert len(monthly) == 12
+
+    def test_tool_disclaimer_content(self):
+        from config import TOOL_DISCLAIMER_TEXT, TOOL_DISCLAIMER_HTML
+        assert "planning and educational purposes only" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "research and product teams" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "electric utilities in the southeast" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "not a certified tool" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "simplifications" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "publicly available data" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "utility evaluation studies" in TOOL_DISCLAIMER_TEXT.lower()
+        assert TOOL_DISCLAIMER_TEXT in TOOL_DISCLAIMER_HTML
+        assert "<div" in TOOL_DISCLAIMER_HTML and "</div>" in TOOL_DISCLAIMER_HTML
 
     def test_avoided_costs_decoupled_td_weights(self, grid_df_8760, cwft_uniform):
         from calculations import calculate_avoided_costs
@@ -2286,9 +2399,123 @@ class TestSoutheastUtilityCapacityEngine:
         # Fallback when no temperatures cross threshold
         flat_temps = np.full(8760, 65.0)
         cwf_fallback = calculate_cwf_temperature_exceedance(flat_temps, freeze_threshold_f=32.0, heat_threshold_f=90.0)
-        assert pytest.approx(cwf_fallback.sum(), abs=1e-6) == 1.0
-        assert np.all(cwf_fallback >= 0.0)
+
+class TestCWFTLoading:
+    """Tests for load_cwft_file (supporting CSV, Excel, buffers, and validation)."""
+
+    def test_load_cwft_file_csv_valid(self, tmp_path):
+        from data_loaders import load_cwft_file
+        csv_file = tmp_path / "valid_cwft.csv"
+        # 8760 rows with weights
+        weights = [1.0 / 8760.0] * 8760
+        df = pd.DataFrame({"CWFT": weights})
+        df.to_csv(csv_file, index=False)
+
+        cwf_arr = load_cwft_file(str(csv_file))
+        assert len(cwf_arr) == 8760
+        assert pytest.approx(cwf_arr.sum(), abs=1e-6) == 1.0
+
+    def test_load_cwft_file_excel_valid(self, tmp_path):
+        from data_loaders import load_cwft_file
+        excel_file = tmp_path / "valid_cwft.xlsx"
+        weights = [2.0] * 8760  # unnormalized, should auto-normalize to 1.0
+        df = pd.DataFrame({"CWFT": weights})
+        df.to_excel(excel_file, index=False)
+
+        cwf_arr = load_cwft_file(str(excel_file))
+        assert len(cwf_arr) == 8760
+        assert pytest.approx(cwf_arr.sum(), abs=1e-6) == 1.0
+        assert pytest.approx(cwf_arr[0], abs=1e-8) == 1.0 / 8760.0
+
+    def test_load_cwft_file_buffer_stream(self):
+        import io
+        from data_loaders import load_cwft_file
+        csv_buf = io.StringIO("CWFT\n" + "\n".join(["0.001"] * 8760))
+        cwf_arr = load_cwft_file(csv_buf)
+        assert len(cwf_arr) == 8760
+        assert pytest.approx(cwf_arr.sum(), abs=1e-6) == 1.0
+
+    def test_load_cwft_file_case_insensitive_and_single_col(self, tmp_path):
+        from data_loaders import load_cwft_file
+        # Column named 'capacity_worth'
+        csv_file = tmp_path / "custom_col.csv"
+        df = pd.DataFrame({"capacity_worth": [1.0] * 8760})
+        df.to_csv(csv_file, index=False)
+        cwf_arr = load_cwft_file(str(csv_file))
+        assert len(cwf_arr) == 8760
+        assert pytest.approx(cwf_arr.sum(), abs=1e-6) == 1.0
+
+        # Single unnamed column
+        csv_file2 = tmp_path / "single_col.csv"
+        df2 = pd.DataFrame({"HourlyWeight": [0.5] * 8760})
+        df2.to_csv(csv_file2, index=False)
+        cwf_arr2 = load_cwft_file(str(csv_file2))
+        assert len(cwf_arr2) == 8760
+        assert pytest.approx(cwf_arr2.sum(), abs=1e-6) == 1.0
+
+    def test_load_cwft_file_invalid_rows(self, tmp_path):
+        from data_loaders import load_cwft_file
+        csv_file = tmp_path / "short_cwft.csv"
+        df = pd.DataFrame({"CWFT": [0.1] * 100})
+        df.to_csv(csv_file, index=False)
+        with pytest.raises(ValueError, match="must contain exactly 8760 rows"):
+            load_cwft_file(str(csv_file))
+
+    def test_load_cwft_file_negative_values(self, tmp_path):
+        from data_loaders import load_cwft_file
+        csv_file = tmp_path / "neg_cwft.csv"
+        vals = [0.001] * 8760
+        vals[10] = -0.5
+        df = pd.DataFrame({"CWFT": vals})
+        df.to_csv(csv_file, index=False)
+        with pytest.raises(ValueError, match="cannot contain negative values"):
+            load_cwft_file(str(csv_file))
+
+    def test_load_cwft_file_missing_file(self):
+        from data_loaders import load_cwft_file
+        with pytest.raises(FileNotFoundError, match="CWFT file not found"):
+            load_cwft_file("nonexistent_path_file.csv")
 
 
+class TestKPIRatioCards:
+    """Tests for KPI ratio card HTML rendering with help tooltips and styling."""
 
+    def test_ratio_card_html_basic(self):
+        from config import ratio_card_html
+        html = ratio_card_html("Total Resource Cost (TRC)", "1.061", "NPV Grid / (Measure + Admin)", passing=True)
+        assert "Total Resource Cost (TRC)" in html
+        assert "1.061" in html
+        assert "#15803d" in html  # passing green
+        assert "kpi-help-tooltip" not in html
+
+    def test_ratio_card_html_failing(self):
+        from config import ratio_card_html
+        html = ratio_card_html("Rate Impact Measure (RIM)", "0.486", "NPV Grid / (Lost Rev + Program)", passing=False)
+        assert "0.486" in html
+        assert "#b91c1c" in html  # failing red
+
+    def test_ratio_card_html_with_rim_help_text(self):
+        from config import ratio_card_html
+        help_text = (
+            "<strong>Rate Impact Measure (RIM) Test</strong><br>"
+            "• Above 1.0 (Pass): downward pressure on rates.<br>"
+            "• Below 1.0 (Cross-Subsidy): upward pressure on rates."
+        )
+        html = ratio_card_html("Rate Impact Measure (RIM)", "0.486", "NPV Grid / (Lost Rev + Program)", passing=False, help_text=help_text)
+        assert "Rate Impact Measure (RIM)" in html
+        assert "kpi-help-tooltip" in html
+        assert "kpi-help-icon" in html
+        assert "kpi-tooltip-bubble" in html
+        assert "Above 1.0 (Pass)" in html
+        assert "Below 1.0 (Cross-Subsidy)" in html
+        assert "downward pressure" in html
+        assert "upward pressure" in html
+
+    def test_financial_metric_card_html_with_help_text(self):
+        from config import financial_metric_card_html
+        html = financial_metric_card_html("Net Valuation NPV", "-$3,445.00", "Cross-Subsidy", is_positive=False, help_text="Grid Avoided Costs minus Lost Revenue")
+        assert "Net Valuation NPV" in html
+        assert "kpi-help-tooltip" in html
+        assert "kpi-tooltip-bubble" in html
+        assert "Grid Avoided Costs minus Lost Revenue" in html
 

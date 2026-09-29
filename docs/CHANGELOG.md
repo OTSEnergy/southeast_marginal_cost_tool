@@ -2,7 +2,196 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
-## [2026-09-28] — Path Sanitization & Fix for External Directories / Quoted Custom Paths (WinError 123)
+## [2026-09-29] — Moved State(s) Selector to Top of Grid Scenario & Region
+
+### Context
+Reordered the controls in the **Grid Scenario & Region** sidebar expander to place the **State(s)** multi-select at the very top of the section, allowing users to define their target regional geography first before configuring the NREL scenario, planning horizon year, and weather case.
+
+### Changes Made
+- **`app.py`**:
+  - Moved `target_states` multi-select (and multi-state blending caption) to the top of the `Grid Scenario & Region` expander immediately before `selected_scenario`.
+- **`tests/test_calculations.py`**:
+  - Full suite verified: all 148 tests passing.
+
+
+### Context
+Added an explicit planning and educational disclaimer across the application clarifying that the engine is intended to guide research and product teams in understanding what electric utilities in the Southeast value, but is not a certified tool and relies on engineering simplifications and publicly available data, meaning results are not fully representative of formal utility evaluation studies.
+
+### Changes Made
+- **`config.py`**:
+  - Defined centralized constants `TOOL_DISCLAIMER_TEXT` and `TOOL_DISCLAIMER_HTML`.
+- **`app.py`**:
+  - Embedded `TOOL_DISCLAIMER_TEXT` in the sidebar footer beneath the execution and navigation buttons (always visible).
+  - Embedded `TOOL_DISCLAIMER_HTML` at the top of the initial **Instructions & Setup** welcome screen.
+  - Embedded `TOOL_DISCLAIMER_HTML` as a persistent footer at the base of the valuation dashboard across all analysis tabs.
+- **`tests/test_calculations.py`**:
+  - Added `test_tool_disclaimer_content` verifying disclaimer presence, key phrasing, and HTML structure.
+  - All 148 tests passing.
+
+
+### Context
+To broaden the applicability of the Southeast Marginal Cost Tool across the wider Southeast region without introducing a restrictive top-level organization preset selector, empirical rate case and IRP benchmarks were added directly into each relevant modular section:
+1. **T&D Deferral Presets**: Added rate-case derived benchmarks for Mississippi Power ($31/kW-yr), TVA / LPC Composite ($36.50/kW-yr), Duke Energy Carolinas ($42/kW-yr), Entergy Mississippi ($34/kW-yr), and updated the LBNL Southeast Regional Average ($36/kW-yr).
+2. **Combustion Turbine Carrying Cost Presets**: Added Duke Energy Carolinas 2024 IRP SCCT Benchmark ($101.86/kW-yr), Entergy 2023/2024 IRP Peaker Benchmark ($102.50/kW-yr), and Southeast Regional Composite SCCT Benchmark ($104.00/kW-yr).
+3. **Retail Tariff Schedules**: Implemented full URDB V3 JSON schedules and dropdown options for Duke Energy Carolinas Schedule RES, TVA LPC Standard Residential Benchmark, Mississippi Power Schedule RS, Entergy Mississippi Schedule RS, and Southeast Regional Average ($0.135/kWh flat).
+4. **Capacity Risk Allocation (CWF) Guidance**: Updated the Winter Morning Risk Share slider with direct utility calibration guidance (TVA ~85%, Southern Co ~80%, Duke ~70%, Entergy ~65%).
+
+### Changes Made
+- **`config.py`**:
+  - Added new utility entries to `SOUTHEAST_TD_PRESETS`, `SOUTHEAST_PEAKER_PRESETS`, and `TARIFF_OPTIONS`.
+- **`billing.py`**:
+  - Implemented `DUKE_RES_URDB`, `TVA_LPC_URDB`, `MS_RS_URDB`, `ENTERGY_RS_URDB`, and `SOUTHEAST_AVG_URDB`.
+- **`app.py`**:
+  - Dispatched the 5 new retail tariffs into the billing engine.
+  - Enhanced the CWF `Winter Morning Risk Share (%)` slider help and caption with regional utility benchmarks.
+- **`tests/test_calculations.py`**:
+  - Added unit test coverage for new T&D presets, peaker presets, and full 8,760-hour billing calculations for each new tariff.
+  - All 147 tests passing.
+
+
+### Context
+Streamlined the **T&D Deferral & Feeder Constraints** sidebar section to eliminate terminology confusion and cognitive overload:
+1. Renamed expander to **T&D Deferral & Local Feeder Profile** (removing the misleading "Constraints" label, since no physical thermal/MVA limits are modeled).
+2. Clarified and simplified local distribution feeder peaking options into intuitive, plain-English seasonal profiles with timing notes.
+3. Added a dedicated `"None / Exclude T&D ($0/kW-yr)"` preset allowing one-click conservative generation/energy-only sensitivity screening.
+4. Added dynamic **Combined T&D Rate** badge showing total credit ($/kW-yr) and breakdown ($Trans + $Dist).
+5. Relocated the misplaced `Carbon Penalty ($/metric ton CO₂)` slider from T&D into the **Grid Scenario & Region** expander directly alongside Cambium grid emissions.
+6. Fixed a subtle LaTeX display typo in the methodology report that showed `avg_reduct_pcaf` instead of `avg_reduct_dist` for Distribution Deferral.
+
+### Changes Made
+- **`config.py`**:
+  - Added `"None / Exclude T&D ($0/kW-yr)"` to `SOUTHEAST_TD_PRESETS` with `0.00` $/kW-yr values and updated preset descriptions to include total combined $/kW-yr rates.
+  - Simplified `FEEDER_TYPE_OPTIONS` to:
+    - `"System Coincident (Top 100 Peak Hours)"`
+    - `"Winter-Peaking Feeder (Southeast Heating / Dec–Feb 6–9 AM)"`
+    - `"Summer-Peaking Feeder (Southeast Cooling / Jun–Sep 2–6 PM)"`
+    - `"Dual-Peaking Feeder (Suburban Mixed 50/50)"`
+- **`calculations.py`**:
+  - Updated `calculate_feeder_pcaf_weights` signature and docstrings to match the new option names while preserving full backward compatibility with legacy option strings and unit tests.
+- **`app.py`**:
+  - Moved `carbon_tax` slider under a clear `Avoided Emissions Valuation` divider in `Grid Scenario & Region`.
+  - Refactored the T&D expander:
+    - Keyed number inputs to presets (`td_trans_{preset}`, `td_dist_{preset}`) ensuring seamless resets and switching.
+    - Added dynamic status badge (`⚡ Combined T&D Rate: $X/kW-yr` or `ℹ️ T&D Deferral Excluded`).
+    - Added explanatory micro-copy clarifying that Transmission tracks bulk system peak hours while Distribution tracks the local feeder profile.
+  - Corrected LaTeX math report display string for Distribution Credit to use `avg_reduct_dist`.
+- **`tests/test_calculations.py`**:
+  - Added unit tests for new feeder profile option labels and verification of `SOUTHEAST_TD_PRESETS` (including the `$0 / Exclude T&D` preset).
+  - All 146 tests passing.
+- **`docs/app_code_tour.md`**, **`docs/needs_and_gaps.md`**, **`docs/roadmap.md`**:
+  - Updated section names, options, and descriptions across living documentation.
+
+## [2026-09-29] — Added RIM & TRC Help Tooltips (?) with Detailed Metric Definitions
+
+### Context
+The user requested adding a `(?)` help tooltip to the **Rate Impact Measure (RIM)** KPI card on the Executive Overview Scorecard tab, detailing what the RIM test measures and explicitly defining what above 1.0 means (downward rate pressure, no cross-subsidy) versus below 1.0 (upward rate pressure, non-participating ratepayers cross-subsidize participants).
+
+### Changes Made
+- **`config.py`**:
+  - Enhanced `ratio_card_html(label, value, sublabel, passing, help_text=None)` to accept `help_text`. When provided, renders a Lucide-matching circular question-mark SVG icon with hover/focus-activated `.kpi-tooltip-bubble` and formatting.
+  - Enhanced `financial_metric_card_html` to share the same standardized question-mark tooltip icon and bubble styling.
+  - Added CSS rules to `CUSTOM_CSS` for `.kpi-card:hover`, `.kpi-help-tooltip`, `.kpi-help-icon`, and `.kpi-tooltip-bubble` (with arrow indicator, dark slate background, responsive sizing, and bold/italic highlights).
+- **`app.py`**:
+  - Updated `_ratio_card()` helper to accept and pass `help_text` through to `ratio_card_html()`.
+  - Added detailed tooltip content for **Rate Impact Measure (RIM)**:
+    - **Concept**: Evaluates whether the measure increases or decreases electric rates, measuring the impact on non-participating ratepayers.
+    - **Formula/Basis**: `NPV Grid Avoided Costs ÷ (NPV Lost Retail Revenue + Utility Program Costs)`.
+    - **Above 1.0 (Pass)**: Avoided grid savings exceed lost revenue and program costs, putting *downward pressure* on electric rates (benefiting non-participating customers with no cross-subsidy).
+    - **Below 1.0 (Cross-Subsidy)**: Avoided grid savings are less than lost revenue and program costs, putting *upward pressure* on electric rates (non-participating ratepayers cross-subsidize participants).
+  - Also added matching tooltip for **Total Resource Cost (TRC)** for visual and functional consistency across the headline card row.
+- **`docs/glossary.md`**:
+  - Updated the RIM entry in §3 Cost-Effectiveness Tests to include utility program costs in the denominator and document the above/below 1.0 implications.
+- **`tests/test_calculations.py`**:
+  - Added `TestKPIRatioCards` suite (4 tests) verifying basic HTML output, pass/fail color-coding, and tooltip bubble rendering with RIM definitions.
+  - 145 tests passing.
+
+
+## [2026-09-29] — Simplified CWF UI & Added CSV/Excel 8,760 File Upload
+
+### Context
+Streamlined the **Capacity Worth Factor (CWF) / Capacity Risk Allocation** section in `app.py` to eliminate user decision fatigue and prevent cognitive overload from secondary physics/calibration parameters. Kept the primary policy/planning knob (**Winter Morning Risk Share %** slider, default 80% winter / 20% summer) front-and-center, while moving granular physical calibration thresholds (32°F Freeze Threshold, 90°F Heat Threshold, 3-day multi-day thermal memory toggle, 30% thermal memory weight) and alternative academic methodologies into an optional "Advanced Calibration Settings" expander. Simultaneously added browser-based file uploading (`st.file_uploader`) for custom 8,760 CWF profiles supporting both CSV and Excel (`.csv`, `.xlsx`, `.xls`) with auto-detection of column names and sum-to-1 normalization.
+
+### Changes Made
+- **`app.py`**:
+  - Replaced crowded multi-control methodology selectbox and visible physics inputs with a clean two-mode selector:
+    - `"Southeast Dual-Peak (Weather-Driven)"`: Displays clean methodology description, intuitive `Winter Morning Risk Share (%)` slider, and a collapsed `Advanced Calibration Settings` expander for expert tuning.
+    - `"Custom 8,760 File (CSV / Excel)"`: Provides a drag-and-drop `st.file_uploader` for `.csv`, `.xlsx`, and `.xls` files alongside the existing fallback file path input.
+  - Updated avoided cost calculation block to use uploaded buffer or local file path seamlessly.
+- **`data_loaders.py`**:
+  - Enhanced `load_cwft_file(file_or_path)` (aliased to `load_cwft_from_csv` for full backwards compatibility) to handle:
+    - Both string paths and file buffers / `UploadedFile` streams.
+    - Both CSV and Excel (`.xlsx`, `.xls`) formats via `pd.read_excel` and `pd.read_csv`.
+    - Flexible column resolution (looking for `CWFT`, case-insensitive variants like `cwf`, `capacity_worth_factor`, or falling back to single numeric column).
+    - Validation for 8,760 rows, non-negative values, non-null values, and auto-normalization to sum to 1.0.
+- **`docs/app_annotated.py`**:
+  - Updated `load_cwft_from_csv` teaching implementation to document CSV, Excel, and uploaded buffer handling.
+- **`docs/app_code_tour.md`**:
+  - Updated Chapter 7's Capacity Risk Allocation (CWF) description to document the simplified interface and file upload support.
+- **`docs/needs_and_gaps.md`**:
+  - Marked CWFT file uploader in §3.6 as resolved (supporting CSV and Excel).
+- **`tests/test_calculations.py`**:
+  - Added `TestCWFTLoading` test class with 7 comprehensive unit tests covering CSV loading, Excel loading (`.xlsx`), file buffer streams (`io.StringIO`), case-insensitive column names, single unnamed columns, row count validation, and negative value detection.
+  - All 141 tests passing.
+
+## [2026-09-29] — Streamlit Deprecation: Replaced `use_container_width` with `width='stretch'`
+
+### Context
+Streamlit has deprecated `use_container_width` across UI components (`st.button`, `st.download_button`, `st.plotly_chart`, `st.dataframe`), scheduled for removal after 2025-12-31 with the warning:
+`For use_container_width=True, use width='stretch'. For use_container_width=False, use width='content'. Please replace use_container_width with width.`
+
+### Changes Made
+- **`app.py`**:
+  - Replaced all 24 occurrences of `use_container_width=True` with `width="stretch"` across buttons, download buttons, dataframes, and Plotly charts (`st.plotly_chart`).
+  - Total line count of `app.py`: 2,677.
+- **`docs/app_annotated.py`**:
+  - Synchronized all occurrences of `use_container_width=True` to `width="stretch"`.
+  - Noted line count drift between `docs/app_annotated.py` (1,368 lines) and `app.py` (2,677 lines).
+- **`tests/`**:
+  - All 134 automated unit and integration tests passing.
+
+## [2026-09-29] — Default Cambium Grid Planning Year Switched to 2030
+
+### Context
+Switched the default NREL Cambium grid planning horizon year from 2040 (`index=3`) to 2030 (`index=1`).
+In single-representative-year avoided cost engines where a single 8,760-hour profile is escalated over a 15-year asset lifecycle, setting the base year to 2040 effectively projected cash flows from 2040 to 2055 for equipment deployed today (2025/2026). Switching the default to **2030** provides two major advantages:
+1. **Utility IRP & Regulatory Credibility:** Southeast regulated utilities (Southern Company, Alabama Power, Georgia Power, TVA) and public service commissions evaluate resource decisions over 3-to-5 year IRP action plan horizons. Projections for 2030 are anchored in firmly committed solar, battery storage, combustion turbine additions, and scheduled coal retirements, making results far more defensible to utility stakeholders.
+2. **Balanced Lifecycle Representation:** For measures deployed between 2025 and 2027, 2030 represents Year 4–5 of a 15-year measure life, providing a realistic levelized proxy that avoids over-anticipating 2040+ grid decarbonization conditions in near-term cash flows.
+
+### Changes Made
+- **`config.py`**:
+  - Updated `DEFAULT_PLANNING_YEAR_INDEX = 1` (`"2030"`).
+- **`data_loaders.py`**:
+  - Updated `load_and_aggregate_data()` default parameter and docstring to `planning_year="2030"`.
+- **`docs/app_annotated.py`**:
+  - Updated teaching copy `load_and_aggregate_data()` signature to `planning_year="2030"` and sidebar selectbox default `index=1`.
+- **`tests/test_calculations.py`**:
+  - Updated `test_planning_year_options` to assert `config.PLANNING_YEAR_OPTIONS[config.DEFAULT_PLANNING_YEAR_INDEX] == "2030"`.
+  - All 134 tests passing.
+
+## [2026-09-28] — Multi-Day Thermal Buildup (3-Day Rolling Average) & 80% Winter Default for Southeast Dual-Peak CWF
+
+### Context
+Incorporated multi-day antecedent weather memory (thermal inertia / heat buildup / cold penetration) into the Southeast Dual-Peak Capacity Worth Factor (CWF) engine. Accounted for the power systems reality that reliability risk is significantly higher on an extreme day preceded by multiple consecutive extreme days (e.g., a 99°F heatwave peak after three 98°F days vs an isolated 99°F spike after 75°F rain). Configured the default seasonal split to **80% Winter Morning / 20% Summer Afternoon** to align with Southeast utility winter heating capacity risk.
+
+### Changes Made
+- **`calculations.py`**:
+  - Updated `calculate_southeast_dual_peak_cwf()` to accept `winter_weight=0.8, summer_weight=0.2, lag_days=3, lag_weight=0.30`.
+  - Implemented Effective Thermal Stress Temperature ($T_{\text{eff}}$ blend):
+    $$T_{\text{eff}, h} = (1 - \lambda) T_h + \lambda \bar{T}_{3\text{d}, h}$$
+    where $\bar{T}_{3\text{d}, h}$ is the trailing 72-hour (3-day) rolling mean dry-bulb temperature.
+  - Symmetrically enhances winter polar vortex cold snaps and summer heat waves.
+- **`app.py`**:
+  - Defaulted winter morning risk share slider to **80.0%**.
+  - Added sidebar controls: checkbox for "Account for Multi-Day Thermal Buildup / Cold Penetration (3-Day Memory)" (default `True`) and slider for "Thermal Memory Weight (%)" (default `30.0%`).
+  - Wired `lag_days=3, lag_weight=lag_weight_pct / 100.0` into the execution call.
+- **`tests/test_calculations.py`**:
+  - Added `test_southeast_dual_peak_cwf_default_80_20_split`: verifies 80/20 default split.
+  - Added `test_southeast_dual_peak_cwf_3day_thermal_lag`: verifies a 99°F peak following a 3-day 98°F heatwave receives over $2\times$ higher capacity weight than an isolated 99°F spike after 75°F rain.
+  - All 134 tests passing.
+- **Documentation Updated**:
+  - `docs/needs_and_gaps.md`: Updated Section 3.1.
+  - `docs/glossary.md`: Updated Southeast Dual-Peak CWF description with thermal inertia.
+  - `docs/app_code_tour.md`: Updated Chapter 7 sidebar description.
 
 ### Context
 When users point **Load Profiles Source** to **Custom path...** and enter paths outside the repository (e.g. `C:\Users\jhill\Documents\hp_data.xlsx` or `C:\Users\jhill\Documents`), standard Windows interactions (like "Copy as path") wrap paths in quotation marks (`"C:\path..."`). The leading quotation mark caused Python's `os.path.isabs()` to treat the path as relative, prepending the project working directory into illegal path syntax (`C:\repo\"C:`), triggering `[WinError 123] The filename, directory name, or volume label syntax is incorrect`. Additionally, the pipeline was attempting to call `generate_default_load_profiles_file()` on user custom paths rather than reserving synthetic data generation strictly for the default `load_profiles.csv`.

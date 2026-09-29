@@ -157,37 +157,90 @@ def generate_default_cwft_file(filepath="CWFT.csv"):
     return filepath
 
 
-def load_cwft_from_csv(filepath):
+def load_cwft_file(file_or_path):
     """
-    Load and validate a CWFT CSV file.
+    Load and validate an 8,760-hour Capacity Worth Factor Table (CWFT) from a CSV or Excel file.
+
+    Accepts:
+    - filepath string or pathlib.Path (.csv, .xlsx, .xls)
+    - file-like buffer (e.g. io.BytesIO, io.StringIO, or Streamlit UploadedFile)
 
     Requirements:
-    - Must contain a 'CWFT' column
-    - Must have exactly 8760 rows
-    - Values are auto-normalized to sum to 1.0 if they don't already
+    - Must contain exactly 8760 rows
+    - Looks for column 'CWFT' (or case-insensitive 'cwft', 'cwf', 'capacity_worth_factor',
+      'capacity_weight', 'weight'), or defaults to the first column if only one column exists.
+    - Values are auto-normalized to sum to 1.0 if they don't already.
 
     Returns: np.ndarray of shape (8760,)
-    Raises: ValueError on invalid format
+    Raises: ValueError, FileNotFoundError on invalid format or missing file
     """
-    filepath = sanitize_filepath(filepath)
-    if not os.path.exists(filepath):
-        raise FileNotFoundError(f"CWFT CSV file not found: '{filepath}'. Please check that the file exists.")
-    try:
-        df = pd.read_csv(filepath)
-        if 'CWFT' not in df.columns:
-            raise ValueError("The CWFT CSV file must contain a 'CWFT' column.")
-        if len(df) != 8760:
-            raise ValueError(f"The CWFT file must contain exactly 8760 rows (found {len(df)}).")
+    is_path = isinstance(file_or_path, (str, os.PathLike))
+    if is_path:
+        filepath = sanitize_filepath(str(file_or_path))
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"CWFT file not found: '{filepath}'. Please check that the file exists.")
+        ext = os.path.splitext(filepath)[1].lower()
+        try:
+            if ext in ['.xlsx', '.xls']:
+                df = pd.read_excel(filepath)
+            else:
+                df = pd.read_csv(filepath)
+        except Exception as e:
+            raise ValueError(f"Failed to parse CWFT file: {str(e)}")
+    else:
+        # Buffer or Streamlit UploadedFile
+        filename = getattr(file_or_path, 'name', '')
+        ext = os.path.splitext(filename)[1].lower() if filename else ''
+        try:
+            if ext in ['.xlsx', '.xls']:
+                df = pd.read_excel(file_or_path)
+            else:
+                try:
+                    df = pd.read_csv(file_or_path)
+                except Exception:
+                    if hasattr(file_or_path, 'seek'):
+                        file_or_path.seek(0)
+                    df = pd.read_excel(file_or_path)
+        except Exception as e:
+            raise ValueError(f"Failed to parse uploaded CWFT file: {str(e)}")
 
-        cwft_array = df['CWFT'].to_numpy()
-        cwft_sum = cwft_array.sum()
-        if not np.isclose(cwft_sum, 1.0, atol=1e-3):
-            cwft_array = cwft_array / cwft_sum
-        return cwft_array
-    except (ValueError, FileNotFoundError):
-        raise
-    except Exception as e:
-        raise ValueError(f"Failed to parse CWFT CSV: {str(e)}")
+    cwft_col = None
+    if 'CWFT' in df.columns:
+        cwft_col = 'CWFT'
+    else:
+        lower_cols = {str(c).strip().lower(): c for c in df.columns}
+        for candidate in ['cwft', 'cwf', 'capacity_worth_factor', 'capacity_weight', 'capacity_worth', 'weight']:
+            if candidate in lower_cols:
+                cwft_col = lower_cols[candidate]
+                break
+
+        if cwft_col is None:
+            if len(df.columns) == 1:
+                cwft_col = df.columns[0]
+            else:
+                raise ValueError("The CWFT CSV file must contain a 'CWFT' column.")
+
+    if len(df) != 8760:
+        raise ValueError(f"The CWFT file must contain exactly 8760 rows (found {len(df)}).")
+
+    cwft_series = pd.to_numeric(df[cwft_col], errors='coerce')
+    if cwft_series.isna().any():
+        raise ValueError(f"The CWFT column '{cwft_col}' contains non-numeric or missing values.")
+
+    cwft_array = cwft_series.to_numpy(dtype=float)
+    if (cwft_array < 0).any():
+        raise ValueError(f"The CWFT column '{cwft_col}' cannot contain negative values.")
+
+    cwft_sum = cwft_array.sum()
+    if cwft_sum <= 0:
+        raise ValueError("The CWFT column sum must be strictly positive.")
+    if not np.isclose(cwft_sum, 1.0, atol=1e-3):
+        cwft_array = cwft_array / cwft_sum
+
+    return cwft_array
+
+
+load_cwft_from_csv = load_cwft_file
 
 
 # ==============================================================================
@@ -714,7 +767,7 @@ def load_custom_weather_file(weather_case):
     return None
 
 
-def load_and_aggregate_data(target_states, selected_scenario, weather_case, target_year="2026", planning_year="2040", input_directory=INPUT_DIRECTORY):
+def load_and_aggregate_data(target_states, selected_scenario, weather_case, target_year="2026", planning_year="2030", input_directory=INPUT_DIRECTORY):
     """
     Main data ingestion pipeline: load, map, aggregate, and weather-inject.
 
@@ -738,7 +791,7 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
     target_year : str
         Calendar year for datetime alignment (default "2026")
     planning_year : str
-        NREL planning horizon year (default "2040")
+        NREL planning horizon year (default "2030")
     input_directory : str
         Path to Cambium CSV directory (default "./Cambium_Hourly_Data_raw")
 
