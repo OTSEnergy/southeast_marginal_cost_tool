@@ -936,3 +936,426 @@ def find_peak_week(datetime_series, stress_signal, month_filter, mode="max", win
     if best_start is None:
         return None
     return best_start, best_start + window_hours
+
+
+# ==============================================================================
+# WHAT-IF EXPLORER & LOAD SHAPE SANDBOX (RECOMMENDATION 2)
+# ==============================================================================
+
+def apply_what_if_modifications(
+    baseline_load,
+    proposed_load,
+    datetime_series,
+    efficiency_scaling_pct=0.0,
+    peak_shift_enabled=False,
+    peak_shift_kw=0.0,
+    peak_shift_window="Winter Morning (6–9 AM)",
+    recharge_window="Mid-Day (11 AM–3 PM)",
+    round_trip_efficiency=0.85,
+    peak_clipping_enabled=False,
+    peak_clipping_kw=0.0,
+    peak_clipping_window="Both Peak Windows",
+    ev_addon_enabled=False,
+    ev_addon_kw=3.3,
+    ev_start_hour=22,
+    ev_end_hour=6,
+):
+    """
+    Apply interactive load modifications to the proposed load profile,
+    enabling researchers and technology vendors to explore 'what-if'
+    hypotheticals in-app without modifying external simulation CSVs.
+
+    Supports:
+    1. Overall Efficiency Scaling (+/- X% power consumption)
+    2. Peak Shifting / Thermal or Battery Storage (curtail during peak hours,
+       recharge during off-peak hours with round-trip efficiency loss)
+    3. Peak Demand Clipping / Setback (demand limiting during critical windows)
+    4. Technology Add-On Overlays (e.g., Overnight EV Charging)
+
+    Parameters
+    ----------
+    baseline_load : np.ndarray
+        8,760-element baseline load array (kW).
+    proposed_load : np.ndarray
+        8,760-element proposed load array (kW).
+    datetime_series : pd.Series or DatetimeIndex
+        8,760-element timestamps.
+    efficiency_scaling_pct : float
+        Percentage adjustment to proposed demand (e.g. -10% reduces load by 10%).
+    peak_shift_enabled : bool
+        Whether to simulate thermal/battery storage peak shifting.
+    peak_shift_kw : float
+        Amount of power (kW) to shift away from peak hours.
+    peak_shift_window : str
+        "Winter Morning (6–9 AM)", "Summer Afternoon (2–6 PM)", or "Both Peak Windows".
+    recharge_window : str
+        "Mid-Day (11 AM–3 PM)" or "Overnight (12–5 AM)".
+    round_trip_efficiency : float
+        Round-trip efficiency fraction (e.g. 0.85 for 85%).
+    peak_clipping_enabled : bool
+        Whether to clip peak load during critical windows.
+    peak_clipping_kw : float
+        Maximum demand reduction (kW) applied during peak clipping hours.
+    peak_clipping_window : str
+        Target window for peak clipping.
+    ev_addon_enabled : bool
+        Whether to add EV charging demand overlay.
+    ev_addon_kw : float
+        Power demand (kW) added during EV charging hours.
+    ev_start_hour : int
+        Start hour for EV charging (e.g. 22 for 10 PM).
+    ev_end_hour : int
+        End hour for EV charging (e.g. 6 for 6 AM).
+
+    Returns
+    -------
+    tuple of (np.ndarray, dict)
+        (modified_proposed_load, summary_dict)
+    """
+    mod_load = np.asarray(proposed_load, dtype=float).copy()
+    n_hours = len(mod_load)
+    dts = pd.to_datetime(pd.Series(np.asarray(datetime_series)).reset_index(drop=True))
+    months = dts.dt.month.to_numpy()
+    hours = dts.dt.hour.to_numpy()
+    active_bullets = []
+
+    # 1. Proportional Efficiency Scaling
+    if abs(efficiency_scaling_pct) > 1e-4:
+        scale_mult = 1.0 + (efficiency_scaling_pct / 100.0)
+        mod_load = mod_load * scale_mult
+        direction = "reduction" if efficiency_scaling_pct < 0 else "increase"
+        active_bullets.append(f"Efficiency Scaling: {abs(efficiency_scaling_pct):.1f}% demand {direction} across all hours")
+
+    # Helper for peak window masks
+    def _get_window_mask(window_name):
+        mask = np.zeros(n_hours, dtype=bool)
+        if "Winter" in window_name:
+            mask |= np.isin(months, [12, 1, 2]) & np.isin(hours, [6, 7, 8])
+        if "Summer" in window_name:
+            mask |= np.isin(months, [6, 7, 8, 9]) & np.isin(hours, [14, 15, 16, 17])
+        if "Both" in window_name:
+            mask |= (np.isin(months, [12, 1, 2]) & np.isin(hours, [6, 7, 8]))
+            mask |= (np.isin(months, [6, 7, 8, 9]) & np.isin(hours, [14, 15, 16, 17]))
+        return mask
+
+    # 2. Peak Shifting / Storage Simulation
+    if peak_shift_enabled and peak_shift_kw > 0:
+        shift_mask = _get_window_mask(peak_shift_window)
+
+        if "Mid-Day" in recharge_window:
+            recharge_mask = np.isin(hours, [11, 12, 13, 14])
+        else:  # Overnight (12–5 AM)
+            recharge_mask = np.isin(hours, [0, 1, 2, 3, 4])
+
+        days = np.arange(n_hours) // 24
+        eff = max(0.20, min(1.0, float(round_trip_efficiency)))
+
+        for d in np.unique(days):
+            day_mask = (days == d)
+            day_shift = day_mask & shift_mask
+            day_recharge = day_mask & recharge_mask
+
+            if np.any(day_shift) and np.any(day_recharge):
+                # Amount to curtail in each peak hour (cannot curtail more than available load)
+                curtail_amt = np.minimum(mod_load[day_shift], peak_shift_kw)
+                mod_load[day_shift] -= curtail_amt
+                total_curtailed_kwh = float(np.sum(curtail_amt))
+
+                # Energy required to restore charge with round-trip efficiency loss
+                recharge_kwh = total_curtailed_kwh / eff
+                n_recharge_hours = int(np.sum(day_recharge))
+                if n_recharge_hours > 0:
+                    mod_load[day_recharge] += (recharge_kwh / n_recharge_hours)
+
+        active_bullets.append(
+            f"Peak Shifting: {peak_shift_kw:.1f} kW shifted from {peak_shift_window} to {recharge_window} "
+            f"({eff*100:.0f}% round-trip efficiency)"
+        )
+
+    # 3. Peak Clipping / Setback
+    if peak_clipping_enabled and peak_clipping_kw > 0:
+        clip_mask = _get_window_mask(peak_clipping_window)
+        curtail = np.minimum(mod_load[clip_mask], peak_clipping_kw)
+        mod_load[clip_mask] -= curtail
+        active_bullets.append(f"Peak Demand Clipping: Up to {peak_clipping_kw:.1f} kW reduction during {peak_clipping_window}")
+
+    # 4. EV Technology Add-on
+    if ev_addon_enabled and ev_addon_kw > 0:
+        if ev_start_hour > ev_end_hour:  # Crosses midnight (e.g. 22 to 6)
+            ev_mask = (hours >= ev_start_hour) | (hours < ev_end_hour)
+        else:
+            ev_mask = (hours >= ev_start_hour) & (hours < ev_end_hour)
+        mod_load[ev_mask] += ev_addon_kw
+        active_bullets.append(f"EV Charging Add-On: +{ev_addon_kw:.1f} kW added between {ev_start_hour:02d}:00 and {ev_end_hour:02d}:00")
+
+    # Enforce non-negativity
+    mod_load = np.maximum(0.0, mod_load)
+
+    # Summary Metrics
+    orig_kwh = float(np.sum(proposed_load))
+    mod_kwh = float(np.sum(mod_load))
+    net_kwh_delta = mod_kwh - orig_kwh
+
+    orig_peak = float(np.max(proposed_load))
+    mod_peak = float(np.max(mod_load))
+    peak_delta = orig_peak - mod_peak
+
+    summary = {
+        "original_kwh": orig_kwh,
+        "modified_kwh": mod_kwh,
+        "net_kwh_delta": net_kwh_delta,
+        "original_peak_kw": orig_peak,
+        "modified_peak_kw": mod_peak,
+        "peak_reduction_kw": peak_delta,
+        "active_modifications": active_bullets if active_bullets else ["No modifications applied (unaltered load profile)"],
+    }
+    return mod_load, summary
+
+
+# ==============================================================================
+# PERFORMANCE TARGET & GAP CALCULATOR (RECOMMENDATION 3)
+# ==============================================================================
+
+def calculate_cost_effectiveness_gaps(
+    npv_grid_savings,
+    npv_lost_revenue,
+    npv_customer_bill_savings,
+    gross_measure_cost,
+    utility_incentive,
+    utility_admin_cost,
+    annual_grid_savings,
+    annual_lost_revenue,
+    annual_pv_multiplier_grid=1.0,
+    annual_pv_multiplier_customer=1.0,
+    cap_value=110.20,
+    trans_value=15.0,
+    dist_value=15.0,
+    target_payback_years=5.0,
+):
+    """
+    Prescribe specific engineering and financial targets required to bridge
+    the cost-effectiveness gap (TRC >= 1.0, RIM >= 1.0, and target customer payback).
+
+    Parameters
+    ----------
+    npv_grid_savings : float
+        Present value of wholesale grid avoided costs ($).
+    npv_lost_revenue : float
+        Present value of utility retail lost revenue ($).
+    npv_customer_bill_savings : float
+        Present value of customer electric bill savings ($).
+    gross_measure_cost : float
+        Gross upfront installed equipment cost ($).
+    utility_incentive : float
+        Utility rebate / customer incentive ($).
+    utility_admin_cost : float
+        Utility program administration and marketing cost ($).
+    annual_grid_savings : float
+        First-year annual grid avoided cost savings ($/yr).
+    annual_lost_revenue : float
+        First-year annual customer bill savings / utility lost revenue ($/yr).
+    annual_pv_multiplier_grid : float
+        Sum of multi-year PV multipliers for grid avoided costs.
+    annual_pv_multiplier_customer : float
+        Sum of multi-year PV multipliers for customer bill savings.
+    cap_value, trans_value, dist_value : float
+        Avoided generation, transmission, and distribution capacity rates ($/kW-yr).
+    target_payback_years : float
+        Target simple customer payback period (years), e.g. 3.0 or 5.0.
+
+    Returns
+    -------
+    dict
+        Structured metrics detailing capital cost gaps, required peak demand reductions,
+        maximum allowable utility rebates, and target customer payback levers.
+    """
+    total_prog_cost = utility_incentive + utility_admin_cost
+    trc_costs = gross_measure_cost + utility_admin_cost
+    rim_costs = npv_lost_revenue + total_prog_cost
+    net_cust_cost = max(0.0, gross_measure_cost - utility_incentive)
+
+    trc_ratio = _safe_cost_effectiveness_ratio(npv_grid_savings, trc_costs)
+    rim_ratio = _safe_cost_effectiveness_ratio(npv_grid_savings, rim_costs)
+    pct_ratio = _safe_cost_effectiveness_ratio(npv_customer_bill_savings + utility_incentive, gross_measure_cost)
+
+    current_simple_payback = (net_cust_cost / annual_lost_revenue) if annual_lost_revenue > 0 else float('inf')
+
+    # --- 1. Total Resource Cost (TRC) Breakeven Targets (Target = 1.0) ---
+    max_gross_cost_trc = max(0.0, npv_grid_savings - utility_admin_cost)
+    capital_cost_gap = max(0.0, gross_measure_cost - max_gross_cost_trc)
+    req_capital_reduction_pct = (capital_cost_gap / gross_measure_cost * 100.0) if gross_measure_cost > 0 else 0.0
+
+    grid_npv_gap_trc = max(0.0, trc_costs - npv_grid_savings)
+    req_annual_grid_increase_trc = (grid_npv_gap_trc / annual_pv_multiplier_grid) if annual_pv_multiplier_grid > 0 else 0.0
+
+    total_capacity_rate = cap_value + trans_value + dist_value
+    req_peak_reduction_kw_trc = (
+        (req_annual_grid_increase_trc / total_capacity_rate) if total_capacity_rate > 0 else 0.0
+    )
+
+    # --- 2. Rate Impact Measure (RIM) Breakeven Targets (Target = 1.0) ---
+    max_utility_spend_rim = max(0.0, npv_grid_savings - npv_lost_revenue)
+    max_incentive_rim = max(0.0, max_utility_spend_rim - utility_admin_cost)
+    incentive_reduction_needed_rim = max(0.0, utility_incentive - max_incentive_rim)
+    grid_npv_gap_rim = max(0.0, rim_costs - npv_grid_savings)
+
+    # --- 3. Customer Payback Target Solver ---
+    target_net_cust_cost = float(target_payback_years) * annual_lost_revenue
+    req_incentive_for_payback = max(0.0, gross_measure_cost - target_net_cust_cost)
+    incentive_delta_for_payback = max(0.0, req_incentive_for_payback - utility_incentive)
+
+    req_annual_savings_for_payback = (net_cust_cost / float(target_payback_years)) if float(target_payback_years) > 0 else float('inf')
+    annual_savings_delta_for_payback = max(0.0, req_annual_savings_for_payback - annual_lost_revenue)
+
+    # --- 4. Marginal Value Levers ---
+    marginal_1kw_annual = total_capacity_rate
+    marginal_1kw_lifetime = total_capacity_rate * annual_pv_multiplier_grid
+    marginal_10pct_energy_annual = 0.10 * annual_grid_savings
+    marginal_10pct_energy_lifetime = marginal_10pct_energy_annual * annual_pv_multiplier_grid
+
+    return {
+        "current_trc": trc_ratio,
+        "trc_passing": trc_ratio >= 1.0,
+        "current_rim": rim_ratio,
+        "rim_passing": rim_ratio >= 1.0,
+        "current_pct": pct_ratio,
+        "pct_passing": pct_ratio >= 1.0,
+        "current_simple_payback": current_simple_payback,
+        # TRC Levers
+        "max_gross_measure_cost_trc": max_gross_cost_trc,
+        "capital_cost_gap_trc": capital_cost_gap,
+        "capital_reduction_pct_trc": req_capital_reduction_pct,
+        "grid_npv_gap_trc": grid_npv_gap_trc,
+        "annual_grid_increase_needed_trc": req_annual_grid_increase_trc,
+        "coincident_kw_reduction_needed_trc": req_peak_reduction_kw_trc,
+        # RIM Levers
+        "max_incentive_rim": max_incentive_rim,
+        "incentive_reduction_needed_rim": incentive_reduction_needed_rim,
+        "grid_npv_gap_rim": grid_npv_gap_rim,
+        # Customer Payback Levers
+        "target_payback_years": float(target_payback_years),
+        "target_net_customer_cost": target_net_cust_cost,
+        "required_incentive_for_target_payback": req_incentive_for_payback,
+        "additional_incentive_needed": incentive_delta_for_payback,
+        "required_annual_savings_for_payback": req_annual_savings_for_payback,
+        "additional_annual_savings_needed": annual_savings_delta_for_payback,
+        # Marginal Improvement Levers
+        "marginal_1kw_annual_value": marginal_1kw_annual,
+        "marginal_1kw_lifetime_value": marginal_1kw_lifetime,
+        "marginal_10pct_energy_annual": marginal_10pct_energy_annual,
+        "marginal_10pct_energy_lifetime": marginal_10pct_energy_lifetime,
+    }
+
+
+# ==============================================================================
+# PARAMETRIC SENSITIVITY SWEEPS (RECOMMENDATION 6)
+# ==============================================================================
+
+def calculate_parametric_sweep(
+    sweep_param,
+    min_val,
+    max_val,
+    steps=15,
+    base_gross_measure_cost=10000.0,
+    base_utility_incentive=1500.0,
+    base_utility_admin_cost=500.0,
+    base_discount_rate=7.0,
+    base_customer_discount_rate=7.0,
+    base_cap_value=110.20,
+    base_asset_life=15,
+    base_escalation_rate=2.0,
+    base_retail_escalation_rate=2.0,
+    base_degradation_rate=0.5,
+    annual_grid_savings=100.0,
+    annual_lost_revenue=150.0,
+):
+    """
+    Perform a 1D parametric sensitivity sweep across a user-specified parameter range,
+    computing the resulting TRC, RIM, PCT, and Payback periods at each step.
+
+    Parameters
+    ----------
+    sweep_param : str
+        One of: 'gross_measure_cost', 'utility_incentive', 'discount_rate',
+        'customer_discount_rate', 'cap_value', 'asset_life'.
+    min_val : float
+        Minimum value of sweep range.
+    max_val : float
+        Maximum value of sweep range.
+    steps : int
+        Number of interpolation points (default 15).
+    ... base financial & valuation inputs ...
+
+    Returns
+    -------
+    pd.DataFrame
+        Table with parameter value, TRC, RIM, PCT, Simple Payback, Discounted Payback,
+        and Net Valuation NPV.
+    """
+    param_vals = np.linspace(float(min_val), float(max_val), int(steps))
+    records = []
+
+    for val in param_vals:
+        # Clone parameters with the swept variable overridden
+        g_cost = float(val) if sweep_param == "gross_measure_cost" else float(base_gross_measure_cost)
+        u_inc = float(val) if sweep_param == "utility_incentive" else float(base_utility_incentive)
+        u_adm = float(base_utility_admin_cost)
+        d_rate = float(val) if sweep_param == "discount_rate" else float(base_discount_rate)
+        c_d_rate = float(val) if sweep_param == "customer_discount_rate" else float(base_customer_discount_rate)
+        a_life = int(round(val)) if sweep_param == "asset_life" else int(base_asset_life)
+        a_life = max(1, a_life)
+
+        # Handle capacity scalar variation
+        grid_savings_annual = float(annual_grid_savings)
+        if sweep_param == "cap_value":
+            # Scale capacity portion proportionally
+            cap_ratio = float(val) / float(base_cap_value) if base_cap_value > 0 else 1.0
+            grid_savings_annual = annual_grid_savings * cap_ratio
+
+        # Compute multi-year PV multipliers
+        years = np.arange(1, a_life + 1)
+        grid_esc = (1.0 + (base_escalation_rate / 100.0)) ** (years - 1)
+        ret_esc = (1.0 + (base_retail_escalation_rate / 100.0)) ** (years - 1)
+        deg = (1.0 - (base_degradation_rate / 100.0)) ** (years - 1)
+        disc_u = 1.0 / ((1.0 + (d_rate / 100.0)) ** years)
+        disc_c = 1.0 / ((1.0 + (c_d_rate / 100.0)) ** years)
+
+        pv_mult_grid = (grid_esc * deg * disc_u).sum()
+        pv_mult_retail = (ret_esc * deg * disc_u).sum()
+        pv_mult_customer = (ret_esc * deg * disc_c).sum()
+
+        npv_grid = grid_savings_annual * pv_mult_grid
+        npv_lost = float(annual_lost_revenue) * pv_mult_retail
+        npv_bill_savings = float(annual_lost_revenue) * pv_mult_customer
+
+        cust_stream = float(annual_lost_revenue) * ret_esc * deg
+        cust_pv_multipliers = ret_esc * deg * disc_c
+
+        tests = calculate_cost_effectiveness_tests(
+            npv_grid_savings=npv_grid,
+            npv_lost_revenue=npv_lost,
+            npv_customer_bill_savings=npv_bill_savings,
+            gross_measure_cost=g_cost,
+            utility_incentive=u_inc,
+            utility_admin_cost=u_adm,
+            annual_customer_savings_stream=cust_stream,
+            pv_multipliers=cust_pv_multipliers,
+        )
+
+        npv_net = npv_grid - npv_lost - (u_inc + u_adm)
+
+        records.append({
+            "param_value": float(val),
+            "trc_ratio": float(tests["trc_ratio"]) if np.isfinite(tests["trc_ratio"]) else np.nan,
+            "rim_ratio": float(tests["rim_ratio"]) if np.isfinite(tests["rim_ratio"]) else np.nan,
+            "pct_ratio": float(tests["pct_ratio"]) if np.isfinite(tests["pct_ratio"]) else np.nan,
+            "simple_payback": min(50.0, float(tests["simple_payback"])) if np.isfinite(tests["simple_payback"]) else 50.0,
+            "discounted_payback": min(50.0, float(tests["discounted_payback"])) if np.isfinite(tests["discounted_payback"]) else 50.0,
+            "npv_grid_savings": npv_grid,
+            "npv_retail_lost_revenue": npv_lost,
+            "npv_net_valuation": npv_net,
+            "net_customer_cost": float(tests["net_customer_cost"]),
+        })
+
+    return pd.DataFrame(records)
+

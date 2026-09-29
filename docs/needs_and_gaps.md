@@ -295,71 +295,41 @@ basis in those two tabs too, or add a caption caveat on them when DR Mode is act
 
 ## 5. User Experience & Interface Gaps
 
-### 5.1 🔴 No User Role / View Mode Architecture
-The project abstract explicitly defines two interfaces:
-> - *Utility-Oriented View: Allows utility teams to tune, validate, and control relevant economic and grid parameters.*
-> - *Vendor-Oriented View: Provides simplified utility-side assumptions while emphasizing the vendor's key product parameters.*
-
-The project plan also mentions a possible **Researcher mode**.
-
-**Gap:** The current tool has **one monolithic view**. All parameters are visible and adjustable by all users. There is no role-based filtering, simplified vendor dashboard, or permission/access model.
-
-**What's Needed:**
-- A top-level mode selector (Utility / Vendor / Researcher)
-- **Utility mode:** Full access to all valuation scalars, CWFT, PCAF, tariff structures, debugger
-- **Vendor mode:** Lock/hide grid valuation parameters; emphasize product cost inputs, payback, performance targets, improvement guidance
-- **Researcher mode:** Everything visible, plus raw data exports and detailed hourly breakdowns
-- This is a fundamental UX architecture decision that will affect nearly every UI element
+### 5.1 ✅ User Role / View Mode Architecture — Resolved (2026-09-29)
+> **[Assistant, 2026-09-29]:** Activated the top-of-UI Stakeholder View mode switcher with three distinct roles:
+> - **Utility View:** Prioritizes avoided generation capacity (ECC of CT), TRC and RIM tests, and bulk/feeder coincident peak reduction.
+> - **Manufacturer / Vendor View:** Prioritizes customer bill savings, payback horizons, customer ROI (PCT), and commercialization gap targets.
+> - **Tech Research View:** Full transparency, 8,760 timeseries, the What-If Sandbox, parametric sensitivity sweeps, and data diagnostics.
+> Overview Scorecard now renders role-tailored summary strips based on the active persona.
 
 ---
 
-### 5.2 🟡 No Technology Improvement Guidance / Targets
-The project plan prioritizes:
-> *"Highlight the periods of 'best' and 'worst' performance... Present hypotheticals on the gap between cost effective and not..."*
-
-**Gap:** The tool shows results but provides **no interpretive guidance**. It doesn't tell you:
-- Which hours/periods the technology performs well vs. poorly
-- What performance improvement would be needed to reach cost-effectiveness (e.g., "reduce winter peak by X kW" or "cut cost by Y%")
-- Parametric "what-if" results (e.g., "if capital cost were $500 less, payback drops to Z years")
-
-**What's Needed:**
-- A "Performance Analysis" tab or section that:
-  - Identifies the top N hours/periods where load reduction is lowest relative to grid value
-  - Calculates the marginal value of additional peak reduction
-  - Shows parametric sensitivity: "if EPC improved by 10%, capacity savings increase by $X"
-- A cost-effectiveness gap calculator: "to achieve RIM ≥ 1.0, one of the following must change: ..."
-- Pre-set "examinations" as mentioned in the plan (template analyses that run automatically)
+### 5.2 ✅ Technology Improvement Guidance / Targets — Resolved (2026-09-29)
+> **[Assistant, 2026-09-29]:** Implemented `calculate_cost_effectiveness_gaps()` in `calculations.py` and built a dedicated **Performance Targets & Gap Calculator** tab:
+> - Evaluates exact TRC breakeven levers: maximum allowable gross installed cost, required capital cost reduction ($ and %), required coincident peak reduction (kW), and additional annual grid savings ($/yr).
+> - Evaluates RIM breakeven levers: maximum allowable utility incentive to prevent cross-subsidies.
+> - Provides an interactive **Customer Payback Target Solver** (user adjusts target years; engine outputs required utility rebate or bill savings).
+> - Provides a **Marginal Engineering Value Levers** reference table showing the annual and lifetime value of 1 kW peak reduction and 10% efficiency improvement.
 
 ---
 
-### 5.3 🟡 No Explorer / What-If Sandbox
-The project plan describes:
-> *"Basic ability to input modest 'what ifs' to slightly modify the modeled scenario... Example: let the user adjust power for key hours"*
-
-**Gap:** Users cannot modify load profiles within the app. They must externally edit CSVs and re-upload.
-
-**What's Needed:**
-- In-app load profile editor (at minimum: scale factors by season, hour-of-day, or individual hours)
-- Quick scenario toggles: "add X kW of EV charging during hours Y-Z"
-- Side-by-side comparison of original vs. modified profile
+### 5.3 ✅ In-App "What-If" Explorer & Load Shape Sandbox — Resolved (2026-09-29)
+> **[Assistant, 2026-09-29]:** Implemented `apply_what_if_modifications()` in `calculations.py` and built the **What-If Explorer (Tech Sandbox)** tab:
+> - Supports overall proportional efficiency scaling (+/- X% power).
+> - Supports thermal storage / battery peak shifting with configurable peak window, recharge window, curtailment kW, and round-trip efficiency loss.
+> - Supports peak demand clipping / setback during critical hours.
+> - Supports technology add-on overlays (e.g. overnight EV charging).
+> - Interactive 7-day preview comparison chart (`build_what_if_comparison_chart()`).
+> - One-click toggle `⚡ Apply Sandbox Load to Entire Valuation Engine` allowing users to instantly re-evaluate avoided costs, retail bills, NPV, and SPM tests on the modified load profile.
 
 ---
 
-### 5.4 🟡 No Audience-Specific Visualizations
-The project plan calls for:
-> *"Data visualizations to 'speak the language' of the respective audiences (e.g., building-level graphs for the manufacturer and utility-oriented visualizations for the utility)"*
-
-**Gap:** All current visualizations are utility/grid-oriented ($/MWh stacked areas, CWFT coincidence tables, NPV cash flows). There are no:
-- Building-level energy use breakdowns (by end-use: heating, cooling, baseload)
-- Customer bill waterfall charts
-- Technology comparison dashboards
-- Simplified "is my product valuable?" summary cards for vendors
-
-**What's Needed:**
-- Vendor-facing charts: monthly bill comparison bar charts, payback timeline, "value heatmap" (hour-of-day × month showing $/kWh value)
-- Utility-facing charts: already mostly present, but could add regional comparison maps, IRP integration summaries
-
----
+### 5.4 ✅ Audience-Specific Visualizations & Parametric Sweeps — Resolved (2026-09-29)
+> **[Assistant, 2026-09-29]:** Implemented customer and vendor-oriented charts and parametric sweeps:
+> - **Customer Bill Waterfall Chart** (`build_customer_bill_waterfall_chart`): Baseline Bill -> Savings -> Proposed Bill.
+> - **Payback Timeline Chart** (`build_payback_timeline_chart`): Cumulative nominal and discounted bill savings vs. upfront net investment with simple and discounted payback breakeven crossover markers.
+> - **12-Month Bill Comparison Bar Chart** (`build_monthly_bill_comparison_chart`): Monthly baseline vs. proposed bills and monthly savings.
+> - **Parametric Sensitivity Sweeps Tab** (`calculate_parametric_sweep` & `build_parametric_sweep_chart`): 1D sweeps across Gross Measure Cost, Rebates, WACC, Customer Discount Rate, Capacity Credit, and Asset Life with interactive dual-axis Plotly curves.
 
 ### 5.5 🟢 Dashboard Tab Organization Could Be Improved
 > **[John/Assistant, 2026-08-18]:** ✅ Resolved for now — tabs consolidated from 9 to 7

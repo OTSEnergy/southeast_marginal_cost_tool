@@ -1682,5 +1682,397 @@ def build_cumulative_cost_chart(datetime_series, utility_net_hr, baseline_custom
     return fig
 
 
+# ==============================================================================
+# VENDOR & CUSTOMER-FACING VISUALIZATIONS (RECOMMENDATION 10)
+# ==============================================================================
+
+def build_customer_bill_waterfall_chart(baseline_bill, proposed_bill, tariff_name=""):
+    """
+    Construct a Waterfall chart showing the customer annual electric bill progression:
+    Baseline Annual Bill -> Annual Customer Savings (-) -> Proposed Annual Bill.
+
+    Parameters
+    ----------
+    baseline_bill : float
+        Annual customer electric bill under Baseline profile ($).
+    proposed_bill : float
+        Annual customer electric bill under Proposed profile ($).
+    tariff_name : str, optional
+        Name of the retail tariff schedule.
+
+    Returns
+    -------
+    go.Figure
+    """
+    diff = float(proposed_bill) - float(baseline_bill)
+    is_saving = diff <= 0
+
+    x_labels = [
+        "Baseline Annual Bill",
+        "Annual Bill Savings" if is_saving else "Annual Bill Increase",
+        "Proposed Annual Bill",
+    ]
+    y_vals = [float(baseline_bill), diff, float(proposed_bill)]
+    text_labels = [
+        f"${baseline_bill:,.2f}",
+        f"{'-' if is_saving else '+'}${abs(diff):,.2f}",
+        f"${proposed_bill:,.2f}",
+    ]
+
+    fig = go.Figure(go.Waterfall(
+        name="Annual Electric Bill",
+        orientation="v",
+        measure=["absolute", "relative", "total"],
+        x=x_labels,
+        textposition="outside",
+        text=text_labels,
+        y=y_vals,
+        connector={"line": {"color": "#94A3B8", "width": 1.5}},
+        decreasing={"marker": {"color": COLORS["green"]}},
+        increasing={"marker": {"color": COLORS["red"]}},
+        totals={"marker": {"color": "#0284C7"}},
+        hovertemplate="%{x}<br>Amount: %{text}<extra></extra>"
+    ))
+
+    title_text = f"Customer Annual Bill Impact ({tariff_name})" if tariff_name else "Customer Annual Bill Impact"
+    fig.update_layout(
+        title=dict(text=title_text, font=dict(size=14, color="#1E293B")),
+        template="plotly_white",
+        height=420,
+        showlegend=False,
+        yaxis=dict(title="Annual Bill ($)", tickformat="$,.0f", gridcolor="#F1F5F9"),
+        xaxis=dict(gridcolor="#F1F5F9"),
+        margin=dict(l=60, r=40, t=50, b=40),
+    )
+    return fig
+
+
+def build_payback_timeline_chart(net_customer_cost, annual_savings_stream, pv_multipliers, simple_payback, discounted_payback):
+    """
+    Cumulative Customer Cash Flow / Payback Timeline Chart showing:
+    - Upfront Net Investment Outlay (Gross Measure Cost - Utility Incentive)
+    - Cumulative Nominal Customer Bill Savings ($)
+    - Cumulative Discounted Customer Bill Savings ($)
+    - Breakeven crossover points for Simple Payback and Discounted Payback.
+
+    Parameters
+    ----------
+    net_customer_cost : float
+        Upfront out-of-pocket measure cost ($).
+    annual_savings_stream : np.ndarray
+        Array of nominal customer bill savings for each year.
+    pv_multipliers : np.ndarray
+        Array of PV multipliers for each year.
+    simple_payback : float
+        Simple payback in years.
+    discounted_payback : float
+        Discounted payback in years.
+
+    Returns
+    -------
+    go.Figure
+    """
+    n_years = len(annual_savings_stream)
+    years = np.arange(0, n_years + 1)
+
+    cum_nominal = np.concatenate([[0.0], np.cumsum(annual_savings_stream)])
+    cum_discounted = np.concatenate([[0.0], np.cumsum(annual_savings_stream * pv_multipliers)])
+
+    fig = go.Figure()
+
+    # Net Upfront Investment Outlay Line
+    fig.add_trace(go.Scatter(
+        x=[0, n_years],
+        y=[net_customer_cost, net_customer_cost],
+        name="Net Investment Outlay",
+        mode="lines",
+        line=dict(color="#DC2626", width=2, dash="dash"),
+        hovertemplate="Net Initial Cost: $%{y:,.2f}<extra></extra>"
+    ))
+
+    # Cumulative Nominal Savings
+    fig.add_trace(go.Scatter(
+        x=years,
+        y=cum_nominal,
+        name="Cumulative Bill Savings (Nominal)",
+        mode="lines+markers",
+        line=dict(color="#0D9488", width=2.5),
+        marker=dict(size=5),
+        hovertemplate="Year %{x}: $%{y:,.2f} (Nominal)<extra></extra>"
+    ))
+
+    # Cumulative Discounted Savings
+    fig.add_trace(go.Scatter(
+        x=years,
+        y=cum_discounted,
+        name="Cumulative Bill Savings (Discounted / NPV)",
+        mode="lines+markers",
+        line=dict(color="#0284C7", width=2.5),
+        marker=dict(size=5),
+        fill="tozeroy",
+        fillcolor="rgba(2, 132, 199, 0.08)",
+        hovertemplate="Year %{x}: $%{y:,.2f} (Discounted)<extra></extra>"
+    ))
+
+    # Breakeven Annotations / Markers
+    if np.isfinite(simple_payback) and 0 < simple_payback <= n_years:
+        fig.add_vline(
+            x=simple_payback, line_width=1.5, line_dash="dot", line_color="#0D9488",
+            annotation_text=f"Simple Payback: {simple_payback:.1f} yrs",
+            annotation_position="top left",
+            annotation_font=dict(size=11, color="#0D9488", weight="bold")
+        )
+
+    if np.isfinite(discounted_payback) and 0 < discounted_payback <= n_years:
+        fig.add_vline(
+            x=discounted_payback, line_width=1.5, line_dash="dot", line_color="#0284C7",
+            annotation_text=f"Discounted Payback: {discounted_payback:.1f} yrs",
+            annotation_position="bottom right",
+            annotation_font=dict(size=11, color="#0284C7", weight="bold")
+        )
+
+    fig.update_layout(
+        title=dict(text="Customer Cumulative Cash Flow & Payback Timeline", font=dict(size=14, color="#1E293B")),
+        template="plotly_white",
+        height=450,
+        hovermode="x unified",
+        xaxis=dict(title="Year of Operation", dtick=1, gridcolor="#F1F5F9"),
+        yaxis=dict(title="Cumulative Cash Flow ($)", tickformat="$,.0f", gridcolor="#F1F5F9"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=60, r=40, t=60, b=40),
+    )
+    return fig
+
+
+def build_monthly_bill_comparison_chart(monthly_baseline_bills, monthly_proposed_bills):
+    """
+    Grouped bar chart comparing Baseline vs Proposed monthly utility bills across all 12 calendar months,
+    with monthly customer savings clearly highlighted.
+
+    Parameters
+    ----------
+    monthly_baseline_bills : list or np.ndarray
+        12 monthly bills for Baseline ($).
+    monthly_proposed_bills : list or np.ndarray
+        12 monthly bills for Proposed ($).
+
+    Returns
+    -------
+    go.Figure
+    """
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    base = np.asarray(monthly_baseline_bills, dtype=float)
+    prop = np.asarray(monthly_proposed_bills, dtype=float)
+    savings = base - prop
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        x=months, y=base, name="Baseline Bill",
+        marker_color="#64748B",
+        hovertemplate="Baseline: $%{y:,.2f}<extra></extra>"
+    ))
+
+    fig.add_trace(go.Bar(
+        x=months, y=prop, name="Proposed Bill",
+        marker_color="#0284C7",
+        hovertemplate="Proposed: $%{y:,.2f}<extra></extra>"
+    ))
+
+    # Add savings as a connected line or text
+    fig.add_trace(go.Scatter(
+        x=months, y=savings, name="Monthly Savings ($)",
+        mode="lines+markers+text",
+        line=dict(color=COLORS["green"], width=2),
+        marker=dict(size=6, color=COLORS["green"]),
+        text=[f"${s:,.0f}" if s >= 0 else f"-${abs(s):,.0f}" for s in savings],
+        textposition="top center",
+        textfont=dict(size=10, color=COLORS["green"]),
+        hovertemplate="Savings: $%{y:,.2f}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        title=dict(text="Monthly Electric Bill Comparison & Savings", font=dict(size=14, color="#1E293B")),
+        template="plotly_white",
+        barmode="group",
+        height=440,
+        hovermode="x unified",
+        xaxis=dict(title="Month", gridcolor="#F1F5F9"),
+        yaxis=dict(title="Monthly Bill ($)", tickformat="$,.0f", gridcolor="#F1F5F9"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=60, r=40, t=60, b=40),
+    )
+    return fig
+
+
+# ==============================================================================
+# WHAT-IF COMPARISON & PARAMETRIC CHARTS (RECOMMENDATIONS 2 & 6)
+# ==============================================================================
+
+def build_what_if_comparison_chart(datetime_series, baseline_load, original_proposed, modified_proposed, start_idx=0, end_idx=168, window_title="Sample 7-Day Window"):
+    """
+    Subplot chart comparing:
+    - Top Row: Baseline Load vs Original Proposed vs Sandbox Modified Proposed Load (kW)
+    - Bottom Row: Hourly Load Difference / Impact of Sandbox Adjustments (kW)
+
+    Parameters
+    ----------
+    datetime_series : pd.Series or DatetimeIndex
+    baseline_load, original_proposed, modified_proposed : np.ndarray
+    start_idx, end_idx : int
+    window_title : str
+
+    Returns
+    -------
+    go.Figure
+    """
+    dts = pd.to_datetime(pd.Series(np.asarray(datetime_series)).reset_index(drop=True))
+    slice_dts = dts.iloc[start_idx:end_idx]
+    slice_base = np.asarray(baseline_load)[start_idx:end_idx]
+    slice_orig = np.asarray(original_proposed)[start_idx:end_idx]
+    slice_mod = np.asarray(modified_proposed)[start_idx:end_idx]
+    slice_delta = slice_mod - slice_orig
+
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.12,
+        subplot_titles=(
+            f"Electric Demand Profile ({window_title})",
+            "Sandbox Load Impact (Modified − Original Proposed, kW)"
+        ),
+        row_heights=[0.65, 0.35]
+    )
+
+    # Row 1: Load Profiles
+    fig.add_trace(go.Scatter(
+        x=slice_dts, y=slice_base, name="Baseline Load",
+        mode="lines", line=dict(color="#64748B", width=1.5, dash="dot"),
+        hovertemplate="Baseline: %{y:.2f} kW<extra></extra>"
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=slice_dts, y=slice_orig, name="Original Proposed",
+        mode="lines", line=dict(color="#0284C7", width=2),
+        hovertemplate="Original Proposed: %{y:.2f} kW<extra></extra>"
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=slice_dts, y=slice_mod, name="Sandbox Modified",
+        mode="lines", line=dict(color="#0D9488", width=2.5),
+        hovertemplate="Sandbox Modified: %{y:.2f} kW<extra></extra>"
+    ), row=1, col=1)
+
+    # Row 2: Signed Delta Bars
+    _add_signed_bars(
+        fig=fig, x=slice_dts, y=slice_delta, row=2,
+        positive_name="Load Increase (Recharge / Add-on)",
+        negative_name="Load Curtailment / Peak Shift",
+        pos_color=COLORS["red"],
+        neg_color=COLORS["green"]
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        height=540,
+        hovermode="x unified",
+        margin=dict(l=60, r=40, t=50, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    fig.update_yaxes(title_text="Demand (kW)", row=1, col=1, gridcolor="#F1F5F9")
+    fig.update_yaxes(title_text="Delta (kW)", row=2, col=1, gridcolor="#F1F5F9")
+    fig.update_xaxes(title_text="Date & Time", row=2, col=1, gridcolor="#F1F5F9")
+    return fig
+
+
+def build_parametric_sweep_chart(sweep_df, param_name, current_val, x_label, is_currency=False, is_percent=False):
+    """
+    Construct a dual-axis interactive chart for Parametric Sensitivity Sweeps:
+    - Primary Y-Axis: Cost-Effectiveness Ratios (TRC, RIM, PCT) with 1.0 threshold line.
+    - Secondary Y-Axis: Simple Payback Period (Years).
+    - Vertical marker at the baseline run's parameter value.
+
+    Parameters
+    ----------
+    sweep_df : pd.DataFrame
+        DataFrame produced by calculate_parametric_sweep().
+    param_name : str
+    current_val : float
+    x_label : str
+    is_currency : bool
+    is_percent : bool
+
+    Returns
+    -------
+    go.Figure
+    """
+    x_vals = sweep_df["param_value"]
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # 1. TRC Ratio
+    fig.add_trace(go.Scatter(
+        x=x_vals, y=sweep_df["trc_ratio"], name="TRC Ratio (Total Resource Cost)",
+        mode="lines+markers", line=dict(color="#0D9488", width=2.5),
+        marker=dict(size=5),
+        hovertemplate="TRC: %{y:.2f}<extra></extra>"
+    ), secondary_y=False)
+
+    # 2. RIM Ratio
+    fig.add_trace(go.Scatter(
+        x=x_vals, y=sweep_df["rim_ratio"], name="RIM Ratio (Rate Impact Measure)",
+        mode="lines+markers", line=dict(color="#0284C7", width=2),
+        marker=dict(size=5),
+        hovertemplate="RIM: %{y:.2f}<extra></extra>"
+    ), secondary_y=False)
+
+    # 3. PCT Ratio
+    fig.add_trace(go.Scatter(
+        x=x_vals, y=sweep_df["pct_ratio"], name="PCT Ratio (Participant ROI)",
+        mode="lines+markers", line=dict(color="#8B5CF6", width=2),
+        marker=dict(size=5),
+        hovertemplate="PCT: %{y:.2f}<extra></extra>"
+    ), secondary_y=False)
+
+    # 4. Simple Payback (Secondary Axis)
+    fig.add_trace(go.Scatter(
+        x=x_vals, y=sweep_df["simple_payback"], name="Simple Payback (Years)",
+        mode="lines+markers", line=dict(color="#F59E0B", width=2, dash="dash"),
+        marker=dict(size=5, symbol="diamond"),
+        hovertemplate="Payback: %{y:.1f} yrs<extra></extra>"
+    ), secondary_y=True)
+
+    # Breakeven 1.0 threshold line
+    fig.add_hline(
+        y=1.0, line_width=1.5, line_dash="dot", line_color="#475569",
+        secondary_y=False,
+        annotation_text="Breakeven (Ratio = 1.0)",
+        annotation_position="bottom right",
+        annotation_font=dict(size=10, color="#475569")
+    )
+
+    # Vertical line at current value
+    fig.add_vline(
+        x=current_val, line_width=2, line_dash="dash", line_color="#DC2626",
+        annotation_text=f"Current: {current_val:,.1f}",
+        annotation_position="top left",
+        annotation_font=dict(size=11, color="#DC2626", weight="bold")
+    )
+
+    x_tickformat = "$,.0f" if is_currency else (".1f%" if is_percent else None)
+
+    fig.update_layout(
+        title=dict(text=f"Parametric Sensitivity Sweep: Impact of {x_label}", font=dict(size=14, color="#1E293B")),
+        template="plotly_white",
+        height=480,
+        hovermode="x unified",
+        xaxis=dict(title=x_label, tickformat=x_tickformat, gridcolor="#F1F5F9"),
+        yaxis=dict(title="Benefit-Cost Ratio", tickformat=".2f", gridcolor="#F1F5F9"),
+        yaxis2=dict(title="Simple Payback (Years)", overlaying="y", side="right", showgrid=False),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=60, r=60, t=60, b=40),
+    )
+    return fig
+
+
+
 
 

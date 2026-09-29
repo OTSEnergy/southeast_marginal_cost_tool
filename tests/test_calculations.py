@@ -2519,3 +2519,263 @@ class TestKPIRatioCards:
         assert "kpi-tooltip-bubble" in html
         assert "Grid Avoided Costs minus Lost Revenue" in html
 
+
+class TestWhatIfSandbox:
+    """Validates the in-app What-If load shape sandbox (Recommendation 2)."""
+
+    def test_efficiency_scaling(self, constant_load_1kw, datetime_2012):
+        from calculations import apply_what_if_modifications
+        mod_load, summary = apply_what_if_modifications(
+            baseline_load=constant_load_1kw,
+            proposed_load=constant_load_1kw,
+            datetime_series=datetime_2012,
+            efficiency_scaling_pct=-10.0
+        )
+        assert len(mod_load) == 8760
+        np.testing.assert_allclose(mod_load, 0.90, rtol=1e-5)
+        assert summary["net_kwh_delta"] < 0
+        assert pytest.approx(summary["modified_kwh"], rel=1e-4) == 8760 * 0.90
+
+    def test_peak_shifting_storage(self, constant_load_1kw, datetime_2012):
+        from calculations import apply_what_if_modifications
+        mod_load, summary = apply_what_if_modifications(
+            baseline_load=constant_load_1kw,
+            proposed_load=constant_load_1kw,
+            datetime_series=datetime_2012,
+            peak_shift_enabled=True,
+            peak_shift_kw=0.5,
+            peak_shift_window="Winter Morning (6–9 AM)",
+            recharge_window="Mid-Day (11 AM–3 PM)",
+            round_trip_efficiency=0.80
+        )
+        months = datetime_2012.dt.month.to_numpy()
+        hours = datetime_2012.dt.hour.to_numpy()
+        winter_peak_mask = np.isin(months, [12, 1, 2]) & np.isin(hours, [6, 7, 8])
+        midday_recharge_mask = np.isin(months, [12, 1, 2]) & np.isin(hours, [11, 12, 13, 14])
+
+        # Peak hours should be reduced to 0.5 kW
+        assert (mod_load[winter_peak_mask] < 1.0).all()
+        np.testing.assert_allclose(mod_load[winter_peak_mask], 0.5, rtol=1e-5)
+
+        # Recharge hours should be higher than 1.0 kW due to round-trip efficiency loss
+        assert (mod_load[midday_recharge_mask] > 1.0).all()
+        # Non-winter hours should be unaltered (1.0 kW)
+        other_mask = ~np.isin(months, [12, 1, 2])
+        np.testing.assert_allclose(mod_load[other_mask], 1.0, rtol=1e-5)
+
+    def test_peak_clipping(self, constant_load_1kw, datetime_2012):
+        from calculations import apply_what_if_modifications
+        mod_load, summary = apply_what_if_modifications(
+            baseline_load=constant_load_1kw,
+            proposed_load=constant_load_1kw,
+            datetime_series=datetime_2012,
+            peak_clipping_enabled=True,
+            peak_clipping_kw=0.4,
+            peak_clipping_window="Both Peak Windows"
+        )
+        months = datetime_2012.dt.month.to_numpy()
+        hours = datetime_2012.dt.hour.to_numpy()
+        peak_mask = (np.isin(months, [12, 1, 2]) & np.isin(hours, [6, 7, 8])) | (np.isin(months, [6, 7, 8, 9]) & np.isin(hours, [14, 15, 16, 17]))
+        np.testing.assert_allclose(mod_load[peak_mask], 0.60, rtol=1e-5)
+
+    def test_ev_addon(self, constant_load_1kw, datetime_2012):
+        from calculations import apply_what_if_modifications
+        mod_load, summary = apply_what_if_modifications(
+            baseline_load=constant_load_1kw,
+            proposed_load=constant_load_1kw,
+            datetime_series=datetime_2012,
+            ev_addon_enabled=True,
+            ev_addon_kw=3.0,
+            ev_start_hour=22,
+            ev_end_hour=6
+        )
+        hours = datetime_2012.dt.hour.to_numpy()
+        ev_mask = (hours >= 22) | (hours < 6)
+        np.testing.assert_allclose(mod_load[ev_mask], 4.0, rtol=1e-5)
+        np.testing.assert_allclose(mod_load[~ev_mask], 1.0, rtol=1e-5)
+
+
+class TestCostEffectivenessGaps:
+    """Validates the Cost-Effectiveness Gap Calculator (Recommendation 3)."""
+
+    def test_trc_gap_calculation(self):
+        from calculations import calculate_cost_effectiveness_gaps
+        # When TRC fails: Gross Measure Cost = $10,000, Admin = $500, Grid NPV = $6,000
+        # TRC = 6000 / 10500 = 0.571 (Fails)
+        # Max allowable gross cost = 6000 - 500 = $5,500
+        # Capital cost gap = 10,000 - 5,500 = $4,500
+        gaps = calculate_cost_effectiveness_gaps(
+            npv_grid_savings=6000.0,
+            npv_lost_revenue=4000.0,
+            npv_customer_bill_savings=4000.0,
+            gross_measure_cost=10000.0,
+            utility_incentive=1000.0,
+            utility_admin_cost=500.0,
+            annual_grid_savings=600.0,
+            annual_lost_revenue=400.0,
+            annual_pv_multiplier_grid=10.0,
+            annual_pv_multiplier_customer=10.0,
+            cap_value=100.0,
+            trans_value=15.0,
+            dist_value=15.0,
+            target_payback_years=5.0
+        )
+        assert not gaps["trc_passing"]
+        assert pytest.approx(gaps["current_trc"], rel=1e-3) == 6000.0 / 10500.0
+        assert pytest.approx(gaps["max_gross_measure_cost_trc"], rel=1e-3) == 5500.0
+        assert pytest.approx(gaps["capital_cost_gap_trc"], rel=1e-3) == 4500.0
+        assert pytest.approx(gaps["capital_reduction_pct_trc"], rel=1e-3) == 45.0
+        assert pytest.approx(gaps["grid_npv_gap_trc"], rel=1e-3) == 4500.0
+        assert pytest.approx(gaps["annual_grid_increase_needed_trc"], rel=1e-3) == 450.0
+
+    def test_rim_gap_calculation(self):
+        from calculations import calculate_cost_effectiveness_gaps
+        # When RIM fails: Grid NPV = $5,000, Lost Rev NPV = $4,500, Admin = $200, Incentive = $1,000
+        # Total cost = 4500 + 1200 = 5700. RIM = 5000 / 5700 = 0.877
+        # Max utility spend = 5000 - 4500 = 500
+        # Max incentive = 500 - 200 = $300
+        # Incentive reduction needed = 1000 - 300 = $700
+        gaps = calculate_cost_effectiveness_gaps(
+            npv_grid_savings=5000.0,
+            npv_lost_revenue=4500.0,
+            npv_customer_bill_savings=4500.0,
+            gross_measure_cost=8000.0,
+            utility_incentive=1000.0,
+            utility_admin_cost=200.0,
+            annual_grid_savings=500.0,
+            annual_lost_revenue=450.0,
+            annual_pv_multiplier_grid=10.0,
+            annual_pv_multiplier_customer=10.0,
+            target_payback_years=5.0
+        )
+        assert not gaps["rim_passing"]
+        assert pytest.approx(gaps["max_incentive_rim"], rel=1e-3) == 300.0
+        assert pytest.approx(gaps["incentive_reduction_needed_rim"], rel=1e-3) == 700.0
+
+    def test_customer_payback_solver(self):
+        from calculations import calculate_cost_effectiveness_gaps
+        # Gross cost = $6,000, Incentive = $1,000 -> Net cost = $5,000
+        # Annual savings = $500/yr -> Current payback = 10.0 yrs
+        # Target payback = 5.0 yrs -> Target net cost = 5 * 500 = $2,500
+        # Required incentive = 6000 - 2500 = $3,500 (additional $2,500 needed)
+        gaps = calculate_cost_effectiveness_gaps(
+            npv_grid_savings=8000.0,
+            npv_lost_revenue=5000.0,
+            npv_customer_bill_savings=5000.0,
+            gross_measure_cost=6000.0,
+            utility_incentive=1000.0,
+            utility_admin_cost=500.0,
+            annual_grid_savings=800.0,
+            annual_lost_revenue=500.0,
+            annual_pv_multiplier_grid=10.0,
+            annual_pv_multiplier_customer=10.0,
+            target_payback_years=5.0
+        )
+        assert pytest.approx(gaps["current_simple_payback"], rel=1e-3) == 10.0
+        assert pytest.approx(gaps["required_incentive_for_target_payback"], rel=1e-3) == 3500.0
+        assert pytest.approx(gaps["additional_incentive_needed"], rel=1e-3) == 2500.0
+
+
+class TestParametricSweeps:
+    """Validates Parametric Sensitivity Sweeps (Recommendation 6)."""
+
+    def test_sweep_monotonic_trends(self):
+        from calculations import calculate_parametric_sweep
+        sweep_df = calculate_parametric_sweep(
+            sweep_param="gross_measure_cost",
+            min_val=3000.0,
+            max_val=15000.0,
+            steps=5,
+            base_gross_measure_cost=6000.0,
+            base_utility_incentive=1000.0,
+            base_utility_admin_cost=500.0,
+            base_discount_rate=7.0,
+            base_customer_discount_rate=7.0,
+            base_cap_value=110.20,
+            base_asset_life=15,
+            annual_grid_savings=600.0,
+            annual_lost_revenue=500.0
+        )
+        assert len(sweep_df) == 5
+        assert "trc_ratio" in sweep_df.columns
+        assert "simple_payback" in sweep_df.columns
+
+        # As gross measure cost increases:
+        # TRC must monotonically decrease
+        assert (np.diff(sweep_df["trc_ratio"]) < 0).all()
+        # Simple payback must monotonically increase
+        assert (np.diff(sweep_df["simple_payback"]) > 0).all()
+
+
+class TestCustomerAndVendorVisualizations:
+    """Validates Customer and Vendor Visualizations (Recommendation 10)."""
+
+    def test_build_customer_bill_waterfall_chart(self):
+        from visualizations import build_customer_bill_waterfall_chart
+        fig = build_customer_bill_waterfall_chart(
+            baseline_bill=1500.0,
+            proposed_bill=1200.0,
+            tariff_name="Georgia Power R-31"
+        )
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 1
+        assert fig.data[0].type == "waterfall"
+
+    def test_build_payback_timeline_chart(self):
+        from visualizations import build_payback_timeline_chart
+        savings_stream = np.array([400.0] * 15)
+        pv_mult = np.array([1.0 / (1.07 ** t) for t in range(1, 16)])
+        fig = build_payback_timeline_chart(
+            net_customer_cost=2000.0,
+            annual_savings_stream=savings_stream,
+            pv_multipliers=pv_mult,
+            simple_payback=5.0,
+            discounted_payback=6.4
+        )
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 3
+
+    def test_build_monthly_bill_comparison_chart(self):
+        from visualizations import build_monthly_bill_comparison_chart
+        base_bills = [100.0 + i * 10 for i in range(12)]
+        prop_bills = [80.0 + i * 8 for i in range(12)]
+        fig = build_monthly_bill_comparison_chart(base_bills, prop_bills)
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 3
+
+    def test_build_what_if_comparison_chart(self, datetime_2012):
+        from visualizations import build_what_if_comparison_chart
+        base = np.ones(8760) * 2.0
+        orig = np.ones(8760) * 1.5
+        mod = np.ones(8760) * 1.2
+        fig = build_what_if_comparison_chart(
+            datetime_series=datetime_2012,
+            baseline_load=base,
+            original_proposed=orig,
+            modified_proposed=mod,
+            start_idx=0,
+            end_idx=168
+        )
+        assert isinstance(fig, go.Figure)
+
+    def test_build_parametric_sweep_chart(self):
+        from calculations import calculate_parametric_sweep
+        from visualizations import build_parametric_sweep_chart
+        df = calculate_parametric_sweep(
+            sweep_param="gross_measure_cost",
+            min_val=3000.0,
+            max_val=10000.0,
+            steps=5,
+            annual_grid_savings=500.0,
+            annual_lost_revenue=400.0
+        )
+        fig = build_parametric_sweep_chart(
+            sweep_df=df,
+            param_name="gross_measure_cost",
+            current_val=6000.0,
+            x_label="Gross Measure Cost ($)",
+            is_currency=True
+        )
+        assert isinstance(fig, go.Figure)
+
+

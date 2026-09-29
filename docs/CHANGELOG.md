@@ -2,6 +2,37 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-09-29] — Implemented Top Recommendations 1, 2, 3, 6, and 10
+
+### Context
+Implemented the core recommendations from the codebase and valuation engine audit to empower technology researchers and vendors developing grid-beneficial technologies:
+1. **Recommendation 1: Role-Based Stakeholder UI Modes**: Activated the top-of-UI persona selector (`Utility`, `Manufacturer`, `Tech Research`) with role-tailored guidance, badges, and contextual KPI summary strips in the Overview Scorecard.
+2. **Recommendation 2: In-App "What-If" Explorer (Load Shape Sandbox)**: Added interactive load shape modification controls (`apply_what_if_modifications`) supporting efficiency scaling (+/- X%), thermal/battery storage peak shifting with round-trip efficiency loss, peak demand clipping, and EV charging overlays, along with a live 7-day before/after preview chart and a one-click toggle to apply the modified load to the entire valuation engine.
+3. **Recommendation 3: Performance Target & Cost-Effectiveness Gap Calculator**: Added `calculate_cost_effectiveness_gaps` and a dedicated dashboard tab that prescribes exact breakeven levers (required capital cost reduction in $ and %, required coincident peak reduction in kW, and allowable utility rebate for RIM ratepayer neutrality) alongside an interactive customer payback target solver and marginal value benchmarks.
+4. **Recommendation 6: Parametric Sensitivity Sweeps**: Added `calculate_parametric_sweep` and `build_parametric_sweep_chart` in a dedicated tab allowing 1D sweeps across Gross Measure Cost, Utility Rebate, Utility WACC, Customer Discount Rate, Capacity Credit, and Asset Life, rendering interactive dual-axis curves for TRC, RIM, PCT, and Simple Payback with 1.0 breakeven reference lines.
+5. **Recommendation 10: Vendor / Customer-Facing Visualizations**: Added three new interactive Plotly charts in `visualizations.py` and embedded them as dedicated sub-tabs in the Charts tab: Customer Bill Waterfall (`build_customer_bill_waterfall_chart`), Cumulative Cash Flow & Payback Timeline (`build_payback_timeline_chart`), and 12-Month Bill Comparison (`build_monthly_bill_comparison_chart`).
+
+### Changes Made
+- **`calculations.py`**:
+  - Implemented `apply_what_if_modifications()` with load shifting, scaling, clipping, and EV add-on logic.
+  - Implemented `calculate_cost_effectiveness_gaps()` for TRC/RIM breakeven analysis, payback targets, and marginal value levers.
+  - Implemented `calculate_parametric_sweep()` for 1D sensitivity curves across financial and valuation variables.
+- **`visualizations.py`**:
+  - Implemented `build_customer_bill_waterfall_chart()`.
+  - Implemented `build_payback_timeline_chart()`.
+  - Implemented `build_monthly_bill_comparison_chart()`.
+  - Implemented `build_what_if_comparison_chart()`.
+  - Implemented `build_parametric_sweep_chart()`.
+- **`app.py`**:
+  - Activated top-of-UI persona switcher with persistent session state and role-specific guidance.
+  - Added persona perspective summary strips to the Overview Scorecard.
+  - Hooked What-If Sandbox modified load into `proposed_load` when toggled on.
+  - Added three new main dashboard tabs: `Performance Targets & Gap Calculator`, `What-If Explorer (Tech Sandbox)`, and `Parametric Sensitivity Sweeps`.
+  - Added three new customer/vendor sub-tabs to the Charts tab.
+- **`tests/test_calculations.py`**:
+  - Added 13 new unit tests across `TestWhatIfSandbox`, `TestCostEffectivenessGaps`, `TestParametricSweeps`, and `TestCustomerAndVendorVisualizations`.
+  - Full test suite verified: all 161 tests passing.
+
 ## [2026-09-29] — Moved State(s) Selector to Top of Grid Scenario & Region
 
 ### Context

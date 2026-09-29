@@ -684,21 +684,21 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 2.6 Visualization polish | ⏸️ DEFER | 🟡 **Substantial progress (2026-09-25)** | AI | Charts tab restructured into 9 sub-tabs with real explainer copy, consistent green/red signed-color convention, 2 new tabs (Cost Duration Curve, Cumulative Annual Cost). Monthly aggregation views and a printable executive summary (this row's original asks) still not done. |
 | **M3: Vendor Experience** | | | | |
 | ↳ 3.1 Cost-of-ownership / payback | 🔨 BUILD | 🟢 **v2 Done (2026-09-25)** | JB + AI, Al/Mitch review | Simple and Discounted Payback Periods (Years) calculated and displayed in Tab 1 Overview Scorecard. **2026-09-25:** added a separate sidebar "Customer Discount Rate" (defaults to match utility WACC) — PCT, discounted payback, and the Lifetime Cash Flow Customer view now discount at this rate instead of silently reusing the utility's WACC. |
-| ↳ 3.2 Performance target engine | 🔨 BUILD | ⬜ Not Started | JB lead, JH support | JB leads; Justin flags utility-perspective items JB might overlook |
-| ↳ 3.3 Cost-effectiveness gap calc | ❓ DISCUSS | ⬜ Not Started | Needs brainstorm | "A lot of very interesting possibilities — deserves a dedicated brainstorm" |
-| ↳ 3.4 Vendor-facing visualizations | 🔨 BUILD | ⬜ Not Started | JB lead | "Finalize plan as we get closer" |
-| ↳ 3.5 Parametric / sensitivity testing | ❓ DISCUSS | ⬜ Not Started | Al/Mitch vetting | Vet with Al & Mitch — "don't want to create something too easy/simplistic" |
-| **M4: Dual-View & Explorer** | ❓ DISCUSS | | | Needs vetting with Al & Mitch before proceeding |
+| ↳ 3.2 Performance target engine | 🔨 BUILD | 🟢 **Done (2026-09-29)** | JB + AI | Implemented in `calculate_cost_effectiveness_gaps()`: marginal value of 1 kW peak reduction ($/kW-yr and lifetime NPV) and 10% efficiency improvement. |
+| ↳ 3.3 Cost-effectiveness gap calc | 🔨 BUILD | 🟢 **Done (2026-09-29)** | JB + AI | Dedicated dashboard tab calculating exact required gross capital cost reduction ($ and %), coincident peak reduction (kW), and allowable rebate for RIM. Includes interactive customer payback target solver. |
+| ↳ 3.4 Vendor-facing visualizations | 🔨 BUILD | 🟢 **Done (2026-09-29)** | JB + AI | Added Customer Bill Waterfall chart, Cumulative Cash Flow & Payback Timeline chart, and 12-Month Bill Comparison chart as dedicated sub-tabs in Charts. |
+| ↳ 3.5 Parametric / sensitivity testing | 🔨 BUILD | 🟢 **Done (2026-09-29)** | JB + AI | Dedicated Parametric Sensitivity Sweeps tab supporting 1D sweeps across Gross Measure Cost, Rebate, WACC, Customer Discount Rate, Capacity Value, and Asset Life with dual-axis Plotly curves. |
+| **M4: Dual-View & Explorer** | | | | |
 | ↳ 4.0 UI/UX layout & sidebar cleanup | 🔨 BUILD | ✅ Done | John/Assistant | Sidebar reorganized into collapsible sections, tabs consolidated 9→7, KPI cards standardized, emojis trimmed (2026-08-18) |
-| ↳ 4.1 User role selector | | ⬜ Not Started | | |
-| ↳ 4.2 What-if explorer / load editor | | ⬜ Not Started | | |
+| ↳ 4.1 User role selector | 🔨 BUILD | 🟢 **Done (2026-09-29)** | JB + AI | Top-of-UI persona mode switcher (Utility, Manufacturer, Tech Research) activated with customized role guidance and Scorecard perspective strips. |
+| ↳ 4.2 What-if explorer / load editor | 🔨 BUILD | 🟢 **Done (2026-09-29)** | JB + AI | In-app What-If Explorer tab with live efficiency scaling, thermal/battery storage peak shifting with round-trip efficiency loss, peak clipping, EV overlays, 7-day preview chart, and one-click valuation engine toggle. |
 | ↳ 4.3 Pre-loaded building library | 🔨 BUILD | ✅ Done (pick-and-view) | John/Assistant | Two examples live: Birmingham AL ER Heat vs. Heat Pump (2026-08-18) and Birmingham AL No Battery vs. 10 kWh Battery w/ seasonal charge-discharge (2026-08-25/26). What-if editing still deferred to 4.2. |
 | ↳ 4.4 Multi-page app evaluation | ❓ DISCUSS | ⬜ Deferred | John/Assistant | Staying on single-page tabs for now; revisit if consolidated tab set feels unwieldy again |
 | **M5: Validation & Test Cases** | | | | |
 | ↳ 5.1 Utility validation | | ⬜ Not Started | | |
 | ↳ 5.2 Technology developer tests | | ⬜ Not Started | | |
 | ↳ 5.3 Usability feedback | | ⬜ Not Started | | |
-| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v3 Done** | AI | 57 tests passing (2026-08-26). Load profile ingestion suite now covers the native BEopt hourly export format and the battery-example charge/discharge shift, in addition to the existing avoided costs, URDB billing, NPV, EPC/ELCC, DR dispatch, config, visualizations, and integration pipeline coverage. Pytest infra + standing instruction in place. |
+| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v4 Done (2026-09-29)** | AI | 161 tests passing (2026-09-29). Added test suites for What-If Sandbox, Cost-Effectiveness Gaps, Parametric Sweeps, and new Customer/Vendor Visualizations. |
 | **M6: Handoff & Expansion** | | | | |
 | ↳ 6.1 Multi-region expansion | | ⬜ Not Started | | |
 | ↳ 6.2 Institutional home transition | | ⬜ Not Started | | |

@@ -56,6 +56,11 @@ from visualizations import (
     plot_feeder_vs_system_load,
     build_economic_balance_chart,
     build_two_sided_cost_effectiveness_chart,
+    build_customer_bill_waterfall_chart,
+    build_payback_timeline_chart,
+    build_monthly_bill_comparison_chart,
+    build_what_if_comparison_chart,
+    build_parametric_sweep_chart,
 )
 from calculations import (
     calculate_avoided_costs,
@@ -70,6 +75,9 @@ from calculations import (
     calculate_cwf_peaker_rent,
     calculate_feeder_pcaf_weights,
     find_peak_week,
+    apply_what_if_modifications,
+    calculate_cost_effectiveness_gaps,
+    calculate_parametric_sweep,
 )
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
@@ -980,11 +988,11 @@ with st.container(border=True):
         st.markdown(
             """<div style="padding-top: 2px;">
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px;">
-                    <span style="background: #E0F2FE; color: #0284C7; font-size: 0.68rem; font-weight: 800; padding: 2px 7px; border-radius: 4px; border: 1px solid #BAE6FD; letter-spacing: 0.5px;">MOCK-UP</span>
+                    <span style="background: #DCFCE7; color: #15803D; font-size: 0.68rem; font-weight: 800; padding: 2px 7px; border-radius: 4px; border: 1px solid #BBF7D0; letter-spacing: 0.5px;">ACTIVE ROLE</span>
                     <span style="font-weight: 700; color: #0F172A; font-size: 0.92rem;">Stakeholder View</span>
                 </div>
                 <p style="margin: 0; font-size: 0.76rem; color: #64748B; line-height: 1.3;">
-                    Non-functional future prototype for persona-tailored dashboards
+                    Tailors metrics, guidance, and analysis to your stakeholder objective
                 </p>
             </div>""",
             unsafe_allow_html=True
@@ -996,8 +1004,9 @@ with st.container(border=True):
             index=0,
             horizontal=True,
             label_visibility="collapsed",
-            help="Non-functional mock-up demonstrating future UI tailoring for different stakeholder groups."
+            help="Select your role to tailor metrics, dashboard highlights, and analytical tools."
         )
+        st.session_state['view_mode'] = view_mode
     with mock_home_col:
         st.markdown("<div style='padding-top: 2px;'></div>", unsafe_allow_html=True)
         if st.button("🏠 Home", width="stretch", help="Return to the original Instructions & Setup info screen."):
@@ -1006,22 +1015,29 @@ with st.container(border=True):
 
     persona_notes = {
         "Utility": (
-            "**Utility View**: Configured for IRP resource planners and regulatory commissions. "
+            "**Utility View**: Configured for IRP resource planners, rates staff, and regulatory commissions. "
             "Prioritizes generation capacity value (ECC of CT), TRC/RIM cost-effectiveness tests, and bulk transmission/local feeder coincident peak reductions."
         ),
         "Manufacturer": (
-            "**Manufacturer View**: Configured for HVAC, heat pump, and thermal storage OEMs. "
-            "Prioritizes customer electric bill savings, payback horizons, equipment COP curves under freeze conditions, and utility incentive optimization."
+            "**Manufacturer / Vendor View**: Configured for HVAC, heat pump, thermal storage, and DER product developers. "
+            "Prioritizes customer electric bill savings, payback horizons, customer ROI (PCT), commercialization gap targets, and product design levers."
         ),
         "Tech Research": (
             "**Tech Research View**: Configured for national labs, universities, and energy modelers. "
-            "Prioritizes full 8,760-hour marginal cost timeseries, temperature-driven LOLP risk curves, emissions abatement rates, and dynamic DR dispatch."
+            "Prioritizes full 8,760-hour marginal cost timeseries, the What-If Sandbox, parametric sensitivity sweeps, and data diagnostics."
         )
     }
 
+    mode_badge_colors = {
+        "Utility": ("#0D9488", "#CCFBF1"),
+        "Manufacturer": ("#0284C7", "#E0F2FE"),
+        "Tech Research": ("#7C3AED", "#EDE9FE"),
+    }
+    b_text, b_bg = mode_badge_colors.get(view_mode, ("#0284C7", "#E0F2FE"))
+
     st.markdown(
-        f"""<div style="margin-top: 8px; padding: 8px 12px; background: #F8FAFC; border-left: 3px solid #0284C7; border-radius: 0 6px 6px 0; font-size: 0.80rem; color: #334155; line-height: 1.4;">
-            💡 {persona_notes[view_mode]} <span style="color: #94A3B8; font-style: italic;">(Future use case preview — calculations currently unified)</span>
+        f"""<div style="margin-top: 8px; padding: 8px 12px; background: {b_bg}; border-left: 4px solid {b_text}; border-radius: 0 6px 6px 0; font-size: 0.82rem; color: #1E293B; line-height: 1.4;">
+            💡 {persona_notes[view_mode]}
         </div>""",
         unsafe_allow_html=True
     )
@@ -1226,11 +1242,17 @@ else:
                     datetime_series, cwft_array, dr_hours_per_year, dr_season, dr_max_hours_per_day, dr_capacity_kw, baseline_load
                 )
                 proposed_load = baseline_load - dr_reduction
+                original_proposed_load = proposed_load.copy()
                 load_reduction = dr_reduction
                 st.sidebar.info(f"DR Mode Active: {len(dr_indices)} hours dispatched. Proposed load is Baseline − DR.")
             else:
-                proposed_load = load_profiles_df[proposed_col].to_numpy()
-                load_reduction = baseline_load - proposed_load
+                original_proposed_load = load_profiles_df[proposed_col].to_numpy().copy()
+                if st.session_state.get('apply_sandbox_to_run', False) and 'sandbox_modified_load' in st.session_state:
+                    proposed_load = st.session_state['sandbox_modified_load']
+                    load_reduction = baseline_load - proposed_load
+                else:
+                    proposed_load = original_proposed_load
+                    load_reduction = baseline_load - proposed_load
 
             # Generation-capacity accreditation derate: DR programs rarely deliver
             # 100% of nameplate curtailment when called (opt-outs, non-performance,
@@ -1449,13 +1471,40 @@ else:
             weather_aligned = (meta_load_weather == meta_cambium_weather == meta_cwft_weather)
             alignment_status = f"{weather_sensitivity_status} | User Label: {'Aligned' if weather_aligned else 'Mixed'}"
             
+            # Compute representative seasonal stress windows for sandbox preview & charts
+            def _week_label(prefix, start, end):
+                d0 = pd.to_datetime(results_df['Datetime'].iloc[start])
+                d1 = pd.to_datetime(results_df['Datetime'].iloc[end - 1])
+                date_range = (f"{d0.strftime('%b')} {d0.day}-{d1.day}" if d0.month == d1.month
+                              else f"{d0.strftime('%b')} {d0.day} - {d1.strftime('%b')} {d1.day}")
+                return f"{prefix} ({date_range})"
+
+            stress_signal = results_df['Total_Avoided_Cost_MWh'].to_numpy()
+            winter_window = find_peak_week(results_df['Datetime'], stress_signal, month_filter=[12, 1, 2], mode="max")
+            summer_window = find_peak_week(results_df['Datetime'], stress_signal, month_filter=[6, 7, 8, 9], mode="max")
+            shoulder_window = find_peak_week(results_df['Datetime'], stress_signal, month_filter=[3, 4, 5, 10, 11], mode="min")
+
+            week_windows = {}
+            if winter_window:
+                week_windows[_week_label("Winter Peak Week", *winter_window)] = winter_window
+            if summer_window:
+                week_windows[_week_label("Summer Peak Week", *summer_window)] = summer_window
+            if shoulder_window:
+                week_windows[_week_label("Shoulder Week", *shoulder_window)] = shoulder_window
+            if not week_windows:
+                week_windows = WEEK_WINDOWS
+
             # ==================================================================
             # TABS DISPLAY
             # ==================================================================
-            tab_setup, tab_summary, tab_calculator, tab_charts, tab_scenarios, tab_diagnostics = st.tabs([
+            (tab_setup, tab_summary, tab_calculator, tab_gap_calculator, tab_what_if,
+             tab_sweeps, tab_charts, tab_scenarios, tab_diagnostics) = st.tabs([
                 "Calibration Check",
                 "Overview Scorecard",
                 "Cost-Effectiveness Table",
+                "Performance Targets & Gap Calculator",
+                "What-If Explorer (Tech Sandbox)",
+                "Parametric Sensitivity Sweeps",
                 "Charts",
                 "Scenario Manager",
                 "Diagnostics & Top Hours"
@@ -1500,6 +1549,25 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 # Full weather sensitivity + year-alignment check lives in Calibration Check tab
                 if not weather_aligned:
                     st.warning("Weather years are not aligned across Load/Cambium/CWFT — see the **Calibration Check** tab for details.")
+
+                if view_mode == "Manufacturer":
+                    st.markdown(
+                        f"""<div style="background: #F0F9FF; border: 1px solid #BAE6FD; border-left: 4px solid #0284C7; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; font-size: 0.85rem; color: #0C4A6E;">
+                            <b>🛠️ Manufacturer Perspective:</b> Customer simple payback is <b>{simple_payback:.1f} years</b> (discounted: <b>{discounted_payback:.1f} yrs</b>) with <b>${annual_lost_revenue:,.2f}/yr</b> in annual bill savings. Participant Cost Test (Customer ROI) is <b>{pct_ratio:.3f}</b>. Check the <b>Performance Targets & Gap Calculator</b> tab for commercialization breakeven levers.
+                        </div>""", unsafe_allow_html=True
+                    )
+                elif view_mode == "Utility":
+                    st.markdown(
+                        f"""<div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-left: 4px solid #16A34A; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; font-size: 0.85rem; color: #14532D;">
+                            <b>⚡ Utility Perspective:</b> TRC is <b>{trc_ratio:.3f}</b>, RIM is <b>{rim_ratio:.3f}</b>. Technology delivers <b>{accredited_capacity_kw:.2f} kW</b> of accredited capacity credit and <b>${annual_grid_savings:,.2f}/yr</b> in wholesale grid avoided costs.
+                        </div>""", unsafe_allow_html=True
+                    )
+                else:  # Tech Research
+                    st.markdown(
+                        f"""<div style="background: #FAF5FF; border: 1px solid #E9D5FF; border-left: 4px solid #9333EA; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; font-size: 0.85rem; color: #581C87;">
+                            <b>🔬 Tech Research Perspective:</b> Full 8,760 marginal cost engine active. Use the <b>What-If Explorer (Tech Sandbox)</b> to test load shifting/storage, and <b>Parametric Sensitivity Sweeps</b> for multi-variable boundary exploration.
+                        </div>""", unsafe_allow_html=True
+                    )
 
                 # 1. Top Section: Lifetime Economic Balance Strip & Net Verdict Card
                 with st.container(border=True):
@@ -1874,9 +1942,354 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     df_val["Value ($/yr)"] = df_val.apply(lambda r: format_vals(r["Value ($/yr)"], r["Valuation Component"]), axis=1)
                     
                     st.dataframe(df_val, width="stretch", hide_index=True)
-                
+
             # ------------------------------------------------------------------
-            # TAB 4: CHARTS (ordered simplest/most relatable → most technical)
+            # TAB 4: PERFORMANCE TARGETS & GAP CALCULATOR (RECOMMENDATION 3)
+            # ------------------------------------------------------------------
+            with tab_gap_calculator:
+                st.markdown("### Performance Targets & Cost-Effectiveness Gap Calculator")
+                st.caption(
+                    "Prescriptive roadmap detailing exactly what changes in equipment capital cost, coincident peak reduction, "
+                    "or utility rebates are required to achieve cost-effectiveness under California SPM standards (TRC & RIM) "
+                    "and target customer payback horizons."
+                )
+
+                gaps = calculate_cost_effectiveness_gaps(
+                    npv_grid_savings=npv_grid_savings,
+                    npv_lost_revenue=npv_retail_lost_revenue,
+                    npv_customer_bill_savings=npv_customer_bill_savings,
+                    gross_measure_cost=gross_measure_cost,
+                    utility_incentive=utility_incentive,
+                    utility_admin_cost=utility_admin_cost,
+                    annual_grid_savings=annual_grid_savings,
+                    annual_lost_revenue=annual_lost_revenue,
+                    annual_pv_multiplier_grid=grid_pv_multipliers.sum(),
+                    annual_pv_multiplier_customer=customer_pv_multipliers.sum(),
+                    cap_value=cap_value,
+                    trans_value=trans_value,
+                    dist_value=dist_value,
+                    target_payback_years=5.0
+                )
+
+                # 1. Status Overview Strip
+                col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+                with col_t1:
+                    st.markdown(ratio_card_html("TRC Test (Resource Cost)", f"{gaps['current_trc']:.3f}" if np.isfinite(gaps['current_trc']) else "N/A", "Breakeven Threshold: 1.00", passing=gaps['trc_passing']), unsafe_allow_html=True)
+                with col_t2:
+                    st.markdown(ratio_card_html("RIM Test (Rate Impact)", f"{gaps['current_rim']:.3f}" if np.isfinite(gaps['current_rim']) else "N/A", "Breakeven Threshold: 1.00", passing=gaps['rim_passing']), unsafe_allow_html=True)
+                with col_t3:
+                    st.markdown(ratio_card_html("PCT Test (Customer ROI)", f"{gaps['current_pct']:.3f}" if np.isfinite(gaps['current_pct']) else "N/A", "Breakeven Threshold: 1.00", passing=gaps['pct_passing']), unsafe_allow_html=True)
+                with col_t4:
+                    st.markdown(financial_metric_card_html("Simple Payback", f"{gaps['current_simple_payback']:.1f} yrs" if np.isfinite(gaps['current_simple_payback']) else "N/A", "Target: < 5.0 yrs", neutral=True), unsafe_allow_html=True)
+
+                st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+
+                # 2. TRC & RIM Breakeven Levers
+                col_trc_box, col_rim_box = st.columns(2)
+                with col_trc_box:
+                    with st.container(border=True):
+                        st.markdown("#### Total Resource Cost (TRC) Levers")
+                        if gaps['trc_passing']:
+                            st.success(f"✅ **TRC is Passing ({gaps['current_trc']:.2f})** — Grid avoided cost benefits exceed total resource costs.")
+                            st.caption(f"Maximum allowable installed measure cost before TRC falls below 1.0: **${gaps['max_gross_measure_cost_trc']:,.2f}** (Current: ${gross_measure_cost:,.2f}). Headroom: **+${gaps['max_gross_measure_cost_trc'] - gross_measure_cost:,.2f}**.")
+                        else:
+                            st.error(f"⚠️ **TRC Gap: Net Resource Deficit (${gaps['grid_npv_gap_trc']:,.2f} NPV)**")
+                            st.markdown(
+                                f"""To achieve **TRC ≥ 1.0**, the technology must achieve **at least ONE** of the following:
+*   **Capital Cost Reduction:** Lower gross installed cost by **${gaps['capital_cost_gap_trc']:,.2f}** (a **{gaps['capital_reduction_pct_trc']:.1f}%** reduction, down to **${gaps['max_gross_measure_cost_trc']:,.2f}**).
+*   **Coincident Peak Demand Reduction:** Deliver an additional **{gaps['coincident_kw_reduction_needed_trc']:.2f} kW** of peak reduction during capacity risk hours.
+*   **Wholesale Grid Savings:** Increase annual grid avoided cost savings by **+${gaps['annual_grid_increase_needed_trc']:,.2f}/yr**."""
+                            )
+
+                with col_rim_box:
+                    with st.container(border=True):
+                        st.markdown("#### Rate Impact Measure (RIM) Levers")
+                        if gaps['rim_passing']:
+                            st.success(f"✅ **RIM is Passing ({gaps['current_rim']:.2f})** — Technology exerts downward pressure on non-participating customer rates.")
+                        else:
+                            st.warning(f"⚠️ **RIM Gap: Upward Pressure on Retail Rates (${gaps['grid_npv_gap_rim']:,.2f} NPV)**")
+                            st.markdown(
+                                f"""To prevent cross-subsidies and achieve **RIM ≥ 1.0**:
+*   **Rebate / Incentive Optimization:** Maximum allowable utility incentive is **${gaps['max_incentive_rim']:,.2f}** (reduce current rebate of ${utility_incentive:,.2f} by **${gaps['incentive_reduction_needed_rim']:,.2f}**).
+*   **Rate Design Solution:** Shift the customer to a Time-of-Use (TOU) or Demand tariff with lower off-peak volumetric energy rates to reduce lost revenue.
+*   **Grid Value Expansion:** Increase wholesale capacity and energy savings by **+${gaps['grid_npv_gap_rim'] / grid_pv_multipliers.sum():,.2f}/yr**."""
+                            )
+
+                # 3. Interactive Customer Payback Solver
+                with st.container(border=True):
+                    st.markdown("#### Interactive Customer Payback Target Solver")
+                    st.caption("Calculate the exact utility rebate or bill savings required to achieve a customer-desired payback horizon.")
+                    col_pb_ctrl, col_pb_res = st.columns([1.5, 2.5])
+                    with col_pb_ctrl:
+                        target_years_input = st.slider("Desired Payback Horizon (Years)", min_value=1.0, max_value=12.0, value=5.0, step=0.5, key="gap_pb_slider")
+                        target_gaps = calculate_cost_effectiveness_gaps(
+                            npv_grid_savings=npv_grid_savings,
+                            npv_lost_revenue=npv_retail_lost_revenue,
+                            npv_customer_bill_savings=npv_customer_bill_savings,
+                            gross_measure_cost=gross_measure_cost,
+                            utility_incentive=utility_incentive,
+                            utility_admin_cost=utility_admin_cost,
+                            annual_grid_savings=annual_grid_savings,
+                            annual_lost_revenue=annual_lost_revenue,
+                            annual_pv_multiplier_grid=grid_pv_multipliers.sum(),
+                            annual_pv_multiplier_customer=customer_pv_multipliers.sum(),
+                            cap_value=cap_value, trans_value=trans_value, dist_value=dist_value,
+                            target_payback_years=target_years_input
+                        )
+                    with col_pb_res:
+                        req_inc = target_gaps['required_incentive_for_target_payback']
+                        delta_inc = target_gaps['additional_incentive_needed']
+                        if gaps['current_simple_payback'] <= target_years_input:
+                            st.success(f"🎉 **Target Met!** Current payback is **{gaps['current_simple_payback']:.1f} years**, which already outperforms the {target_years_input:.1f}-year goal.")
+                        else:
+                            st.info(
+                                f"""To achieve a **{target_years_input:.1f}-year customer payback**:
+*   **Required Utility Rebate:** **${req_inc:,.2f}** (an increase of **+${delta_inc:,.2f}** above current rebate).
+*   **Target Net Customer Cost:** **${target_gaps['target_net_customer_cost']:,.2f}**.
+*   **OR Required Annual Bill Savings:** Customer must save **${target_gaps['required_annual_savings_for_payback']:,.2f}/yr** (an additional **+${target_gaps['additional_annual_savings_needed']:,.2f}/yr**) if rebate stays at ${utility_incentive:,.2f}."""
+                            )
+
+                # 4. Marginal Engineering Value Reference Table
+                with st.expander("▸ Marginal Engineering Value Levers (What is each unit of performance worth?)"):
+                    st.markdown(
+                        f"""| Technology Performance Metric | Annual Value ($/yr) | Lifetime NPV Value ($) | Impact Driver |
+|---|---|---|---|
+| **1.0 kW Coincident Peak Demand Cut** | **${gaps['marginal_1kw_annual_value']:,.2f} / kW-yr** | **${gaps['marginal_1kw_lifetime_value']:,.2f} / kW** | Generation Capacity + Transmission + Distribution Deferral |
+| **10% Overall Energy Efficiency Improvement** | **${gaps['marginal_10pct_energy_annual']:,.2f} / yr** | **${gaps['marginal_10pct_energy_lifetime']:,.2f}** | Wholesale Energy & Carbon Avoidance |"""
+                    )
+
+            # ------------------------------------------------------------------
+            # TAB 5: WHAT-IF EXPLORER & LOAD SHAPE SANDBOX (RECOMMENDATION 2)
+            # ------------------------------------------------------------------
+            with tab_what_if:
+                st.markdown("### In-App 'What-If' Explorer & Load Shape Sandbox")
+                st.caption(
+                    "Interactively evaluate technology improvements, peak shifting / thermal storage, demand clipping, "
+                    "or EV add-ons without editing external simulation files."
+                )
+
+                col_sb1, col_sb2 = st.columns(2)
+                with col_sb1:
+                    st.markdown("##### 1. Efficiency Scaling & Peak Shifting")
+                    eff_slider = st.slider(
+                        "Overall Efficiency Scaling (%)",
+                        min_value=-40.0, max_value=40.0, value=0.0, step=1.0,
+                        key="sb_eff_input",
+                        help="Scale the proposed load shape up or down. Negative values simulate higher efficiency (lower demand)."
+                    )
+
+                    shift_enabled = st.checkbox("Enable Peak Shifting / Thermal or Battery Storage", value=False, key="sb_shift_en_input")
+                    shift_kw = 0.0
+                    shift_window = "Winter Morning (6–9 AM)"
+                    recharge_window = "Mid-Day (11 AM–3 PM)"
+                    round_trip_eff = 0.85
+                    if shift_enabled:
+                        c_s1, c_s2 = st.columns(2)
+                        with c_s1:
+                            shift_kw = st.number_input("Peak Curtailment (kW)", min_value=0.1, max_value=20.0, value=1.0, step=0.5, key="sb_shift_kw_input")
+                            shift_window = st.selectbox("Peak Discharge Window", ["Winter Morning (6–9 AM)", "Summer Afternoon (2–6 PM)", "Both Peak Windows"], key="sb_shift_win_input")
+                        with c_s2:
+                            recharge_window = st.selectbox("Recharge Window", ["Mid-Day (11 AM–3 PM)", "Overnight (12–5 AM)"], key="sb_rech_win_input")
+                            round_trip_eff = st.slider("Round-Trip Efficiency (%)", min_value=50, max_value=100, value=85, step=5, key="sb_rte_input") / 100.0
+
+                with col_sb2:
+                    st.markdown("##### 2. Peak Demand Clipping & EV Add-On")
+                    clip_enabled = st.checkbox("Enable Peak Demand Clipping / Setback", value=False, key="sb_clip_en_input")
+                    clip_kw = 0.0
+                    clip_window = "Both Peak Windows"
+                    if clip_enabled:
+                        c_c1, c_c2 = st.columns(2)
+                        with c_c1:
+                            clip_kw = st.number_input("Max Peak Demand Reduction (kW)", min_value=0.1, max_value=20.0, value=1.5, step=0.5, key="sb_clip_kw_input")
+                        with c_c2:
+                            clip_window = st.selectbox("Clipping Window", ["Winter Morning (6–9 AM)", "Summer Afternoon (2–6 PM)", "Both Peak Windows"], key="sb_clip_win_input")
+
+                    ev_enabled = st.checkbox("Enable Overnight EV Charging Add-On", value=False, key="sb_ev_en_input")
+                    ev_kw = 0.0
+                    ev_start = 22
+                    ev_end = 6
+                    if ev_enabled:
+                        c_e1, c_e2, c_e3 = st.columns(3)
+                        with c_e1:
+                            ev_kw = st.number_input("EV Power (kW)", min_value=0.5, max_value=15.0, value=3.3, step=0.5, key="sb_ev_kw_input")
+                        with c_e2:
+                            ev_start = st.number_input("Start Hour (24h)", min_value=0, max_value=23, value=22, step=1, key="sb_ev_start_input")
+                        with c_e3:
+                            ev_end = st.number_input("End Hour (24h)", min_value=0, max_value=23, value=6, step=1, key="sb_ev_end_input")
+
+                # Compute modified load
+                mod_load, sb_summary = apply_what_if_modifications(
+                    baseline_load=baseline_load,
+                    proposed_load=original_proposed_load,
+                    datetime_series=datetime_series,
+                    efficiency_scaling_pct=eff_slider,
+                    peak_shift_enabled=shift_enabled,
+                    peak_shift_kw=shift_kw,
+                    peak_shift_window=shift_window,
+                    recharge_window=recharge_window,
+                    round_trip_efficiency=round_trip_eff,
+                    peak_clipping_enabled=clip_enabled,
+                    peak_clipping_kw=clip_kw,
+                    peak_clipping_window=clip_window,
+                    ev_addon_enabled=ev_enabled,
+                    ev_addon_kw=ev_kw,
+                    ev_start_hour=ev_start,
+                    ev_end_hour=ev_end
+                )
+                st.session_state['sandbox_modified_load'] = mod_load
+
+                # Summary metric cards
+                st.markdown("---")
+                m_sb1, m_sb2, m_sb3, m_sb4 = st.columns(4)
+                m_sb1.metric("Original Annual Energy", f"{sb_summary['original_kwh']:,.0f} kWh")
+                m_sb2.metric("Sandbox Annual Energy", f"{sb_summary['modified_kwh']:,.0f} kWh", delta=f"{sb_summary['net_kwh_delta']:+,.0f} kWh", delta_color="inverse")
+                m_sb3.metric("Original Peak Demand", f"{sb_summary['original_peak_kw']:.2f} kW")
+                m_sb4.metric("Sandbox Peak Demand", f"{sb_summary['modified_peak_kw']:.2f} kW", delta=f"{sb_summary['peak_reduction_kw']:+.2f} kW reduction", delta_color="normal")
+
+                # Interactive visual comparison chart
+                st.markdown("##### 7-Day Load Impact Preview")
+                view_week_sb = st.selectbox("Preview Analysis Window", list(week_windows.keys()), index=0, key="sb_week_picker")
+                sb_start, sb_end = week_windows[view_week_sb]
+                fig_sb = build_what_if_comparison_chart(
+                    datetime_series=datetime_series,
+                    baseline_load=baseline_load,
+                    original_proposed=original_proposed_load,
+                    modified_proposed=mod_load,
+                    start_idx=sb_start,
+                    end_idx=sb_end,
+                    window_title=view_week_sb
+                )
+                st.plotly_chart(fig_sb, width="stretch")
+
+                # Toggle to apply sandbox to full valuation engine
+                st.markdown("---")
+                col_apply1, col_apply2 = st.columns([2.2, 2.8])
+                with col_apply1:
+                    apply_sb_toggle = st.toggle(
+                        "⚡ Apply Sandbox Load to Entire Valuation Engine",
+                        value=st.session_state.get('apply_sandbox_to_run', False),
+                        key="apply_sb_toggle_input",
+                        help="When active, all avoided costs, bills, NPV, and cost-effectiveness tests across all dashboard tabs are recalculated using this modified profile."
+                    )
+                    if apply_sb_toggle != st.session_state.get('apply_sandbox_to_run', False):
+                        st.session_state['apply_sandbox_to_run'] = apply_sb_toggle
+                        st.rerun()
+                with col_apply2:
+                    if st.session_state.get('apply_sandbox_to_run', False):
+                        st.success("✅ **Active:** Entire dashboard is currently valuing the Sandbox Modified Load Profile.")
+                    else:
+                        st.info("ℹ️ Turn on the toggle to re-evaluate the full economic engine with these modifications.")
+
+            # ------------------------------------------------------------------
+            # TAB 6: PARAMETRIC SENSITIVITY SWEEPS (RECOMMENDATION 6)
+            # ------------------------------------------------------------------
+            with tab_sweeps:
+                st.markdown("### Parametric Sensitivity Sweeps")
+                st.caption("Generate sensitivity curves across user-defined parameter ranges to identify tipping points and breakeven boundaries.")
+
+                col_sw_opt, col_sw_min, col_sw_max, col_sw_steps = st.columns([2.2, 1, 1, 1])
+                with col_sw_opt:
+                    sweep_choice = st.selectbox(
+                        "Select Parameter to Sweep",
+                        options=[
+                            "Gross Installed Measure Cost ($)",
+                            "Utility Rebate / Incentive ($)",
+                            "Utility Discount Rate / WACC (%)",
+                            "Customer Discount Rate (%)",
+                            "Avoided Generation Capacity Credit ($/kW-yr)",
+                            "Asset Lifetime (Years)",
+                        ],
+                        index=0,
+                        key="sw_choice_select"
+                    )
+
+                if "Measure Cost" in sweep_choice:
+                    param_key = "gross_measure_cost"
+                    def_min, def_max = max(500.0, gross_measure_cost * 0.4), max(2000.0, gross_measure_cost * 2.0)
+                    cur_val = gross_measure_cost
+                    x_label = "Gross Measure Cost ($)"
+                    is_curr = True
+                    is_pct = False
+                elif "Incentive" in sweep_choice:
+                    param_key = "utility_incentive"
+                    def_min, def_max = 0.0, max(1000.0, utility_incentive * 2.5)
+                    cur_val = utility_incentive
+                    x_label = "Utility Incentive ($)"
+                    is_curr = True
+                    is_pct = False
+                elif "Utility Discount Rate" in sweep_choice:
+                    param_key = "discount_rate"
+                    def_min, def_max = 2.0, 15.0
+                    cur_val = discount_rate
+                    x_label = "Utility WACC (%)"
+                    is_curr = False
+                    is_pct = True
+                elif "Customer Discount Rate" in sweep_choice:
+                    param_key = "customer_discount_rate"
+                    def_min, def_max = 2.0, 20.0
+                    cur_val = customer_discount_rate
+                    x_label = "Customer Discount Rate (%)"
+                    is_curr = False
+                    is_pct = True
+                elif "Capacity Credit" in sweep_choice:
+                    param_key = "cap_value"
+                    def_min, def_max = 40.0, 250.0
+                    cur_val = cap_value
+                    x_label = "Generation Capacity Value ($/kW-yr)"
+                    is_curr = True
+                    is_pct = False
+                else:  # Asset Lifetime
+                    param_key = "asset_life"
+                    def_min, def_max = 5.0, 30.0
+                    cur_val = float(asset_life)
+                    x_label = "Asset Lifetime (Years)"
+                    is_curr = False
+                    is_pct = False
+
+                with col_sw_min:
+                    sw_min_input = st.number_input("Minimum Value", value=float(def_min), key="sw_min_val")
+                with col_sw_max:
+                    sw_max_input = st.number_input("Maximum Value", value=float(def_max), key="sw_max_val")
+                with col_sw_steps:
+                    sw_steps_input = st.number_input("Steps", min_value=5, max_value=30, value=15, step=1, key="sw_steps_val")
+
+                if sw_min_input < sw_max_input:
+                    sweep_results = calculate_parametric_sweep(
+                        sweep_param=param_key,
+                        min_val=sw_min_input,
+                        max_val=sw_max_input,
+                        steps=sw_steps_input,
+                        base_gross_measure_cost=gross_measure_cost,
+                        base_utility_incentive=utility_incentive,
+                        base_utility_admin_cost=utility_admin_cost,
+                        base_discount_rate=discount_rate,
+                        base_customer_discount_rate=customer_discount_rate,
+                        base_cap_value=cap_value,
+                        base_asset_life=asset_life,
+                        base_escalation_rate=escalation_rate,
+                        base_retail_escalation_rate=retail_escalation_rate,
+                        base_degradation_rate=degradation_rate,
+                        annual_grid_savings=annual_grid_savings,
+                        annual_lost_revenue=annual_lost_revenue
+                    )
+
+                    fig_sw = build_parametric_sweep_chart(
+                        sweep_df=sweep_results,
+                        param_name=param_key,
+                        current_val=cur_val,
+                        x_label=x_label,
+                        is_currency=is_curr,
+                        is_percent=is_pct
+                    )
+                    st.plotly_chart(fig_sw, width="stretch")
+
+                    with st.expander("▸ View Parametric Sensitivity Data Table"):
+                        st.dataframe(sweep_results, width="stretch", hide_index=True)
+                else:
+                    st.error("Minimum value must be less than Maximum value.")
+
+            # ------------------------------------------------------------------
+            # TAB 7: CHARTS (ordered simplest/most relatable → most technical)
             # ------------------------------------------------------------------
             with tab_charts:
                 st.markdown("### Charts")
@@ -1955,10 +2368,14 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         label = _week_label("", start_h, end_h).strip(" ()")
                     return start_h, end_h, label
 
-                (chart_tab_load, chart_tab_econ, chart_tab_annual, chart_tab_seasonal,
+                (chart_tab_load, chart_tab_waterfall, chart_tab_payback, chart_tab_monthly,
+                 chart_tab_econ, chart_tab_annual, chart_tab_seasonal,
                  chart_tab_peaker, chart_tab_cwf, chart_tab_lifetime, chart_tab_duration,
                  chart_tab_cumulative) = st.tabs([
                     "Building Load vs. Temperature",
+                    "Customer Bill Waterfall",
+                    "Customer Payback Timeline",
+                    "Monthly Bill Comparison",
                     "Weekly Grid Economics",
                     "Annual Wholesale Cost",
                     "Winter and Summer Peak Comparison",
@@ -1993,6 +2410,63 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             "instead, that's shown in its place. Use the **Select Analysis "
                             "Week Window** menu above to switch between Winter, Summer, and "
                             "Shoulder season weeks."
+                        )
+
+                # --- Sub-tab 2: Customer Bill Waterfall (Recommendation 10) ---
+                with chart_tab_waterfall:
+                    st.markdown("#### Customer Annual Bill Impact (Waterfall)")
+                    col_chart, col_text = st.columns([3, 2])
+                    with col_chart:
+                        fig_waterfall = build_customer_bill_waterfall_chart(
+                            baseline_bill=ann_bill_baseline,
+                            proposed_bill=ann_bill_proposed,
+                            tariff_name=tariff_name_label
+                        )
+                        st.plotly_chart(fig_waterfall, width="stretch")
+                    with col_text:
+                        _chart_explainer(
+                            "This waterfall chart displays the customer's annual electric bill before and after adopting "
+                            "the technology under the selected retail utility tariff. Green bars indicate bill savings; "
+                            "red bars indicate bill increases. This provides an intuitive, executive-ready graphic that vendors "
+                            "and researchers can use to pitch the product's financial proposition to consumers and rate designers."
+                        )
+
+                # --- Sub-tab 3: Customer Payback Timeline (Recommendation 10) ---
+                with chart_tab_payback:
+                    st.markdown("#### Customer Cumulative Cash Flow & Payback Timeline")
+                    col_chart, col_text = st.columns([3, 2])
+                    with col_chart:
+                        fig_payback = build_payback_timeline_chart(
+                            net_customer_cost=net_customer_cost,
+                            annual_savings_stream=annual_cust_savings_stream,
+                            pv_multipliers=customer_pv_multipliers,
+                            simple_payback=simple_payback,
+                            discounted_payback=discounted_payback
+                        )
+                        st.plotly_chart(fig_payback, width="stretch")
+                    with col_text:
+                        _chart_explainer(
+                            "This timeline tracks the homeowner's cumulative bill savings over the asset's operating horizon "
+                            "compared to their initial net investment outlay (gross equipment cost minus utility rebates). "
+                            "The breakeven points where cumulative bill savings cross the red dashed net investment line define the "
+                            f"**Simple Payback** ({simple_payback:.1f} yrs) and **Discounted Payback** ({discounted_payback:.1f} yrs) horizons."
+                        )
+
+                # --- Sub-tab 4: Monthly Bill Comparison (Recommendation 10) ---
+                with chart_tab_monthly:
+                    st.markdown("#### Monthly Electric Bill Comparison & Savings")
+                    col_chart, col_text = st.columns([3, 2])
+                    with col_chart:
+                        fig_monthly = build_monthly_bill_comparison_chart(
+                            monthly_baseline_bills=bills_baseline,
+                            monthly_proposed_bills=bills_proposed
+                        )
+                        st.plotly_chart(fig_monthly, width="stretch")
+                    with col_text:
+                        _chart_explainer(
+                            "Compares customer electric bills across all 12 calendar months for Baseline vs. Proposed cases. "
+                            "The green line plots monthly dollar savings ($), allowing technology developers to verify seasonal performance "
+                            "(e.g., verifying that heat pump savings in winter mornings don't get erased by summer cooling)."
                         )
 
                 # --- Sub-tab 2: Weekly Grid Economics (one layer deeper — dollars, still weekly) ---
