@@ -60,7 +60,7 @@
 
 | Term / Acronym | Definition |
 |----------------|------------|
-| **RIM (Ratepayer Impact Measure)** | Cost-effectiveness test measuring impact on non-participating ratepayers. `RIM = NPV of Grid Avoided Costs / NPV of Retail Lost Revenue`. RIM ≥ 1.0 means grid savings exceed utility lost revenue, putting downward pressure on rates. ✅ *Implemented in tool.* |
+| **RIM (Rate Impact Measure)** | Cost-effectiveness test measuring impact on non-participating ratepayers. `RIM = NPV of Grid Avoided Costs / (NPV of Retail Lost Revenue + Program Costs)`. RIM ≥ 1.0 means grid savings exceed utility lost revenue and program costs, putting downward pressure on rates. ✅ *Implemented in tool.* |
 | **TRC (Total Resource Cost)** | Cost-effectiveness test measuring net benefit to all parties combined (utility + participant). `TRC = NPV Avoided Grid Costs / (Gross Measure Cost + Utility Admin Cost)`. ✅ *Implemented* in `calculate_cost_effectiveness_tests()` (`calculations.py`), displayed via `ratio_card_html()` on the Overview Scorecard tab. |
 | **UCT / PAC (Utility Cost Test / Program Administrator Cost)** | Measures cost-effectiveness from the utility's perspective only, excluding participant costs. Similar to RIM but treats bill savings differently. 🔴 *Not yet implemented.* |
 | **PCT (Participant Cost Test)** | Measures whether the investment is worthwhile from the customer's perspective. `PCT = (NPV Customer Bill Savings + Incentive) / Gross Measure Cost`. ✅ *Implemented* in `calculate_cost_effectiveness_tests()` (`calculations.py`), displayed via `ratio_card_html()` on the Overview Scorecard tab. |

@@ -40,9 +40,9 @@ Before diving into the code, here are a few key building blocks:
 *   **CWFT (Capacity Worth Factor Table)**: An 8,760-hour profile of weights (summing to $1.0$) that distributes fixed annual generation capacity risk across hours of grid stress (winter cold snaps and summer heatwaves).
 *   **PCAF (Peak Capacity Allocation Factor)**: Allocates localized Transmission & Distribution (T&D) deferral costs across the top grid stress hours.
 *   **URDB (Utility Rate Database)**: NREL's standardized JSON schema for describing complex retail electricity tariffs (fixed monthly fees, volumetric energy tiers, seasonal peak demand charges).
-*   **RIM Ratio (Ratepayer Impact Measure)**: Measures program cost-effectiveness from non-participating customers' perspective:
-    $$\text{RIM Ratio} = \frac{\text{Net Present Value of Wholesale Grid Savings}}{\text{Net Present Value of Retail Lost Revenue}}$$
-    A ratio $> 1.0$ means grid savings exceed lost utility revenue, putting downward pressure on customer rates.
+*   **RIM Ratio (Rate Impact Measure)**: Measures program cost-effectiveness from non-participating customers' perspective:
+    $$\text{RIM Ratio} = \frac{\text{Net Present Value of Wholesale Grid Savings}}{\text{Net Present Value of Retail Lost Revenue} + \text{Program Costs}}$$
+    A ratio $> 1.0$ means grid savings exceed lost utility revenue and program costs, putting downward pressure on customer rates.
 
 ---
 

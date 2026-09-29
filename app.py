@@ -1387,7 +1387,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 with kpi_col1:
                     _ratio_card("Total Resource Cost (TRC)", trc_ratio, "NPV Grid / (Measure + Admin)")
                 with kpi_col2:
-                    _ratio_card("Ratepayer Impact (RIM)", rim_ratio, "NPV Grid / (Lost Rev + Program)")
+                    _ratio_card("Rate Impact Measure (RIM)", rim_ratio, "NPV Grid / (Lost Rev + Program)")
                 with kpi_col3:
                     sp_str = f"{simple_payback:.1f} yrs" if simple_payback != float('inf') else "N/A"
                     dp_str = f"{discounted_payback:.1f} yrs" if discounted_payback != float('inf') else "N/A"
@@ -1637,7 +1637,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             "Net Present Value (NPV) - Grid Savings",
                             "Net Present Value (NPV) - Lost Revenue",
                             "Net Present Value (NPV) - Net Benefit",
-                            "Ratepayer Impact Measure (RIM) Ratio"
+                            "Rate Impact Measure (RIM) Ratio"
                         ],
                         "Annual Unit Rate": [
                             "Hourly Cambium Price",
