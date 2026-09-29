@@ -53,7 +53,7 @@ Before cataloguing gaps, here is what the tool **does** have working today:
 - **CWFT-based capacity allocation** (EPC and ELCC proxy calculations)
 - **PCAF-based T&D deferral allocation** (top 100 price hours)
 - **URDB-compliant retail billing engine** (tiered blocks, seasonal periods, weekday/weekend, demand charges)
-- **Two pre-packaged retail tariffs** (Georgia Power R-31, Alabama Power FD)
+- **Five pre-packaged retail tariffs** (Georgia Power R-31, Alabama Power FD, Alabama Power FD-D, Alabama Power RTA Demand, Alabama Power RTA-E Energy Only)
 - **URDB API integration** (live tariff import from NREL OpenEI)
 - **Custom tariff input** (paste JSON or flat rate)
 - **Multi-year NPV discounting** with escalation, degradation, and WACC
@@ -90,23 +90,20 @@ Before cataloguing gaps, here is what the tool **does** have working today:
 ### 3.1 🟡 CWFT Generation & Allocation Engine Implemented (Proprietary IRP Calibration In Progress)
 **File:** `CWFT.csv` / `calculations.py` / `app.py`
 
-The tool now supports four robust allocation methodologies alongside custom file upload:
-1. **Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)** with configurable seasonal weight split and load exceedance weighting.
-2. **Cambium Price-Exceedance LOLP Proxy** using an exponential risk curve `exp(α · (P_h / P_peak - 1.0))` on Cambium's own hourly wholesale energy price to concentrate capacity value in extreme hours. (Previously mislabeled "EIA-930 Demand LOLP Proxy" — it was never fed real EIA-930 demand data; it inherits Cambium's weather-year alignment instead, which is why it's used in place of an external historical demand series.)
-3. **Top-N System Peak Hours** with uniform or exceedance weighting.
-4. **Wholesale Peaker Rent** spark spread proxy.
-5. **Direct CSV Upload** for utility-supplied proprietary shapes.
+The tool now supports six robust allocation methodologies alongside custom file upload:
+1. **Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM) [Default]** with default 80% Winter / 20% Summer risk share, freeze/heat thresholds, ambient temperature severity weighting, and 3-day rolling thermal buildup/lag memory from aligned 8,760 EPW dry-bulb weather data.
+2. **Ambient Temperature Severity (Weather-Triggered)** based directly on winter sub-freezing and summer heat dome severity.
+3. **Cambium Price-Exceedance LOLP Proxy** using an exponential risk curve `exp(α · (P_h / P_peak - 1.0))` on Cambium's own hourly wholesale energy price to concentrate capacity value in extreme hours. (Previously mislabeled "EIA-930 Demand LOLP Proxy" — it was never fed real EIA-930 demand data; it inherits Cambium's weather-year alignment instead, which is why it's used in place of an external historical demand series.)
+4. **Top-N System Peak Hours** with uniform or exceedance weighting.
+5. **Wholesale Peaker Rent** spark spread proxy.
+6. **Direct CSV Upload** for utility-supplied proprietary shapes.
 
 **Remaining Gap:** Awaiting proprietary 8,760 LOLP/CWFT matrices from Southern Company (Georgia Power / Alabama Power) 2024/2025 IRP dockets to provide calibrated utility baselines.
 
-> **[Assistant, 2026-09-25]:** Found and fixed a real building-dependence bug in the
-> default "Southeast Dual-Peak" method (it used the *selected Baseline building's own
-> load* to define grid stress hours, so swapping which technology was Baseline could
-> shift results ~37% for the same technology pair). Default switched to the
-> building-independent **Cambium Price-Exceedance LOLP Proxy**, and its `alpha`
-> reduced from 12 → 4 after finding the old default concentrated 40–58% of a whole
-> year's capacity credit onto a single hour on real Cambium data; alpha=4 keeps the
-> top hour's share under ~1%. See `CHANGELOG.md` [2026-09-25].
+> **[Assistant, 2026-09-28]:** Upgraded "Southeast Dual-Peak" to weight intra-window hours
+> by ambient temperature severity and 3-day rolling thermal buildup (Method A: $T_{\text{eff}}$ blend),
+> and defaulted the seasonal split to 80% Winter Morning / 20% Summer Afternoon to reflect
+> Southeast heating risk. See `CHANGELOG.md` [2026-09-28].
 
 ---
 
@@ -163,15 +160,15 @@ This file exists in the repository but is **never imported or used** by `app.py`
 
 ---
 
-### 3.6 🟡 No User-Uploadable File Interface
-**Lines:** app.py 1042–1046
+### 3.6 🟡 Partial: User-Uploadable File Interface
+**Lines:** `app.py`, `data_loaders.py`
 
-File paths for CWFT and load profiles are entered as **raw text strings** in the sidebar. There is no Streamlit `file_uploader` widget, drag-and-drop, or in-browser file management.
+- ✅ **CWFT:** `st.file_uploader()` now implemented for 8,760 CWF files supporting both `.csv` and Excel (`.xlsx`, `.xls`), with automatic column detection, row count validation (8760), and auto-normalization to sum to 1.0. Also supports local file paths.
+- 🟡 **Load Profiles & Weather:** Still using directory scans and text input paths.
 
-**What's Needed:**
-- `st.file_uploader()` for CWFT, load profiles, and optionally weather files
-- Validation feedback on upload (row count, column detection, preview)
-- Option to download template CSVs
+**What's Still Needed:**
+- `st.file_uploader()` for load profiles and custom weather files.
+- Option to download template CSVs.
 
 ---
 
@@ -227,14 +224,17 @@ The ELCC proxy is calculated as `EPC / Peak Load`. This is a simple approximatio
 ### 4.4 ✅ Feeder-Specific T&D Deferral & Presets Implemented
 **File:** `calculations.py` / `config.py` / `app.py`
 
-**Resolved (2026-09-10):**
+**Resolved (2026-09-10, updated 2026-09-29):**
 - Transmission and distribution weight vectors are now fully decoupled in `calculate_avoided_costs()`.
-- Added **Feeder Peaking Profile Selection** (`FEEDER_TYPE_OPTIONS`) supporting:
-  1. *Winter-Peaking Feeder (Southeast Heating / Cold Snap)*: 6–9 AM Dec–Feb (critical for space heating / heat pump valuation).
-  2. *Summer-Peaking Feeder (Southeast Cooling)*: 2–6 PM Jun–Sep.
-  3. *Dual-Peaking Feeder (Suburban Mixed 50/50)*.
-  4. *Wholesale Price PCAF (Top 100 Hours)*.
-- Pre-packaged empirical Southeast rate case benchmarks for Georgia Power, Alabama Power, and LBNL.
+- Added **Feeder Peaking Profile Selection** (`FEEDER_TYPE_OPTIONS`) supporting simplified, intuitive profiles:
+  1. *System Coincident (Top 100 Peak Hours)* (default bulk system stress proxy).
+  2. *Winter-Peaking Feeder (Southeast Heating / Dec–Feb 6–9 AM)* (space heating / heat pump valuation).
+  3. *Summer-Peaking Feeder (Southeast Cooling / Jun–Sep 2–6 PM)*.
+  4. *Dual-Peaking Feeder (Suburban Mixed 50/50)*.
+- Pre-packaged empirical Southeast rate case benchmarks for Georgia Power ($40/kW-yr), Alabama Power ($36/kW-yr), LBNL ($32/kW-yr), and High Growth Corridor ($55/kW-yr).
+- Added one-click **"None / Exclude T&D ($0/kW-yr)"** preset for quick conservative sensitivity screenings.
+- Added dynamic combined rate badge showing total T&D value and status (`$Trans + $Dist`).
+- Relocated Carbon Penalty slider from T&D into Grid Scenario & Region expander.
 
 ---
 

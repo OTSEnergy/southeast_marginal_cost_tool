@@ -62,7 +62,7 @@ SCENARIO_DESCRIPTIONS = {
 }
 
 PLANNING_YEAR_OPTIONS = ["2025", "2030", "2035", "2040", "2045", "2050"]
-DEFAULT_PLANNING_YEAR_INDEX = 3  # "2040"
+DEFAULT_PLANNING_YEAR_INDEX = 1  # "2030"
 
 WEATHER_CASE_OPTIONS = [
     "2012 (Cambium-aligned baseline)",
@@ -72,6 +72,28 @@ WEATHER_CASE_OPTIONS = [
 
 STATE_OPTIONS = ["AL", "GA", "FL", "TN", "MS", "NC", "SC"]
 DEFAULT_STATES = ["AL"]
+
+# Planning & Educational Use Disclaimer
+TOOL_DISCLAIMER_TEXT = (
+    "This tool is for planning and educational purposes only. It is meant to help "
+    "guide research and product teams to understand what is treated as valuable by "
+    "electric utilities in the Southeast, but is not a certified tool and uses "
+    "simplifications and only publicly available data, so is not fully "
+    "representative of results from true utility evaluation studies for the same technology."
+)
+
+TOOL_DISCLAIMER_HTML = (
+    '<div style="margin-top: 20px; margin-bottom: 16px; padding: 12px 16px; '
+    'background: #FFFBEB; border: 1px solid #FDE68A; border-left: 4px solid #F59E0B; '
+    'border-radius: 6px; font-size: 0.82rem; color: #92400E; line-height: 1.5;">'
+    '<div style="font-weight: 700; display: flex; align-items: center; gap: 6px; '
+    'margin-bottom: 3px; font-size: 0.86rem; color: #B45309;">'
+    '<span>⚠️ Planning & Educational Purpose Disclaimer</span>'
+    '</div>'
+    + TOOL_DISCLAIMER_TEXT +
+    '</div>'
+)
+
 
 
 # ==============================================================================
@@ -123,7 +145,7 @@ EXAMPLE_BUILDINGS = [
 # GRID VALUATION SCALAR DEFAULTS
 # ==============================================================================
 
-DEFAULT_CAP_VALUE = 100.00       # $/kW-year  (Generation Capacity)
+DEFAULT_CAP_VALUE = 110.20       # $/kW-year  (Generation Capacity: NREL ATB 2024 CT Carrying Cost Benchmark: $1,100/kW * 8.2% FCR + $20/kW-yr FOM)
 DEFAULT_TRANS_VALUE = 15.00      # $/kW-year  (Transmission Deferral)
 DEFAULT_DIST_VALUE = 15.00       # $/kW-year  (Distribution Deferral)
 DEFAULT_CARBON_TAX = 30.00       # $/metric ton CO₂
@@ -139,10 +161,34 @@ CARBON_TAX_RANGE = (0.0, 100.0, 5.00)
 # ==============================================================================
 
 SOUTHEAST_PEAKER_PRESETS = {
+    "NREL ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)": {
+        "description": "NREL Annual Technology Baseline (ATB 2024) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario, Regulated Utility Financing. (CAPEX: $1,100/kW, FCR: 8.20%, FOM: $20.00/kW-yr -> ECC: $110.20/kW-yr).",
+        "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
+        "capex_kw": 1100.0,
+        "fom_kw_yr": 20.00,
+        "fcr": 0.082,
+        "wacc": 0.070,
+        "life": 30,
+        "tax_rate": 0.257,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "NREL ATB 2024: Natural Gas CT (Merchant / R&D Financing)": {
+        "description": "NREL ATB 2024 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (CAPEX: $1,100/kW, FCR: 10.20%, FOM: $20.00/kW-yr -> ECC: $132.20/kW-yr).",
+        "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
+        "capex_kw": 1100.0,
+        "fom_kw_yr": 20.00,
+        "fcr": 0.102,
+        "wacc": 0.085,
+        "life": 25,
+        "tax_rate": 0.257,
+        "eas_offset_kw_yr": 0.0,
+    },
     "Southern Company / Georgia Power IRP SCCT Benchmark": {
         "description": "Next planned F-Class simple cycle combustion turbine based on Southern Company 2022/2025 IRP dockets.",
+        "source": "Southern Company 2022/2025 Integrated Resource Plan (IRP) dockets",
         "capex_kw": 1080.0,
         "fom_kw_yr": 15.00,
+        "fcr": 0.084,
         "wacc": 0.071,
         "life": 30,
         "tax_rate": 0.25,
@@ -150,30 +196,58 @@ SOUTHEAST_PEAKER_PRESETS = {
     },
     "TVA Capacity Expansion SCCT Benchmark": {
         "description": "TVA 2019/2024 IRP capacity expansion peaker proxy with federal financing.",
+        "source": "TVA 2019/2024 IRP capacity expansion peaker proxy",
         "capex_kw": 1020.0,
         "fom_kw_yr": 14.00,
+        "fcr": 0.079,
         "wacc": 0.068,
         "life": 30,
         "tax_rate": 0.21,
         "eas_offset_kw_yr": 0.0,
     },
-    "NREL ATB 2024: Regulated Utility Finance SCCT": {
-        "description": "NREL Annual Technology Baseline (ATB 2024) Natural Gas Combustion Turbine - Industrial Frame, regulated investor-owned utility financing.",
-        "capex_kw": 1050.0,
-        "fom_kw_yr": 15.50,
-        "wacc": 0.070,
-        "life": 30,
-        "tax_rate": 0.257,
-        "eas_offset_kw_yr": 5.0,
-    },
-    "NREL ATB 2024: Aeroderivative CT": {
-        "description": "Fast-ramping aeroderivative peaker (e.g. LM6000) for winter morning cold snap / peak following.",
-        "capex_kw": 1250.0,
-        "fom_kw_yr": 18.00,
+    "Duke Energy Carolinas 2024 IRP SCCT Benchmark": {
+        "description": "Next planned GE 7F.05 simple-cycle combustion turbine from Duke Energy 2024 Carolinas Resource Plan / Carbon Plan.",
+        "source": "Duke Energy Carolinas 2024 Integrated Resource Plan / Carbon Plan (NCUC Docket E-100 Sub 190)",
+        "capex_kw": 1060.0,
+        "fom_kw_yr": 16.00,
+        "fcr": 0.081,
         "wacc": 0.071,
         "life": 30,
         "tax_rate": 0.25,
-        "eas_offset_kw_yr": 8.0,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "Entergy 2023/2024 IRP Peaker Benchmark": {
+        "description": "Next planned simple-cycle combustion turbine peaker proxy from Entergy operating companies 2023/2024 IRP dockets.",
+        "source": "Entergy 2023/2024 Integrated Resource Plan dockets",
+        "capex_kw": 1050.0,
+        "fom_kw_yr": 15.50,
+        "fcr": 0.083,
+        "wacc": 0.072,
+        "life": 30,
+        "tax_rate": 0.25,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "Southeast Regional Composite SCCT Benchmark": {
+        "description": "Composite average simple-cycle combustion turbine carrying cost across Southeast utilities ($104.00/kW-yr).",
+        "source": "Composite Southeast Utility IRPs & NREL ATB 2024",
+        "capex_kw": 1060.0,
+        "fom_kw_yr": 16.00,
+        "fcr": 0.083,
+        "wacc": 0.071,
+        "life": 30,
+        "tax_rate": 0.25,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "NREL ATB 2024: Aeroderivative CT": {
+        "description": "Fast-ramping aeroderivative peaker (e.g. LM6000) for winter morning cold snap / peak following.",
+        "source": "NREL ATB 2024 Natural Gas: Combustion Turbine (Aeroderivative)",
+        "capex_kw": 1250.0,
+        "fom_kw_yr": 18.00,
+        "fcr": 0.082,
+        "wacc": 0.071,
+        "life": 30,
+        "tax_rate": 0.25,
+        "eas_offset_kw_yr": 0.0,
     },
 }
 
@@ -181,22 +255,144 @@ SOUTHEAST_TD_PRESETS = {
     "Georgia Power Rate Case Benchmark": {
         "dist_value": 25.00,
         "trans_value": 15.00,
-        "description": "Derived from Georgia Power retail rate dockets and FERC Form 1 growth additions.",
+        "description": "Derived from Georgia Power retail rate dockets and FERC Form 1 growth additions ($40.00/kW-yr combined).",
     },
     "Alabama Power Rate Case Benchmark": {
         "dist_value": 22.00,
         "trans_value": 14.00,
-        "description": "Derived from Alabama Power retail rate filings and FERC Form 1.",
+        "description": "Derived from Alabama Power retail rate filings and FERC Form 1 ($36.00/kW-yr combined).",
+    },
+    "Mississippi Power Rate Case Benchmark": {
+        "dist_value": 19.00,
+        "trans_value": 12.00,
+        "description": "Derived from Mississippi Power MPSC retail rate filings, PEP filings, and FERC Form 1 ($31.00/kW-yr combined).",
+    },
+    "TVA / LPC Composite Benchmark": {
+        "dist_value": 20.00,
+        "trans_value": 16.50,
+        "description": "Derived from TVA Wholesale Transmission Rate filings and composite Local Power Company (LPC) distribution studies ($36.50/kW-yr combined).",
+    },
+    "Duke Energy Carolinas Rate Case Benchmark": {
+        "dist_value": 27.00,
+        "trans_value": 15.00,
+        "description": "Derived from Duke Energy Carolinas NCUC/SCPSC rate dockets (Docket E-7 Sub 1276) and FERC Form 1 ($42.00/kW-yr combined).",
+    },
+    "Entergy Mississippi Rate Case Benchmark": {
+        "dist_value": 21.00,
+        "trans_value": 13.00,
+        "description": "Derived from Entergy Mississippi retail rate filings and FERC Form 1 growth additions ($34.00/kW-yr combined).",
     },
     "LBNL Southeast Regional Average": {
-        "dist_value": 20.00,
-        "trans_value": 12.00,
-        "description": "Lawrence Berkeley National Lab (LBNL) Southeast regional avoided T&D cost benchmark.",
+        "dist_value": 22.00,
+        "trans_value": 14.00,
+        "description": "Lawrence Berkeley National Lab (LBNL) and regional composite avoided T&D cost benchmark ($36.00/kW-yr combined).",
     },
     "Constrained Urban / High Growth Corridor": {
         "dist_value": 35.00,
         "trans_value": 20.00,
-        "description": "Rapidly growing Southeast metro area (Atlanta / Birmingham perimeter) with heavy transformer loading.",
+        "description": "Rapidly growing Southeast metro area (Atlanta / Charlotte / Birmingham perimeter) with heavy transformer loading ($55.00/kW-yr combined).",
+    },
+    "None / Exclude T&D ($0/kW-yr)": {
+        "dist_value": 0.00,
+        "trans_value": 0.00,
+        "description": "Excludes transmission and distribution deferral credits ($0.00/kW-yr) for conservative generation-only screening.",
+    },
+}
+
+# ==============================================================================
+# TOP-LEVEL BALANCING AUTHORITY / UTILITY SYSTEM PRESETS
+# ==============================================================================
+
+ORGANIZATION_PRESETS = {
+    "Southern Company (Georgia Power / Alabama Power / Mississippi Power)": {
+        "label": "Southern Company",
+        "description": "Vertically integrated Southern Company pool (Georgia Power, Alabama Power, Mississippi Power). Strong winter morning reliability risk combined with summer cooling peaks.",
+        "states": ["GA", "AL"],
+        "scenario": "MidCase",
+        "planning_year": "2030",
+        "weather_case": "2012 (Cambium-aligned baseline)",
+        "carbon_tax": 30.00,
+        "cap_value": 105.72,
+        "peaker_preset": "Southern Company / Georgia Power IRP SCCT Benchmark",
+        "cwf_mode": "Southeast Dual-Peak (Weather-Driven)",
+        "cwf_winter_split": 80.0,
+        "td_preset": "Georgia Power Rate Case Benchmark",
+        "trans_value": 15.00,
+        "dist_value": 25.00,
+        "feeder_type": "Winter-Peaking Feeder (Southeast Heating / Dec–Feb 6–9 AM)",
+        "tariff_type": "Georgia Power - Schedule R-31 (Residential)",
+    },
+    "Tennessee Valley Authority (TVA / LPCs)": {
+        "label": "TVA / Public Power",
+        "description": "Federal wholesale bulk power provider serving 153 municipal/cooperative Local Power Companies across TN, north AL, and north GA. Extreme winter morning space-heating peaks.",
+        "states": ["TN"],
+        "scenario": "MidCase",
+        "planning_year": "2030",
+        "weather_case": "2012 (Cambium-aligned baseline)",
+        "carbon_tax": 0.00,
+        "cap_value": 94.58,
+        "peaker_preset": "TVA Capacity Expansion SCCT Benchmark",
+        "cwf_mode": "Southeast Dual-Peak (Weather-Driven)",
+        "cwf_winter_split": 85.0,
+        "td_preset": "TVA / LPC Composite Benchmark",
+        "trans_value": 16.50,
+        "dist_value": 20.00,
+        "feeder_type": "Winter-Peaking Feeder (Southeast Heating / Dec–Feb 6–9 AM)",
+        "tariff_type": "TVA LPC - Standard Residential Benchmark",
+    },
+    "Duke Energy (Carolinas & Progress — NC / SC)": {
+        "label": "Duke Energy Carolinas",
+        "description": "Duke Energy Carolinas and Duke Energy Progress. High-growth Piedmont corridor with balanced dual-peaking (winter freeze spikes + summer afternoon cooling).",
+        "states": ["NC", "SC"],
+        "scenario": "MidCase",
+        "planning_year": "2030",
+        "weather_case": "2012 (Cambium-aligned baseline)",
+        "carbon_tax": 30.00,
+        "cap_value": 101.86,
+        "peaker_preset": "Duke Energy Carolinas 2024 IRP SCCT Benchmark",
+        "cwf_mode": "Southeast Dual-Peak (Weather-Driven)",
+        "cwf_winter_split": 70.0,
+        "td_preset": "Duke Energy Carolinas Rate Case Benchmark",
+        "trans_value": 15.00,
+        "dist_value": 27.00,
+        "feeder_type": "Dual-Peaking Feeder (Suburban Mixed 50/50)",
+        "tariff_type": "Duke Energy Carolinas - Schedule RES (Residential)",
+    },
+    "Entergy (Entergy Mississippi / Mid-South)": {
+        "label": "Entergy",
+        "description": "Entergy operating companies across the lower Mississippi Delta. High summer cooling load with winter polar freeze vulnerability.",
+        "states": ["MS"],
+        "scenario": "MidCase",
+        "planning_year": "2030",
+        "weather_case": "2012 (Cambium-aligned baseline)",
+        "carbon_tax": 25.00,
+        "cap_value": 102.50,
+        "peaker_preset": "Entergy 2023/2024 IRP Peaker Benchmark",
+        "cwf_mode": "Southeast Dual-Peak (Weather-Driven)",
+        "cwf_winter_split": 65.0,
+        "td_preset": "Entergy Mississippi Rate Case Benchmark",
+        "trans_value": 13.00,
+        "dist_value": 21.00,
+        "feeder_type": "Dual-Peaking Feeder (Suburban Mixed 50/50)",
+        "tariff_type": "Entergy Mississippi - Rate Schedule RS (Residential)",
+    },
+    "Southeast Regional Average (Composite Benchmark)": {
+        "label": "Southeast Average",
+        "description": "Weighted empirical composite average across Southern Company, TVA, Duke Energy, and Entergy territories.",
+        "states": ["AL", "GA", "TN", "NC", "SC", "MS"],
+        "scenario": "MidCase",
+        "planning_year": "2030",
+        "weather_case": "2012 (Cambium-aligned baseline)",
+        "carbon_tax": 25.00,
+        "cap_value": 104.00,
+        "peaker_preset": "Southeast Regional Composite SCCT Benchmark",
+        "cwf_mode": "Southeast Dual-Peak (Weather-Driven)",
+        "cwf_winter_split": 75.0,
+        "td_preset": "LBNL Southeast Regional Average",
+        "trans_value": 14.00,
+        "dist_value": 22.00,
+        "feeder_type": "System Coincident (Top 100 Peak Hours)",
+        "tariff_type": "Southeast Regional Average Tariff ($0.135/kWh)",
     },
 }
 
@@ -210,10 +406,10 @@ CWF_METHOD_OPTIONS = [
 ]
 
 FEEDER_TYPE_OPTIONS = [
-    "Winter-Peaking Feeder (Southeast Heating / Cold Snap)",
-    "Summer-Peaking Feeder (Southeast Cooling)",
+    "System Coincident (Top 100 Peak Hours)",
+    "Winter-Peaking Feeder (Southeast Heating / Dec–Feb 6–9 AM)",
+    "Summer-Peaking Feeder (Southeast Cooling / Jun–Sep 2–6 PM)",
     "Dual-Peaking Feeder (Suburban Mixed 50/50)",
-    "Wholesale Price PCAF (Top 100 Hours)",
 ]
 
 
@@ -302,6 +498,14 @@ COLORS = {
 TARIFF_OPTIONS = [
     "Georgia Power - Schedule R-31 (Residential)",
     "Alabama Power - Rate FD (Family Dwelling)",
+    "Alabama Power - Rate FD-D (Family Dwelling Demand)",
+    "Alabama Power - Rate RTA (Residential Time Advantage - Demand)",
+    "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
+    "Duke Energy Carolinas - Schedule RES (Residential)",
+    "TVA LPC - Standard Residential Benchmark",
+    "Mississippi Power - Rate Schedule RS (Residential)",
+    "Entergy Mississippi - Rate Schedule RS (Residential)",
+    "Southeast Regional Average Tariff ($0.135/kWh)",
     "Import from NREL URDB (API Label)",
     "Paste Custom URDB V3 JSON",
     "Custom Flat Rate / Demand",
@@ -316,14 +520,34 @@ TARIFF_OPTIONS = [
 # the same visual style as native st.metric() cards (see .kpi-card CSS below),
 # so ratio cards and native metric cards look consistent side-by-side.
 
-def ratio_card_html(label, value, sublabel, passing):
+def ratio_card_html(label, value, sublabel, passing, help_text=None):
     """
     Returns an HTML snippet for a color-coded ratio KPI card (e.g. TRC, PCT, RIM),
     styled to match native st.metric() cards. `passing` controls green/red color.
+    If `help_text` is provided, renders a help (?) icon with hover tooltip.
     """
     color = "#15803d" if passing else "#b91c1c"
+    if help_text:
+        formatted_help = help_text.strip()
+        if "<" not in formatted_help and ">" not in formatted_help:
+            formatted_help = formatted_help.replace("\n", "<br>")
+        help_icon_html = (
+            f'<span class="kpi-help-tooltip" tabindex="0">'
+            f'<svg class="kpi-help-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" '
+            f'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+            f'stroke-linecap="round" stroke-linejoin="round">'
+            f'<circle cx="12" cy="12" r="10"></circle>'
+            f'<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>'
+            f'<line x1="12" y1="17" x2="12.01" y2="17"></line>'
+            f'</svg>'
+            f'<div class="kpi-tooltip-bubble">{formatted_help}</div>'
+            f'</span>'
+        )
+    else:
+        help_icon_html = ""
+
     return f"""<div class="kpi-card">
-<div class="kpi-card-label">{label}</div>
+<div class="kpi-card-label"><span>{label}</span>{help_icon_html}</div>
 <div class="kpi-card-value" style="color: {color};">{value}</div>
 <div class="kpi-card-sublabel">{sublabel}</div>
 </div>"""
@@ -334,6 +558,7 @@ def financial_metric_card_html(label, value, sublabel, is_positive=True, neutral
     Returns an HTML snippet for a financial KPI card (e.g. Annual Operating Margin, Lifetime NPV),
     styled to match native st.metric() cards, where the primary number's font color dynamically
     matches positive (green #15803d), negative / cross-subsidy (red #b91c1c), or neutral (teal #0D9488).
+    If `help_text` is provided, renders a help (?) icon with hover tooltip.
     """
     if neutral:
         color = "#0D9488"
@@ -345,9 +570,27 @@ def financial_metric_card_html(label, value, sublabel, is_positive=True, neutral
         color = "#b91c1c"
         sub_color = "#b91c1c"
     
-    title_attr = f' title="{help_text}"' if help_text else ""
-    return f"""<div class="kpi-card"{title_attr}>
-<div class="kpi-card-label">{label}</div>
+    if help_text:
+        formatted_help = help_text.strip()
+        if "<" not in formatted_help and ">" not in formatted_help:
+            formatted_help = formatted_help.replace("\n", "<br>")
+        help_icon_html = (
+            f'<span class="kpi-help-tooltip" tabindex="0">'
+            f'<svg class="kpi-help-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" '
+            f'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+            f'stroke-linecap="round" stroke-linejoin="round">'
+            f'<circle cx="12" cy="12" r="10"></circle>'
+            f'<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>'
+            f'<line x1="12" y1="17" x2="12.01" y2="17"></line>'
+            f'</svg>'
+            f'<div class="kpi-tooltip-bubble">{formatted_help}</div>'
+            f'</span>'
+        )
+    else:
+        help_icon_html = ""
+
+    return f"""<div class="kpi-card">
+<div class="kpi-card-label"><span>{label}</span>{help_icon_html}</div>
 <div class="kpi-card-value" style="color: {color};">{value}</div>
 <div class="kpi-card-sublabel" style="color: {sub_color}; font-weight: 500;">{sublabel}</div>
 </div>"""
@@ -395,11 +638,19 @@ div[data-testid="metric-container"]:hover {
     padding: 15px 18px;
     border-radius: 12px;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+    transition: transform 0.2s ease-in-out;
+}
+.kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05);
 }
 .kpi-card-label {
     font-size: 0.9rem;
     font-weight: 600;
     color: #4B5563;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 .kpi-card-value {
     font-size: 1.8rem;
@@ -409,6 +660,71 @@ div[data-testid="metric-container"]:hover {
 .kpi-card-sublabel {
     font-size: 0.8rem;
     color: #64748B;
+}
+.kpi-help-tooltip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: help;
+    color: #808495;
+    vertical-align: middle;
+}
+.kpi-help-tooltip:hover, .kpi-help-tooltip:focus {
+    color: #1E293B;
+    outline: none;
+}
+.kpi-help-icon {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    display: block;
+}
+.kpi-tooltip-bubble {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #1E293B;
+    color: #F8FAFC;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 400;
+    line-height: 1.45;
+    width: 310px;
+    max-width: 85vw;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.35), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+    z-index: 99999;
+    pointer-events: none;
+    transition: opacity 0.15s ease-in-out, visibility 0.15s ease-in-out;
+    white-space: normal;
+    text-align: left;
+}
+.kpi-tooltip-bubble::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 6px;
+    border-style: solid;
+    border-color: #1E293B transparent transparent transparent;
+}
+.kpi-tooltip-bubble strong {
+    color: #FFFFFF;
+    font-weight: 600;
+}
+.kpi-tooltip-bubble em {
+    color: #38BDF8;
+    font-style: normal;
+    font-weight: 600;
+}
+.kpi-help-tooltip:hover .kpi-tooltip-bubble,
+.kpi-help-tooltip:focus .kpi-tooltip-bubble {
+    visibility: visible;
+    opacity: 1;
 }
 /* Style tables and graphs */
 [data-testid="stDataFrame"] {

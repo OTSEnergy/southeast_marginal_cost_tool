@@ -8,7 +8,7 @@ The application is structured into **6 modular Python files** to ensure clean se
 |--------|----------------|
 | **`app.py`** (~1,660 lines) | Streamlit web application layout, sidebar controls, dashboard tabs, and orchestration. |
 | **`calculations.py`** (~670 lines) | Pure-Python calculation engine: 5-component avoided costs, Southeast Next Planned Peaker carrying cost / regulated FCR, dual-peak CWF allocation, LOLP proxies, feeder PCAF, DR dispatch, and SPM/payback math. |
-| **`billing.py`** (~270 lines) | URDB V3 retail electricity billing engine and pre-packaged tariff schedules (Georgia Power R-31, Alabama Power Rate FD). |
+| **`billing.py`** (~420 lines) | URDB V3 retail electricity billing engine and pre-packaged tariff schedules (Georgia Power R-31, Alabama Power Rate FD, Rate FD-D demand, Rate RTA demand, Rate RTA-E energy-only). |
 | **`data_loaders.py`** (~825 lines) | Data ingestion pipeline: NREL Cambium CSV scanner, raw BEopt/EnergyPlus load profile parser (including BEopt's native `wxDVFileHeaderVer` hourly export format), weather EPW loader, CWFT loader, URDB API client. |
 | **`visualizations.py`** (~780 lines) | Streamlit-free Plotly chart builder functions (10 chart types) returning interactive `go.Figure` objects for all dashboard tabs. |
 | **`config.py`** (~480 lines) | Central configuration: sidebar defaults, Southeast peaker & T&D presets, option lists, the `EXAMPLE_BUILDINGS` library, color palettes, and CSS styling. |
@@ -94,26 +94,17 @@ Lines 22–79 inject custom **CSS (Cascading Style Sheets)** to give metric card
 ## Chapter 2: Utility Rate Structures (URDB) — `billing.py`
 
 ### What the Code Does
-Defines exact pre-packaged residential retail tariffs for Georgia Power and Alabama Power as structured Python dictionaries.
-
-```python
-GP_R31_URDB = {
-    "name": "Georgia Power - Schedule R-31 (Residential)",
-    "fixedcharge": 16.48, # includes riders: $14.00/mo base * 1.177209 rider multiplier
-    "energyratewindow": [
-        [0]*24, [0]*24, [0]*24, [0]*24, [0]*24, # Jan - May (Winter = Period 0)
-        [1]*24, [1]*24, [1]*24, [1]*24,         # Jun - Sep (Summer = Period 1)
-        [0]*24, [0]*24, [0]*24                  # Oct - Dec (Winter = Period 0)
-    ],
-    ...
-}
-```
+Defines exact pre-packaged residential retail tariffs for Georgia Power and Alabama Power as structured Python dictionaries conforming to the NREL URDB V3 JSON schema:
+- **Georgia Power Schedule R-31**: Tiered summer increasing block rates, flat winter rates.
+- **Alabama Power Rate FD**: Two-tier decreasing block winter rates, two-tier increasing block summer rates.
+- **Alabama Power Rate FD-D**: Flat energy rate ($0.105607/kWh), $8.00/kW peak period demand charge (Apr–Oct 1–5 PM weekdays, Nov–Mar 6–9 AM weekdays), and 90% 11-month demand ratchet.
+- **Alabama Power Rate RTA (Demand)**: TOU energy rates (Summer peak $0.282092/kWh, Winter peak $0.152092/kWh, Economy $0.132092/kWh) plus flat $1.50/kW monthly peak demand charge.
+- **Alabama Power Rate RTA-E (Energy Only)**: TOU energy rates (Summer peak $0.328554/kWh, Winter peak $0.148554/kWh, Economy $0.128554/kWh), $26.08/month fixed charge ($25 base + $1.08 NDR), no demand charge.
 
 ### Explanation for Non-Coders
-*   `fixedcharge`: Customer base fee billed every month ($16.48/month for Georgia Power R-31 after rider multipliers).
-*   `energyratewindow`: A 12-month by 24-hour grid matrix mapping every hour of the year to a season/period index:
-    *   `Period 0` = Winter (Jan–May & Oct–Dec). Flat rate of ~$0.142062/kWh.
-    *   `Period 1` = Summer (Jun–Sep). Billed in 3 consumption tiers (Tier 1 up to 650 kWh at ~$0.148/kWh; Tier 2 next 350 kWh at ~$0.216/kWh; Tier 3 above 1000 kWh at ~$0.222/kWh).
+*   `fixedcharge`: Customer base fee billed every month ($16.48/month for Georgia Power R-31 after rider multipliers; $15.58/mo for AL FD, FD-D, and RTA; $26.08/mo for AL RTA-E).
+*   `energyratewindow` / `energyweekdayschedule`: Matrix mapping every hour of the year to a season/period index.
+*   `demandratestructure` / `demandratchetpercentage`: Models monthly maximum demand charges and rolling lookback ratchets (such as Rate FD-D's 90% capacity floor).
 
 ---
 
@@ -210,13 +201,14 @@ Interfaces with Pacific Northwest National Laboratory's (PNNL) `diyepw` Python t
 > `st.sidebar.expander(...)` sections (previously a flat list of markdown headers).
 > Line numbers below are approximate and will drift as the file changes.
 
-*   **Grid Scenario & Region** *(expanded by default)*: NREL Cambium grid projection (HighDemandGrowth, MidCase, LowCarbonConstraint, LowDemandGrowth), planning horizon (2025–2050), weather case, and target Southeast states (AL, GA, FL, TN, MS, NC, SC).
+*   **Grid Scenario & Region** *(expanded by default)*: NREL Cambium grid projection (HighDemandGrowth, MidCase, LowCarbonConstraint, LowDemandGrowth), planning horizon (2025–2050), weather case, target Southeast states (AL, GA, FL, TN, MS, NC, SC), and Avoided Emissions Valuation (Carbon Penalty $/metric ton CO₂).
 *   **Demand Response (Optional)** *(collapsed by default)*: DR mode toggle plus hours/season/max-hours-per-day/capacity inputs.
 *   **Building / Technology & Load Data** *(expanded by default)*: Describes the technology/measure being evaluated and is where the 8760-hour load data comes in. Includes the new **Example Building Library** picker (select a pre-configured example instead of your own data — see Chapter 8 note below) and, when no example is selected, the original Load Profiles Source picker (folder / synthetic / custom path) plus baseline/proposed column selection. Weather Alignment Metadata (load/Cambium/CWFT weather years) now lives at the bottom of this same section, and is auto-locked (disabled, pre-filled) when an example is selected.
-*   **Grid Valuation Assumptions** *(collapsed by default)*: Generation Capacity ($/kW-yr), Transmission Deferral ($/kW-yr), Distribution Deferral ($/kW-yr), and Carbon Penalty ($/ton).
+*   **Total Economic Carrying Cost of a CT (ECC of a CT)** *(collapsed by default)*: Avoided generation capacity valuation. Defaults to the **Direct IRP Scaler ($/kW-year)** pre-populated with the calculated NREL Annual Technology Baseline (ATB 2024) Simple-Cycle Combustion Turbine benchmark (`($1,100/kW CAPEX × 8.20% FCR) + $20.00/kW-yr FOM = $110.20/kW-yr`), while allowing the user to switch to the **Carrying cost of a CT Builder** for custom plant, financing, and WACC/MACRS depreciation parameters or utility presets.
+*   **Capacity Risk Allocation (CWF)** *(collapsed by default)*: Streamlined 8,760 capacity allocation interface. Defaults to **Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)** with the intuitive **Winter Morning Risk Share (%)** slider (default 80% winter / 20% summer). Physics and calibration parameters (32°F freeze cutoff, 90°F heat cutoff, 3-day thermal memory and 30% weight, plus alternative academic methodologies) are kept clean in the background and accessible via a collapsed "Advanced Calibration Settings" expander. Also provides an integrated file uploader and path reader for custom 8,760 CWF profiles supporting both CSV and Excel (`.csv`, `.xlsx`, `.xls`).
+*   **T&D Deferral & Local Feeder Profile** *(collapsed by default)*: Transmission & distribution deferral benchmarks with one-click "$0 / Exclude T&D" sensitivity screening, dynamic combined $/kW-yr rate badge, and local distribution feeder peaking profiles (Winter Morning 6–9 AM, Summer Afternoon 2–6 PM, Dual-Peaking, or System Coincident top 100 wholesale peak hours).
 *   **Retail Tariff (NREL URDB)** *(expanded by default)*: Tariff type, retail escalation rate, and URDB fetch/paste/custom-flat-rate controls.
 *   **Financial Assumptions** *(collapsed by default)*: Merges the former "Asset Lifetime & NPV" (asset life, discount rate, escalation, degradation) and "Measure & Program Costs" (gross measure cost, utility incentive, admin cost) into one section.
-*   **Advanced: Custom Data Files** *(collapsed by default)*: Optional custom CWFT file path.
 
 ---
 

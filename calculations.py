@@ -353,8 +353,27 @@ def calculate_regulated_fcr(wacc=0.071, economic_life=30, tax_rate=0.25, macrs_l
 
 def calculate_ct_carrying_cost(capex_kw, fom_kw_yr, fcr, eas_offset_kw_yr=0.0):
     """
-    Calculate the annual Gross Economic Carrying Cost and Net Avoided Capacity
-    cost for the Next Planned Combustion Turbine (SCCT).
+    Calculate the annual Gross Economic Carrying Cost (ECC) and Net Avoided Capacity
+    cost for the Next Planned Combustion Turbine (CT / SCCT) using the NREL Annual
+    Technology Baseline (ATB) standard annualized carrying cost formulation:
+
+        Carrying Cost ($/kW-yr) = (CAPEX * FCR) + Fixed O&M
+
+    Under resource planning and marginal cost models (e.g. Gross CONE benchmark):
+    - CAPEX: Overnight capital expenditure ($/kW)
+    - FCR: Fixed Charge Rate (accounting for WACC, depreciation, income tax, and project life)
+    - FOM: Fixed Operations and Maintenance ($/kW-yr)
+    - Capital Recovery Annuity = CAPEX * FCR
+    - Gross Carrying Cost = Capital Recovery + FOM
+    - Net Avoided Capacity = max(0, Gross Carrying Cost - E&AS Offset)
+
+    Default NREL ATB 2024 Moderate Benchmark (Regulated Utility Finance):
+    - CAPEX: $1,100 / kW
+    - FCR: 8.2% (0.082)
+    - FOM: $20.00 / kW-yr
+    - Capital Recovery: $1,100 * 0.082 = $90.20 / kW-yr
+    - Total Carrying Cost: $90.20 + $20.00 = $110.20 / kW-yr
+    Source: NLR ATB (atb.nlr.gov) > Electricity > Fossil Energy Technologies > Natural Gas: CT.
 
     Parameters
     ----------
@@ -363,7 +382,7 @@ def calculate_ct_carrying_cost(capex_kw, fom_kw_yr, fcr, eas_offset_kw_yr=0.0):
     fom_kw_yr : float
         Fixed O&M in $/kW-yr.
     fcr : float
-        Fixed charge rate as a decimal (e.g. 0.084).
+        Fixed charge rate as a decimal (e.g. 0.082 for 8.2%/yr).
     eas_offset_kw_yr : float, optional
         Net energy & ancillary service revenue offset ($/kW-yr). Default 0.0
         (often 0 in Southeast cost-of-service IRPs where energy is dispatched separately).
@@ -389,7 +408,9 @@ def calculate_ct_carrying_cost(capex_kw, fom_kw_yr, fcr, eas_offset_kw_yr=0.0):
 # CAPACITY WORTH FACTOR (CWF) ALLOCATION METHODS
 # ==============================================================================
 
-def calculate_southeast_dual_peak_cwf(datetime_series=None, winter_weight=0.5, summer_weight=0.5,
+def calculate_southeast_dual_peak_cwf(datetime_series=None, winter_weight=0.8, summer_weight=0.2,
+                                      temperature_array=None, freeze_threshold_f=32.0, heat_threshold_f=90.0,
+                                      lag_days=3, lag_weight=0.30,
                                       load_array=None, n_hours=8760):
     """
     Generate an 8,760-hour Capacity Worth Factor (CWF) array allocating annual
@@ -397,18 +418,38 @@ def calculate_southeast_dual_peak_cwf(datetime_series=None, winter_weight=0.5, s
       - Winter Morning Freeze: 6:00 AM – 9:00 AM, Dec 1 – Feb 28/29
       - Summer Afternoon Heat: 2:00 PM – 6:00 PM, Jun 1 – Sep 30
 
+    When `temperature_array` is provided (preferred), capacity risk within each window
+    is allocated based on ambient temperature severity and multi-day thermal buildup/lag:
+      - Trailing rolling mean temperature over `lag_days` (default 3 days / 72 hours):
+        T_eff = (1 - lag_weight) * T_h + lag_weight * T_3d_rolling
+      - Winter severity: max(0, freeze_threshold_f - T_eff)
+      - Summer severity: max(0, T_eff - heat_threshold_f)
+    If no hours exceed the threshold or `temperature_array` is None, weights within each
+    window fall back to uniform distribution (or exceedance if legacy `load_array` is provided).
+
     Parameters
     ----------
     datetime_series : pd.Series or pd.DatetimeIndex, optional
         Timestamps. If None, assumes standard non-leap year starting Jan 1 00:00.
     winter_weight : float
-        Fraction of annual capacity value assigned to winter morning peaks (default 0.50).
+        Fraction of annual capacity value assigned to winter morning peaks (default 0.80).
     summer_weight : float
-        Fraction of annual capacity value assigned to summer afternoon peaks (default 0.50).
+        Fraction of annual capacity value assigned to summer afternoon peaks (default 0.20).
+    temperature_array : np.ndarray, optional
+        8,760 hourly dry-bulb temperatures in degrees Fahrenheit. When provided,
+        risk within each window is weighted by effective temperature severity.
+    freeze_threshold_f : float
+        Winter temperature threshold below which heating capacity risk accrues (default 32.0°F).
+    heat_threshold_f : float
+        Summer temperature threshold above which cooling capacity risk accrues (default 90.0°F).
+    lag_days : int
+        Number of preceding days over which to calculate rolling average temperature
+        to capture multi-day thermal inertia / cold penetration (default 3 days).
+    lag_weight : float
+        Weight assigned to the multi-day rolling average temperature vs. instantaneous
+        hour temperature in T_eff (default 0.30, i.e. 70% current hour + 30% 3-day memory).
     load_array : np.ndarray, optional
-        Hourly system or building load array. If provided, weights within each
-        season are allocated by exceedance over that window's 80th percentile.
-        If None, weights within each window are uniform.
+        Hourly system or building load array (legacy/feeder fallback if temperature_array is None).
     n_hours : int
         Number of hours (default 8760).
 
@@ -447,11 +488,33 @@ def calculate_southeast_dual_peak_cwf(datetime_series=None, winter_weight=0.5, s
         norm_winter = winter_weight / tot_weight
         norm_summer = summer_weight / tot_weight
     else:
-        norm_winter, norm_summer = 0.5, 0.5
+        norm_winter, norm_summer = 0.8, 0.2
 
-    # Allocate winter weights
-    if is_winter.sum() > 0:
-        if load_array is not None and len(load_array) == n_hours:
+    # Compute effective thermal stress temperature (Method A: 3-day thermal buildup/lag)
+    if temperature_array is not None:
+        temps = np.asarray(temperature_array, dtype=float)
+        if len(temps) != n_hours:
+            temps = np.resize(temps, n_hours)
+        if lag_days > 0 and lag_weight > 0.0:
+            win = int(lag_days * 24)
+            rolling_mean = pd.Series(temps).rolling(window=win, min_periods=1).mean().to_numpy()
+            eff_temps = (1.0 - lag_weight) * temps + lag_weight * rolling_mean
+        else:
+            eff_temps = temps
+    else:
+        eff_temps = None
+
+    # 1. Allocate winter weights
+    if is_winter.sum() > 0 and norm_winter > 0:
+        if eff_temps is not None:
+            w_temps = eff_temps[is_winter]
+            w_severity = np.maximum(0.0, freeze_threshold_f - w_temps)
+            s_w = w_severity.sum()
+            if s_w > 0:
+                cwf[is_winter] = (w_severity / s_w) * norm_winter
+            else:
+                cwf[is_winter] = norm_winter / is_winter.sum()
+        elif load_array is not None and len(load_array) == n_hours:
             w_loads = load_array[is_winter]
             threshold = np.percentile(w_loads, 80)
             exceed = np.maximum(0.0, w_loads - threshold)
@@ -462,9 +525,17 @@ def calculate_southeast_dual_peak_cwf(datetime_series=None, winter_weight=0.5, s
         else:
             cwf[is_winter] = norm_winter / is_winter.sum()
 
-    # Allocate summer weights
-    if is_summer.sum() > 0:
-        if load_array is not None and len(load_array) == n_hours:
+    # 2. Allocate summer weights
+    if is_summer.sum() > 0 and norm_summer > 0:
+        if eff_temps is not None:
+            s_temps = eff_temps[is_summer]
+            s_severity = np.maximum(0.0, s_temps - heat_threshold_f)
+            s_s = s_severity.sum()
+            if s_s > 0:
+                cwf[is_summer] = (s_severity / s_s) * norm_summer
+            else:
+                cwf[is_summer] = norm_summer / is_summer.sum()
+        elif load_array is not None and len(load_array) == n_hours:
             s_loads = load_array[is_summer]
             threshold = np.percentile(s_loads, 80)
             exceed = np.maximum(0.0, s_loads - threshold)
@@ -712,7 +783,7 @@ def calculate_cwf_peaker_rent(energy_price_array, heat_rate=10500.0, gas_price=3
     return np.ones(len(prices)) / len(prices)
 
 
-def calculate_feeder_pcaf_weights(feeder_type="Winter-Peaking Feeder (Southeast Heating / Cold Snap)",
+def calculate_feeder_pcaf_weights(feeder_type="System Coincident (Top 100 Peak Hours)",
                                   load_array=None, price_array=None, datetime_series=None, top_n=100):
     """
     Compute localized distribution peak weighting factors for feeder T&D deferral.
@@ -721,10 +792,10 @@ def calculate_feeder_pcaf_weights(feeder_type="Winter-Peaking Feeder (Southeast 
     ----------
     feeder_type : str
         Type of feeder profile:
-        - "Winter-Peaking Feeder (Southeast Heating / Cold Snap)"
-        - "Summer-Peaking Feeder (Southeast Cooling)"
+        - "System Coincident (Top 100 Peak Hours)" / "Wholesale Price PCAF (Top 100 Hours)"
+        - "Winter-Peaking Feeder (Southeast Heating / Dec–Feb 6–9 AM)"
+        - "Summer-Peaking Feeder (Southeast Cooling / Jun–Sep 2–6 PM)"
         - "Dual-Peaking Feeder (Suburban Mixed 50/50)"
-        - "Wholesale Price PCAF (Top 100 Hours)"
     load_array : np.ndarray, optional
         Local circuit or building load array.
     price_array : np.ndarray, optional

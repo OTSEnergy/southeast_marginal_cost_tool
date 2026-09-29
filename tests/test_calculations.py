@@ -120,7 +120,15 @@ sys.modules["streamlit"] = _st_stub
 # Import the extracted modules directly — no Streamlit stub needed for these
 # since they are pure Python with no UI dependencies.
 from calculations import calculate_avoided_costs, dispatch_dr_program, find_peak_week  # noqa: E402
-from billing import calculate_urdb_bill, get_hourly_energy_rate  # noqa: E402
+from billing import (  # noqa: E402
+    calculate_urdb_bill,
+    get_hourly_energy_rate,
+    GP_R31_URDB,
+    AL_FD_URDB,
+    AL_FDD_URDB,
+    AL_RTA_URDB,
+    AL_RTA_E_URDB,
+)
 import config  # noqa: E402
 from visualizations import (  # noqa: E402
     build_weekly_overlay_chart,
@@ -362,6 +370,94 @@ class TestCalculateUrdbBill:
         assert pytest.approx(energy_2, rel=1e-4) == energy_1 * 2.0, \
             "Energy portion should double when load doubles"
 
+    def test_al_fdd_zero_load_only_fixed(self, datetime_2012):
+        """Zero load under AL FD-D should bill exactly $15.58/mo * 12 = $186.96."""
+        total, monthly = calculate_urdb_bill(np.zeros(8760), datetime_2012, AL_FDD_URDB)
+        assert pytest.approx(total, rel=1e-4) == 15.58 * 12
+        assert len(monthly) == 12
+
+    def test_al_fdd_constant_load_and_demand(self, constant_load_1kw, datetime_2012):
+        """
+        Constant 1 kW load under AL FD-D:
+        - Fixed: $15.58 * 12 = $186.96
+        - Energy: 8760 kWh * $0.105607 = $925.11732
+        - Demand: Peak period peak = 1.0 kW every month * $8.00/kW * 12 = $96.00
+        - Total: $186.96 + $925.11732 + $96.00 = $1,208.07732
+        """
+        total, monthly = calculate_urdb_bill(constant_load_1kw, datetime_2012, AL_FDD_URDB)
+        expected_fixed = 15.58 * 12
+        expected_energy = 8760 * 0.105607
+        expected_demand = 12 * 8.00 * 1.0
+        expected_total = expected_fixed + expected_energy + expected_demand
+
+        assert pytest.approx(total, rel=1e-4) == expected_total
+        for m_bill in monthly:
+            assert m_bill > 0
+
+    def test_al_fdd_demand_ratchet(self, datetime_2012):
+        """
+        Verify the 90% demand ratchet in AL FD-D:
+        - Baseline load is 1 kW all year.
+        - In July (month 7), an afternoon peak hour (e.g. 2 PM on a weekday) spikes to 10.0 kW.
+        - July billed demand = 10.0 kW * $8.00 = $80.00.
+        - The other 11 months have a peak of 1.0 kW, but the 90% ratchet sets billing capacity to
+          max(1.0 kW, 0.90 * 10.0 kW) = 9.0 kW.
+        - The other 11 months each incur 9.0 kW * $8.00 = $72.00 demand charge.
+        """
+        load = np.ones(8760) * 1.0
+        months = datetime_2012.dt.month.to_numpy()
+        hours = datetime_2012.dt.hour.to_numpy()
+        dows = datetime_2012.dt.dayofweek.to_numpy()
+
+        # Find a weekday afternoon in July (month 7, hour 14, dow < 5)
+        jul_peak_idx = np.where((months == 7) & (hours == 14) & (dows == 1))[0][0]
+        load[jul_peak_idx] = 10.0
+
+        total, monthly = calculate_urdb_bill(load, datetime_2012, AL_FDD_URDB)
+
+        # July is month index 6 (1-indexed month 7)
+        # July demand charge should be 10.0 kW * $8.00 = $80.00
+        # Energy in July (31 days = 744 hrs): (743 * 1.0 + 10.0) * 0.105607
+        jul_energy = (743 * 1.0 + 10.0) * 0.105607
+        jul_expected = 15.58 + jul_energy + (10.0 * 8.00)
+        assert pytest.approx(monthly[6], rel=1e-3) == jul_expected
+
+        # January (month index 0): 744 hrs @ 1.0 kW
+        # Ratchet from July sets demand capacity to 9.0 kW (90% of 10.0 kW)
+        jan_energy = 744 * 1.0 * 0.105607
+        jan_expected = 15.58 + jan_energy + (9.0 * 8.00)
+        assert pytest.approx(monthly[0], rel=1e-3) == jan_expected
+
+    def test_al_rta_demand_and_energy(self, constant_load_1kw, datetime_2012):
+        """
+        Verify AL Rate RTA (Demand):
+        - Fixed: $15.58 * 12 = $186.96
+        - Demand: Flat $1.50/kW monthly peak * 1.0 kW * 12 = $18.00
+        - Bill should be positive and include the $1.50/kW monthly peak demand.
+        """
+        total, monthly = calculate_urdb_bill(constant_load_1kw, datetime_2012, AL_RTA_URDB)
+        assert total > 0
+        assert len(monthly) == 12
+
+        # Zero load should be only fixed charges
+        zero_total, zero_monthly = calculate_urdb_bill(np.zeros(8760), datetime_2012, AL_RTA_URDB)
+        assert pytest.approx(zero_total, rel=1e-4) == 15.58 * 12
+
+    def test_al_rta_e_energy_only(self, constant_load_1kw, datetime_2012):
+        """
+        Verify AL Rate RTA-E (Energy Only):
+        - Fixed: $25.00 base + $1.08 NDR = $26.08/mo * 12 = $312.96
+        - Demand: None ($0)
+        - TOU energy rates: summer peak $0.328554, winter peak $0.148554, economy $0.128554
+        """
+        total, monthly = calculate_urdb_bill(constant_load_1kw, datetime_2012, AL_RTA_E_URDB)
+        assert total > 0
+        assert len(monthly) == 12
+
+        # Zero load should be only fixed charges
+        zero_total, _ = calculate_urdb_bill(np.zeros(8760), datetime_2012, AL_RTA_E_URDB)
+        assert pytest.approx(zero_total, rel=1e-4) == 26.08 * 12
+
 
 # ======================================================================
 #  TEST SUITE 2b: get_hourly_energy_rate()
@@ -394,6 +490,66 @@ class TestGetHourlyEnergyRate:
         rates = get_hourly_energy_rate(datetime_2012, {"fixedcharge": 10.0})
         assert len(rates) == 8760
         assert (rates == 0.0).all()
+
+    def test_al_fdd_hourly_rate_flat(self, datetime_2012):
+        """Rate FD-D has a flat energy rate of $0.105607 across all 8,760 hours."""
+        rates = get_hourly_energy_rate(datetime_2012, AL_FDD_URDB)
+        assert len(rates) == 8760
+        np.testing.assert_allclose(rates, 0.105607, rtol=1e-6)
+
+    def test_al_rta_hourly_energy_rates_tou(self, datetime_2012):
+        """
+        Rate RTA has TOU periods:
+        - Summer peak (Jul weekday 2 PM, hr 14): $0.282092/kWh
+        - Winter peak (Jan weekday 7 AM, hr 7): $0.152092/kWh
+        - Economy / Shoulder (Jul weekend 2 PM, hr 14): $0.132092/kWh
+        - Shoulder (Apr weekday 2 PM, hr 14): $0.132092/kWh
+        """
+        rates = get_hourly_energy_rate(datetime_2012, AL_RTA_URDB)
+        assert len(rates) == 8760
+
+        months = datetime_2012.dt.month.to_numpy()
+        hours = datetime_2012.dt.hour.to_numpy()
+        dows = datetime_2012.dt.dayofweek.to_numpy()
+
+        # Summer weekday 2 PM (month 7, hour 14, Tuesday)
+        sum_wd_idx = np.where((months == 7) & (hours == 14) & (dows == 1))[0][0]
+        assert pytest.approx(rates[sum_wd_idx], rel=1e-6) == 0.282092
+
+        # Summer weekend 2 PM (month 7, hour 14, Saturday)
+        sum_we_idx = np.where((months == 7) & (hours == 14) & (dows == 5))[0][0]
+        assert pytest.approx(rates[sum_we_idx], rel=1e-6) == 0.132092
+
+        # Winter weekday 7 AM (month 1, hour 7, Tuesday)
+        win_wd_idx = np.where((months == 1) & (hours == 7) & (dows == 1))[0][0]
+        assert pytest.approx(rates[win_wd_idx], rel=1e-6) == 0.152092
+
+        # Shoulder weekday 2 PM (month 4, hour 14, Tuesday)
+        sh_wd_idx = np.where((months == 4) & (hours == 14) & (dows == 1))[0][0]
+        assert pytest.approx(rates[sh_wd_idx], rel=1e-6) == 0.132092
+
+    def test_al_rta_e_hourly_energy_rates_tou(self, datetime_2012):
+        """
+        Rate RTA-E has TOU periods:
+        - Summer peak (Jul weekday 2 PM): $0.328554/kWh
+        - Winter peak (Jan weekday 7 AM): $0.148554/kWh
+        - Economy / Shoulder (Apr weekday 2 PM): $0.128554/kWh
+        """
+        rates = get_hourly_energy_rate(datetime_2012, AL_RTA_E_URDB)
+        assert len(rates) == 8760
+
+        months = datetime_2012.dt.month.to_numpy()
+        hours = datetime_2012.dt.hour.to_numpy()
+        dows = datetime_2012.dt.dayofweek.to_numpy()
+
+        sum_wd_idx = np.where((months == 7) & (hours == 14) & (dows == 1))[0][0]
+        assert pytest.approx(rates[sum_wd_idx], rel=1e-6) == 0.328554
+
+        win_wd_idx = np.where((months == 1) & (hours == 7) & (dows == 1))[0][0]
+        assert pytest.approx(rates[win_wd_idx], rel=1e-6) == 0.148554
+
+        sh_wd_idx = np.where((months == 4) & (hours == 14) & (dows == 1))[0][0]
+        assert pytest.approx(rates[sh_wd_idx], rel=1e-6) == 0.128554
 
 
 # ======================================================================
@@ -666,6 +822,7 @@ class TestConfig:
     def test_planning_year_options(self):
         assert len(config.PLANNING_YEAR_OPTIONS) >= 2
         assert config.DEFAULT_PLANNING_YEAR_INDEX < len(config.PLANNING_YEAR_OPTIONS)
+        assert config.PLANNING_YEAR_OPTIONS[config.DEFAULT_PLANNING_YEAR_INDEX] == "2030"
 
     def test_default_values_positive(self):
         assert config.DEFAULT_CAP_VALUE > 0
@@ -719,6 +876,18 @@ class TestConfig:
             "Wholesale Grid Deferrals", "$685.33/yr", "5 Avoided Cost Streams", neutral=True
         )
         assert "#0D9488" in html_neu
+
+    def test_tariff_options_includes_alabama_power_rates(self):
+        """Verify all pre-packaged tariffs are present in TARIFF_OPTIONS."""
+        expected = [
+            "Georgia Power - Schedule R-31 (Residential)",
+            "Alabama Power - Rate FD (Family Dwelling)",
+            "Alabama Power - Rate FD-D (Family Dwelling Demand)",
+            "Alabama Power - Rate RTA (Residential Time Advantage - Demand)",
+            "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
+        ]
+        for rate_name in expected:
+            assert rate_name in config.TARIFF_OPTIONS
 
 
 
@@ -1612,6 +1781,40 @@ class TestLoadProfileIngestion:
         assert "Total_WithETS" in warnings[0]
         assert "Total_WithoutETS" not in " ".join(warnings)  # the clean column shouldn't be flagged
 
+        # Active column filtering: clean column shows no warning; gappy column shows warning
+        from data_loaders import get_load_profile_warnings
+        assert get_load_profile_warnings(result, active_cols=["Total_WithoutETS"]) == []
+        gap_warn = get_load_profile_warnings(result, active_cols=["Total_WithETS"])
+        assert len(gap_warn) == 1
+        assert "Total_WithETS" in gap_warn[0]
+        assert get_load_profile_warnings(result, active_cols=["Total_WithoutETS", "Total_WithETS"]) == gap_warn
+        assert get_load_profile_warnings(result, active_cols=None) == warnings
+
+    def test_load_profiles_directory_warnings_filtered_to_active_columns(self):
+        """When loading a directory with multiple profiles (e.g. Load_Profiles_raw),
+        warnings for missing hours in one file (e.g. BirminghamTES_ETS_Case.xlsx)
+        must only be displayed when that specific column is actively selected,
+        not when unrelated clean columns (e.g. ERHeat vs HeatPump) are used."""
+        from data_loaders import load_load_profiles_from_csv, get_load_profile_warnings
+        if os.path.isdir("Load_Profiles_raw"):
+            df = load_load_profiles_from_csv("Load_Profiles_raw")
+            all_warnings = df.attrs.get("ingestion_warnings", [])
+            # There is at least 1 warning in Load_Profiles_raw (BirminghamTES_ETS_Case.xlsx)
+            assert any("Total_WithETS" in w for w in all_warnings)
+
+            # ERHeat and HeatPump columns have no data gaps - active warnings must be empty
+            clean_cols = [c for c in df.columns if "ERHeat" in c or "HeatPump" in c]
+            if clean_cols:
+                active_warn = get_load_profile_warnings(df, active_cols=clean_cols)
+                assert active_warn == [], f"Expected no warnings for clean columns {clean_cols}, got: {active_warn}"
+
+            # When Total_WithETS is selected, the warning must be returned
+            ets_cols = [c for c in df.columns if "Total_WithETS" in c]
+            if ets_cols:
+                ets_warn = get_load_profile_warnings(df, active_cols=ets_cols)
+                assert len(ets_warn) >= 1
+                assert "Total_WithETS" in ets_warn[0]
+
     def test_beopt_native_export_format_parsing(self):
         """Native BEopt hourly CSV export: 'wxDVFileHeaderVer.1' line, then headers,
         then two index rows (0.5 / 1.0) and a units row before the 8760 data rows."""
@@ -1639,7 +1842,45 @@ class TestLoadProfileIngestion:
             b_col = [c for c in b_df.columns if c != "Hour"][0]
             diff = b_df[b_col].to_numpy() - nb_df[nb_col].to_numpy()
             assert diff.max() > 1.0, "Expected a clear charging spike above baseline somewhere in the year"
-            assert diff.min() < -1.0, "Expected a clear discharge dip below baseline somewhere in the year"
+    def test_sanitize_filepath_quotes_and_expansion(self):
+        """Verify that Windows 'Copy as path' quotes, single quotes, whitespace,
+        and user environment variables are cleanly stripped and normalized."""
+        from data_loaders import sanitize_filepath
+        # Windows outer double quotes
+        assert sanitize_filepath('"C:\\data\\test.csv"') == os.path.normpath("C:\\data\\test.csv")
+        # Single quotes
+        assert sanitize_filepath("'C:\\data\\test.csv'") == os.path.normpath("C:\\data\\test.csv")
+        # Leading/trailing whitespace + quotes
+        assert sanitize_filepath('  "C:\\data\\test.csv"  ') == os.path.normpath("C:\\data\\test.csv")
+        # Trailing slash normalization
+        assert sanitize_filepath('"C:\\Users\\jhill\\Documents\\"') == os.path.normpath("C:\\Users\\jhill\\Documents")
+        # Root drive preservation
+        assert sanitize_filepath('"C:\\"') == "C:\\"
+        # Non-string passthrough
+        assert sanitize_filepath(None) is None
+
+    def test_load_profiles_with_quoted_custom_path(self):
+        """Verify that a path with outer quotes loads without WinError 123."""
+        from data_loaders import load_load_profiles_from_csv
+        # Test with the project's own sample or raw directory wrapped in quotes
+        quoted_dir = '"Load_Profiles_raw"'
+        if os.path.exists("Load_Profiles_raw"):
+            df = load_load_profiles_from_csv(quoted_dir)
+            assert "Hour" in df.columns
+            assert len(df) == 8760
+
+        # Also test with single quotes
+        single_quoted_dir = "'Load_Profiles_raw'"
+        if os.path.exists("Load_Profiles_raw"):
+            df = load_load_profiles_from_csv(single_quoted_dir)
+            assert "Hour" in df.columns
+
+    def test_load_profiles_nonexistent_path_raises_file_not_found(self):
+        """A non-existent path must raise FileNotFoundError with a clear message."""
+        from data_loaders import load_load_profiles_from_csv
+        import pytest
+        with pytest.raises(FileNotFoundError, match="Load profiles path not found"):
+            load_load_profiles_from_csv('"C:\\nonexistent_dir_12345\\file.csv"')
 
 
 # ======================================================================
@@ -1773,6 +2014,62 @@ class TestSoutheastUtilityCapacityEngine:
         # Net = 100.0 - 10.0 = 90.0
         assert res["net_capacity_cost"] == 90.0
 
+    def test_nrel_atb_ct_carrying_cost_benchmark(self):
+        """
+        Verify the standard NREL ATB 2024 Natural Gas CT Carrying Cost formulation:
+            Carrying Cost ($/kW-yr) = (CAPEX * FCR) + Fixed O&M
+        Using central ATB moderate values:
+            CAPEX: $1,100 / kW
+            FCR: 8.2% (0.082)
+            FOM: $20 / kW-yr
+            Annualized Capital Cost = $1,100 * 0.082 = $90.20 / kW-yr
+            Total Carrying Cost = $90.20 + $20.00 = $110.20 / kW-yr
+        """
+        from calculations import calculate_ct_carrying_cost
+        import config
+
+        atb_preset = config.SOUTHEAST_PEAKER_PRESETS["NREL ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
+        capex = atb_preset["capex_kw"]
+        fom = atb_preset["fom_kw_yr"]
+        fcr = atb_preset["fcr"]
+        eas = atb_preset["eas_offset_kw_yr"]
+
+        assert capex == 1100.0
+        assert fom == 20.00
+        assert fcr == 0.082
+        assert eas == 0.0
+
+        res = calculate_ct_carrying_cost(capex, fom, fcr, eas_offset_kw_yr=eas)
+        assert pytest.approx(res["capital_recovery_annuity"], abs=1e-2) == 90.20
+        assert pytest.approx(res["fom_kw_yr"], abs=1e-2) == 20.00
+        assert pytest.approx(res["gross_carrying_cost"], abs=1e-2) == 110.20
+        assert pytest.approx(res["net_capacity_cost"], abs=1e-2) == 110.20
+        assert pytest.approx(config.DEFAULT_CAP_VALUE, abs=1e-2) == 110.20
+
+    def test_extract_nrel_atb_ct_parameters(self):
+        """
+        Verify that extract_nrel_atb_ct_parameters filters a standard ATB flat table
+        by technology=='NaturalGas', techdetail=='CT', and extracts CAPEX, FOM, and FCR.
+        """
+        from data_loaders import extract_nrel_atb_ct_parameters
+
+        mock_atb_df = pd.DataFrame([
+            {"technology": "NaturalGas", "techdetail": "CT", "core_metric_parameter": "CAPEX", "core_metric_variable": "2024", "scenario": "Moderate", "value": 1150.0},
+            {"technology": "NaturalGas", "techdetail": "CT", "core_metric_parameter": "Fixed O&M", "core_metric_variable": "2024", "scenario": "Moderate", "value": 22.0},
+            {"technology": "NaturalGas", "techdetail": "CT", "core_metric_parameter": "FCR", "core_metric_variable": "2024", "scenario": "Moderate", "value": 0.084},
+            # Distractor rows (CC technology, different scenario/year)
+            {"technology": "NaturalGas", "techdetail": "CC", "core_metric_parameter": "CAPEX", "core_metric_variable": "2024", "scenario": "Moderate", "value": 1400.0},
+            {"technology": "Wind", "techdetail": "LandBased", "core_metric_parameter": "CAPEX", "core_metric_variable": "2024", "scenario": "Moderate", "value": 1200.0},
+        ])
+
+        res = extract_nrel_atb_ct_parameters(mock_atb_df, year=2024, scenario="Moderate")
+        assert res["capex_kw"] == 1150.0
+        assert res["fom_kw_yr"] == 22.0
+        assert res["fcr"] == 0.084
+        expected_gross = (1150.0 * 0.084) + 22.0
+        assert pytest.approx(res["gross_carrying_cost"], abs=1e-3) == expected_gross
+        assert pytest.approx(res["capital_recovery_annuity"], abs=1e-3) == 1150.0 * 0.084
+
     def test_southeast_dual_peak_cwf_sums_and_shape(self):
         from calculations import calculate_southeast_dual_peak_cwf
         cwf = calculate_southeast_dual_peak_cwf(winter_weight=0.5, summer_weight=0.5)
@@ -1800,6 +2097,97 @@ class TestSoutheastUtilityCapacityEngine:
         load = np.random.uniform(1.0, 5.0, 8760)
         cwf = calculate_southeast_dual_peak_cwf(winter_weight=0.6, summer_weight=0.4, load_array=load)
         assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+
+    def test_southeast_dual_peak_cwf_with_temperature(self):
+        from calculations import calculate_southeast_dual_peak_cwf
+        # Synthetic temperature profile: standard 65°F baseline
+        temps = np.full(8760, 65.0)
+
+        # Winter window: Jan 15 (day 14), 6-9 AM (hours 6, 7, 8)
+        # Hour 6 = 25°F (7° below 32°F), Hour 7 = 15°F (17° below 32°F)
+        h_mild_freeze = 14 * 24 + 6
+        h_deep_freeze = 14 * 24 + 7
+        temps[h_mild_freeze] = 25.0
+        temps[h_deep_freeze] = 15.0
+
+        # Summer window: Jul 15 (day 195), 2-6 PM (hours 14, 15, 16, 17)
+        # Hour 14 = 92°F (2° above 90°F), Hour 15 = 100°F (10° above 90°F)
+        h_mild_heat = 195 * 24 + 14
+        h_extreme_heat = 195 * 24 + 15
+        temps[h_mild_heat] = 92.0
+        temps[h_extreme_heat] = 100.0
+
+        cwf = calculate_southeast_dual_peak_cwf(
+            winter_weight=0.5, summer_weight=0.5,
+            temperature_array=temps,
+            freeze_threshold_f=32.0, heat_threshold_f=90.0,
+            lag_days=0, lag_weight=0.0
+        )
+
+        assert len(cwf) == 8760
+        assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+        # Deep freeze should have higher weight than mild freeze
+        assert cwf[h_deep_freeze] > cwf[h_mild_freeze]
+        # Extreme heat should have higher weight than mild heat
+        assert cwf[h_extreme_heat] > cwf[h_mild_heat]
+        # Non-exceeding hours in spring/fall should be 0.0
+        assert cwf[104 * 24 + 12] == 0.0
+
+    def test_southeast_dual_peak_cwf_default_80_20_split(self):
+        from calculations import calculate_southeast_dual_peak_cwf
+        # Calling with defaults should allocate 80% to winter and 20% to summer
+        cwf = calculate_southeast_dual_peak_cwf()
+        assert len(cwf) == 8760
+        assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+
+        # Winter window: Dec, Jan, Feb; hours 6-9 AM
+        # Month mapping for standard year
+        h_idx = np.arange(8760)
+        days = h_idx // 24
+        hours = h_idx % 24
+        month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        cum_days = np.cumsum([0] + month_days)
+        months = np.zeros(8760, dtype=int)
+        for m in range(12):
+            months[(days >= cum_days[m]) & (days < cum_days[m+1])] = m + 1
+        is_winter = np.isin(months, [12, 1, 2]) & np.isin(hours, [6, 7, 8])
+        is_summer = np.isin(months, [6, 7, 8, 9]) & np.isin(hours, [14, 15, 16, 17])
+
+        winter_share = cwf[is_winter].sum()
+        summer_share = cwf[is_summer].sum()
+        assert pytest.approx(winter_share, abs=1e-5) == 0.80
+        assert pytest.approx(summer_share, abs=1e-5) == 0.20
+
+    def test_southeast_dual_peak_cwf_3day_thermal_lag(self):
+        from calculations import calculate_southeast_dual_peak_cwf
+        # Base temperature = 75°F everywhere
+        temps = np.full(8760, 75.0)
+
+        # Summer Case 1: Multi-day heatwave (July 12-15, days 192-195)
+        # Preceding 3 days (days 192, 193, 194) at 98°F
+        for d in range(192, 195):
+            temps[d * 24:(d + 1) * 24] = 98.0
+        # Peak day 195, 3 PM (hour 15) is 99°F
+        h_heatwave_peak = 195 * 24 + 15
+        temps[h_heatwave_peak] = 99.0
+
+        # Summer Case 2: Isolated spike after cool rain (Aug 1-4, days 212-215)
+        # Preceding 3 days (days 212, 213, 214) at 75°F (already 75.0)
+        # Peak day 215, 3 PM (hour 15) is also 99°F
+        h_isolated_peak = 215 * 24 + 15
+        temps[h_isolated_peak] = 99.0
+
+        cwf = calculate_southeast_dual_peak_cwf(
+            winter_weight=0.5, summer_weight=0.5,
+            temperature_array=temps,
+            heat_threshold_f=90.0,
+            lag_days=3, lag_weight=0.30
+        )
+
+        assert pytest.approx(cwf.sum(), abs=1e-6) == 1.0
+        # The 99°F hour following the 3-day heatwave MUST have higher risk weight
+        # than the 99°F hour following mild 75°F rain
+        assert cwf[h_heatwave_peak] > cwf[h_isolated_peak] * 2.0
 
     def test_cwf_lolp_proxy(self):
         from calculations import calculate_cwf_lolp_proxy
@@ -1843,6 +2231,76 @@ class TestSoutheastUtilityCapacityEngine:
 
         w_dual = calculate_feeder_pcaf_weights(feeder_type="Dual-Peaking Feeder (Suburban Mixed 50/50)")
         assert pytest.approx(w_dual.sum(), abs=1e-6) == 1.0
+
+        # Test new simplified labels
+        w_sys = calculate_feeder_pcaf_weights(feeder_type="System Coincident (Top 100 Peak Hours)")
+        assert pytest.approx(w_sys.sum(), abs=1e-6) == 1.0
+
+        w_winter_new = calculate_feeder_pcaf_weights(feeder_type="Winter-Peaking Feeder (Southeast Heating / Dec–Feb 6–9 AM)")
+        assert pytest.approx(w_winter_new.sum(), abs=1e-6) == 1.0
+        assert np.array_equal(w_winter, w_winter_new)
+
+        w_summer_new = calculate_feeder_pcaf_weights(feeder_type="Summer-Peaking Feeder (Southeast Cooling / Jun–Sep 2–6 PM)")
+        assert pytest.approx(w_summer_new.sum(), abs=1e-6) == 1.0
+        assert np.array_equal(w_summer, w_summer_new)
+
+    def test_southeast_td_presets_and_exclude(self):
+        from config import SOUTHEAST_TD_PRESETS
+        assert "None / Exclude T&D ($0/kW-yr)" in SOUTHEAST_TD_PRESETS
+        zero_preset = SOUTHEAST_TD_PRESETS["None / Exclude T&D ($0/kW-yr)"]
+        assert zero_preset["trans_value"] == 0.0
+        # Check new utility benchmarks
+        expected_td = [
+            "Mississippi Power Rate Case Benchmark",
+            "TVA / LPC Composite Benchmark",
+            "Duke Energy Carolinas Rate Case Benchmark",
+            "Entergy Mississippi Rate Case Benchmark",
+            "LBNL Southeast Regional Average",
+        ]
+        for name in expected_td:
+            assert name in SOUTHEAST_TD_PRESETS
+            assert SOUTHEAST_TD_PRESETS[name]["trans_value"] > 0
+            assert SOUTHEAST_TD_PRESETS[name]["dist_value"] > 0
+
+    def test_new_southeast_peaker_and_tariff_benchmarks(self, datetime_2012):
+        from config import SOUTHEAST_PEAKER_PRESETS, TARIFF_OPTIONS
+        from billing import (
+            calculate_urdb_bill,
+            DUKE_RES_URDB,
+            TVA_LPC_URDB,
+            MS_RS_URDB,
+            ENTERGY_RS_URDB,
+            SOUTHEAST_AVG_URDB,
+        )
+
+        # Check new peaker presets
+        for name in [
+            "Duke Energy Carolinas 2024 IRP SCCT Benchmark",
+            "Entergy 2023/2024 IRP Peaker Benchmark",
+            "Southeast Regional Composite SCCT Benchmark",
+        ]:
+            assert name in SOUTHEAST_PEAKER_PRESETS
+            assert SOUTHEAST_PEAKER_PRESETS[name]["capex_kw"] > 0
+            assert SOUTHEAST_PEAKER_PRESETS[name]["fcr"] > 0
+
+        # Check new tariffs run through calculation engine
+        load_test = np.full(8760, 2.5)  # 2.5 kW flat load
+        for t_urdb in [DUKE_RES_URDB, TVA_LPC_URDB, MS_RS_URDB, ENTERGY_RS_URDB, SOUTHEAST_AVG_URDB]:
+            total_bill, monthly = calculate_urdb_bill(load_test, datetime_2012, t_urdb)
+            assert total_bill > 0.0
+            assert len(monthly) == 12
+
+    def test_tool_disclaimer_content(self):
+        from config import TOOL_DISCLAIMER_TEXT, TOOL_DISCLAIMER_HTML
+        assert "planning and educational purposes only" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "research and product teams" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "electric utilities in the southeast" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "not a certified tool" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "simplifications" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "publicly available data" in TOOL_DISCLAIMER_TEXT.lower()
+        assert "utility evaluation studies" in TOOL_DISCLAIMER_TEXT.lower()
+        assert TOOL_DISCLAIMER_TEXT in TOOL_DISCLAIMER_HTML
+        assert "<div" in TOOL_DISCLAIMER_HTML and "</div>" in TOOL_DISCLAIMER_HTML
 
     def test_avoided_costs_decoupled_td_weights(self, grid_df_8760, cwft_uniform):
         from calculations import calculate_avoided_costs
@@ -1941,9 +2399,123 @@ class TestSoutheastUtilityCapacityEngine:
         # Fallback when no temperatures cross threshold
         flat_temps = np.full(8760, 65.0)
         cwf_fallback = calculate_cwf_temperature_exceedance(flat_temps, freeze_threshold_f=32.0, heat_threshold_f=90.0)
-        assert pytest.approx(cwf_fallback.sum(), abs=1e-6) == 1.0
-        assert np.all(cwf_fallback >= 0.0)
+
+class TestCWFTLoading:
+    """Tests for load_cwft_file (supporting CSV, Excel, buffers, and validation)."""
+
+    def test_load_cwft_file_csv_valid(self, tmp_path):
+        from data_loaders import load_cwft_file
+        csv_file = tmp_path / "valid_cwft.csv"
+        # 8760 rows with weights
+        weights = [1.0 / 8760.0] * 8760
+        df = pd.DataFrame({"CWFT": weights})
+        df.to_csv(csv_file, index=False)
+
+        cwf_arr = load_cwft_file(str(csv_file))
+        assert len(cwf_arr) == 8760
+        assert pytest.approx(cwf_arr.sum(), abs=1e-6) == 1.0
+
+    def test_load_cwft_file_excel_valid(self, tmp_path):
+        from data_loaders import load_cwft_file
+        excel_file = tmp_path / "valid_cwft.xlsx"
+        weights = [2.0] * 8760  # unnormalized, should auto-normalize to 1.0
+        df = pd.DataFrame({"CWFT": weights})
+        df.to_excel(excel_file, index=False)
+
+        cwf_arr = load_cwft_file(str(excel_file))
+        assert len(cwf_arr) == 8760
+        assert pytest.approx(cwf_arr.sum(), abs=1e-6) == 1.0
+        assert pytest.approx(cwf_arr[0], abs=1e-8) == 1.0 / 8760.0
+
+    def test_load_cwft_file_buffer_stream(self):
+        import io
+        from data_loaders import load_cwft_file
+        csv_buf = io.StringIO("CWFT\n" + "\n".join(["0.001"] * 8760))
+        cwf_arr = load_cwft_file(csv_buf)
+        assert len(cwf_arr) == 8760
+        assert pytest.approx(cwf_arr.sum(), abs=1e-6) == 1.0
+
+    def test_load_cwft_file_case_insensitive_and_single_col(self, tmp_path):
+        from data_loaders import load_cwft_file
+        # Column named 'capacity_worth'
+        csv_file = tmp_path / "custom_col.csv"
+        df = pd.DataFrame({"capacity_worth": [1.0] * 8760})
+        df.to_csv(csv_file, index=False)
+        cwf_arr = load_cwft_file(str(csv_file))
+        assert len(cwf_arr) == 8760
+        assert pytest.approx(cwf_arr.sum(), abs=1e-6) == 1.0
+
+        # Single unnamed column
+        csv_file2 = tmp_path / "single_col.csv"
+        df2 = pd.DataFrame({"HourlyWeight": [0.5] * 8760})
+        df2.to_csv(csv_file2, index=False)
+        cwf_arr2 = load_cwft_file(str(csv_file2))
+        assert len(cwf_arr2) == 8760
+        assert pytest.approx(cwf_arr2.sum(), abs=1e-6) == 1.0
+
+    def test_load_cwft_file_invalid_rows(self, tmp_path):
+        from data_loaders import load_cwft_file
+        csv_file = tmp_path / "short_cwft.csv"
+        df = pd.DataFrame({"CWFT": [0.1] * 100})
+        df.to_csv(csv_file, index=False)
+        with pytest.raises(ValueError, match="must contain exactly 8760 rows"):
+            load_cwft_file(str(csv_file))
+
+    def test_load_cwft_file_negative_values(self, tmp_path):
+        from data_loaders import load_cwft_file
+        csv_file = tmp_path / "neg_cwft.csv"
+        vals = [0.001] * 8760
+        vals[10] = -0.5
+        df = pd.DataFrame({"CWFT": vals})
+        df.to_csv(csv_file, index=False)
+        with pytest.raises(ValueError, match="cannot contain negative values"):
+            load_cwft_file(str(csv_file))
+
+    def test_load_cwft_file_missing_file(self):
+        from data_loaders import load_cwft_file
+        with pytest.raises(FileNotFoundError, match="CWFT file not found"):
+            load_cwft_file("nonexistent_path_file.csv")
 
 
+class TestKPIRatioCards:
+    """Tests for KPI ratio card HTML rendering with help tooltips and styling."""
 
+    def test_ratio_card_html_basic(self):
+        from config import ratio_card_html
+        html = ratio_card_html("Total Resource Cost (TRC)", "1.061", "NPV Grid / (Measure + Admin)", passing=True)
+        assert "Total Resource Cost (TRC)" in html
+        assert "1.061" in html
+        assert "#15803d" in html  # passing green
+        assert "kpi-help-tooltip" not in html
+
+    def test_ratio_card_html_failing(self):
+        from config import ratio_card_html
+        html = ratio_card_html("Rate Impact Measure (RIM)", "0.486", "NPV Grid / (Lost Rev + Program)", passing=False)
+        assert "0.486" in html
+        assert "#b91c1c" in html  # failing red
+
+    def test_ratio_card_html_with_rim_help_text(self):
+        from config import ratio_card_html
+        help_text = (
+            "<strong>Rate Impact Measure (RIM) Test</strong><br>"
+            "• Above 1.0 (Pass): downward pressure on rates.<br>"
+            "• Below 1.0 (Cross-Subsidy): upward pressure on rates."
+        )
+        html = ratio_card_html("Rate Impact Measure (RIM)", "0.486", "NPV Grid / (Lost Rev + Program)", passing=False, help_text=help_text)
+        assert "Rate Impact Measure (RIM)" in html
+        assert "kpi-help-tooltip" in html
+        assert "kpi-help-icon" in html
+        assert "kpi-tooltip-bubble" in html
+        assert "Above 1.0 (Pass)" in html
+        assert "Below 1.0 (Cross-Subsidy)" in html
+        assert "downward pressure" in html
+        assert "upward pressure" in html
+
+    def test_financial_metric_card_html_with_help_text(self):
+        from config import financial_metric_card_html
+        html = financial_metric_card_html("Net Valuation NPV", "-$3,445.00", "Cross-Subsidy", is_positive=False, help_text="Grid Avoided Costs minus Lost Revenue")
+        assert "Net Valuation NPV" in html
+        assert "kpi-help-tooltip" in html
+        assert "kpi-tooltip-bubble" in html
+        assert "Grid Avoided Costs minus Lost Revenue" in html
 

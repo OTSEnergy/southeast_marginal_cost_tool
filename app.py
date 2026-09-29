@@ -38,6 +38,7 @@ from config import (
     EXAMPLE_BUILDINGS, ratio_card_html, financial_metric_card_html,
     SOUTHEAST_PEAKER_PRESETS, SOUTHEAST_TD_PRESETS,
     CWF_METHOD_OPTIONS, FEEDER_TYPE_OPTIONS,
+    TOOL_DISCLAIMER_TEXT, TOOL_DISCLAIMER_HTML,
 )
 from visualizations import (
     build_weekly_overlay_chart,
@@ -88,7 +89,8 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 #                     See: calculate_avoided_costs(), dispatch_dr_program()
 #
 #   billing.py      - URDB-compliant retail billing engine + tariff data
-#                     See: calculate_urdb_bill(), GP_R31_URDB, AL_FD_URDB
+#                     See: calculate_urdb_bill(), GP_R31_URDB, AL_FD_URDB,
+#                          AL_FDD_URDB, AL_RTA_URDB, AL_RTA_E_URDB
 #
 #   data_loaders.py - All file I/O, data ingestion, and mock generators:
 #                     * Cambium CSV scanner + column mapping engine
@@ -108,13 +110,28 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 # Run: python -m pytest
 # ==============================================================================
 from calculations import calculate_avoided_costs, dispatch_dr_program
-from billing import calculate_urdb_bill, get_hourly_energy_rate, GP_R31_URDB, AL_FD_URDB
+from billing import (
+    calculate_urdb_bill,
+    get_hourly_energy_rate,
+    GP_R31_URDB,
+    AL_FD_URDB,
+    AL_FDD_URDB,
+    AL_RTA_URDB,
+    AL_RTA_E_URDB,
+    DUKE_RES_URDB,
+    TVA_LPC_URDB,
+    MS_RS_URDB,
+    ENTERGY_RS_URDB,
+    SOUTHEAST_AVG_URDB,
+)
 from data_loaders import (
     INPUT_DIRECTORY,
     generate_default_cwft_file,
     load_cwft_from_csv,
+    load_cwft_file,
     generate_default_load_profiles_file,
     load_load_profiles_from_csv,
+    get_load_profile_warnings,
     generate_mock_state_file,
     file_matches_scenario,
     parse_cambium_columns,
@@ -122,6 +139,7 @@ from data_loaders import (
     load_and_aggregate_data,
     fetch_urdb_rate,
     load_wmo_station_lookup,
+    sanitize_filepath,
 )
 from cambium_downloader import (
     check_missing_cambium_data,
@@ -251,7 +269,7 @@ interpolates missing points, and builds a customized `.epw` file using NREL's TM
         
         st.write("") # spacing
         st.write("")
-        generate_button = st.button("Generate AMY Weather File", type="primary", use_container_width=True, key=f"generate_btn_{key_suffix}")
+        generate_button = st.button("Generate AMY Weather File", type="primary", width="stretch", key=f"generate_btn_{key_suffix}")
     
     if generate_button:
         try:
@@ -327,6 +345,15 @@ st.sidebar.markdown(
 
 # 1. Weather & Scenario Selectors
 with st.sidebar.expander("Grid Scenario & Region", expanded=True):
+    target_states = st.multiselect(
+        "State(s)",
+        options=STATE_OPTIONS,
+        default=DEFAULT_STATES,
+        help="Which state's Cambium grid price data to value against. Selecting more than one averages their hourly prices together into a single blended series."
+    )
+    if len(target_states) > 1:
+        st.caption(f"Averaging grid prices across {len(target_states)} states: {', '.join(target_states)}.")
+
     selected_scenario = st.selectbox(
         "NREL Future Scenario",
         options=SCENARIO_OPTIONS,
@@ -368,20 +395,23 @@ with st.sidebar.expander("Grid Scenario & Region", expanded=True):
         help="Alters temperatures, pushes peaks, and shifts reliability CWFT risk."
     )
 
-    target_states = st.multiselect(
-        "State(s)",
-        options=STATE_OPTIONS,
-        default=DEFAULT_STATES,
-        help="Which state's Cambium grid price data to value against. Selecting more than one averages their hourly prices together into a single blended series."
-    )
-    if len(target_states) > 1:
-        st.caption(f"Averaging grid prices across {len(target_states)} states: {', '.join(target_states)}.")
-
     missing_in_sidebar = check_missing_cambium_data(target_states, selected_scenario, planning_year)
     if missing_in_sidebar:
         st.caption(f"⚡ *NREL data for {', '.join(missing_in_sidebar)} will auto-download on run.*")
     else:
         st.caption("✅ *Cambium grid data cached locally.*")
+
+    st.markdown("---")
+    st.markdown("**Avoided Emissions Valuation**")
+    carbon_tax = st.slider(
+        "Carbon Penalty ($/metric ton CO₂)",
+        min_value=CARBON_TAX_RANGE[0],
+        max_value=CARBON_TAX_RANGE[1],
+        value=DEFAULT_CARBON_TAX,
+        step=CARBON_TAX_RANGE[2],
+        format="$%.2f",
+        help="Monetizes marginal carbon emissions reductions based on Cambium CO₂ intensity ($/metric ton CO₂). Set to $0 for non-carbon evaluations."
+    )
 
 # 2. Demand Response toggle (kept ahead of Building & Load Data below, since the
 # load profile column logic branches on dr_mode).
@@ -455,22 +485,27 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
         )
 
         if "Custom path" in selected_load_option:
-            load_profiles_filepath = st.text_input("Custom Load Profiles Path", value="load_profiles.csv")
+            load_profiles_filepath = st.text_input(
+                "Custom Load Profiles Path", 
+                value="load_profiles.csv",
+                help="Supports single CSV/Excel files (e.g. C:\\data\\hp_data.xlsx) or entire directories. Windows quoted paths ('Copy as path') are sanitized automatically."
+            )
         elif "Load_Profiles_raw" in selected_load_option:
             load_profiles_filepath = "Load_Profiles_raw"
         else:
             load_profiles_filepath = "load_profiles.csv"
 
+        load_profiles_filepath = sanitize_filepath(load_profiles_filepath)
+
     # Load profile case selection (Baseline vs Proposed)
     try:
-        generate_default_load_profiles_file(load_profiles_filepath if load_profiles_filepath != "Load_Profiles_raw" else "load_profiles.csv")
+        if load_profiles_filepath == "load_profiles.csv":
+            generate_default_load_profiles_file("load_profiles.csv")
         load_profiles_df = load_load_profiles_from_csv(load_profiles_filepath)
         profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
-        for w in load_profiles_df.attrs.get('ingestion_warnings', []):
-            st.warning(f"Load profile data gap: {w}")
 
         is_folder_mode = os.path.isdir(load_profiles_filepath)
-        file_basename = os.path.basename(load_profiles_filepath)
+        file_basename = os.path.basename(load_profiles_filepath) or load_profiles_filepath
 
         if selected_example:
             baseline_col = selected_example["baseline_col"] if selected_example["baseline_col"] in profile_columns else profile_columns[0]
@@ -518,9 +553,15 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
             # Single File Mode: Explicit column picker asking "which column?" without keyword guessing
             st.caption(f"Single file mode: select which column in `{file_basename}` represents each case.")
 
-            # Positional defaults for single file mode (1st column = Baseline, 2nd column = Proposed if available)
+            # Smart default indices for single file mode
             default_base_idx = 0
             default_prop_idx = 1 if len(profile_columns) > 1 else 0
+            for idx, p in enumerate(profile_columns):
+                p_low = p.lower()
+                if any(k in p_low for k in ["erheat", "baseline", "standard", "electricresistance", "base", "no tes", "no_tes", "notes"]):
+                    default_base_idx = idx
+                elif any(k in p_low for k in ["heatpump", "proposed", "highefficiency", "hp", "tes", "efficient"]) and not any(k in p_low for k in ["no tes", "no_tes", "notes"]):
+                    default_prop_idx = idx
 
             if dr_mode:
                 baseline_col = st.selectbox(
@@ -544,6 +585,10 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
                     index=default_prop_idx,
                     help=f"Select which numeric column from '{file_basename}' contains the Proposed load profile."
                 )
+
+        active_cols = [baseline_col] if dr_mode else [baseline_col, proposed_col]
+        for w in get_load_profile_warnings(load_profiles_df, active_cols):
+            st.warning(f"Load profile data gap: {w}")
 
         if baseline_col == proposed_col and not dr_mode and len(profile_columns) > 1:
             st.warning("Baseline and Proposed profiles are identical. Select two different columns for savings calculations.")
@@ -573,123 +618,193 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         "Capacity Valuation Method",
         options=["Direct IRP Scaler ($/kW-year)", "Carrying cost of a CT Builder"],
         index=0,
-        help="Enter a direct commission-approved IRP scalar or build avoided capacity from Southeast utility Next Planned Peaker carrying cost."
+        help="Default: Direct IRP scalar pre-populated with calculated NREL ATB 2024 Combustion Turbine (CT) economic carrying cost ($110.20/kW-yr), or build custom capacity value using the CT Carrying Cost Builder."
     )
 
     ct_calc = None
     if "Carrying cost of a CT Builder" in cap_mode:
         selected_peaker_preset = st.selectbox(
-            "Southeast Peaker Preset",
+            "Combustion Turbine (CT) Benchmark Preset",
             options=list(SOUTHEAST_PEAKER_PRESETS.keys()) + ["Custom Peaker Parameters"],
             index=0,
-            help="Choose a pre-configured peaker benchmark from Southeast utility IRP dockets or NREL ATB."
+            help="Choose a pre-configured peaker benchmark from NREL Annual Technology Baseline (ATB 2024) or Southeast utility IRP dockets."
         )
 
         if selected_peaker_preset in SOUTHEAST_PEAKER_PRESETS:
             preset_data = SOUTHEAST_PEAKER_PRESETS[selected_peaker_preset]
             st.caption(preset_data["description"])
+            if "source" in preset_data:
+                st.caption(f"**Data Source:** {preset_data['source']}")
             def_capex = preset_data["capex_kw"]
             def_fom = preset_data["fom_kw_yr"]
-            def_wacc = preset_data["wacc"] * 100.0
-            def_life = preset_data["life"]
-            def_tax = preset_data["tax_rate"] * 100.0
-            def_eas = preset_data["eas_offset_kw_yr"]
+            def_fcr = preset_data.get("fcr", 0.082) * 100.0
+            def_wacc = preset_data.get("wacc", 0.070) * 100.0
+            def_life = preset_data.get("life", 30)
+            def_tax = preset_data.get("tax_rate", 0.257) * 100.0
+            def_eas = preset_data.get("eas_offset_kw_yr", 0.0)
         else:
-            def_capex, def_fom, def_wacc, def_life, def_tax, def_eas = 1080.0, 15.0, 7.1, 30, 25.0, 0.0
+            def_capex, def_fom, def_fcr, def_wacc, def_life, def_tax, def_eas = 1100.0, 20.0, 8.20, 7.0, 30, 25.7, 0.0
 
         col_ct1, col_ct2 = st.columns(2)
         with col_ct1:
-            ct_capex = st.number_input("Overnight CAPEX ($/kW)", min_value=100.0, max_value=3000.0, value=def_capex, step=25.0, format="%.1f")
-            ct_wacc = st.number_input("Utility WACC (%)", min_value=1.0, max_value=15.0, value=def_wacc, step=0.1, format="%.2f")
-            ct_tax = st.number_input("Corporate Tax (%)", min_value=0.0, max_value=40.0, value=def_tax, step=0.5, format="%.1f")
+            ct_capex = st.number_input("Overnight CAPEX ($/kW)", min_value=100.0, max_value=3000.0, value=def_capex, step=25.0, format="%.1f",
+                                       help="Overnight capital expenditure ($/kW) from NREL ATB (typical CT range: $950 – $1,250/kW).")
+            ct_fcr = st.number_input("Fixed Charge Rate (FCR %)", min_value=1.0, max_value=30.0, value=def_fcr, step=0.1, format="%.2f",
+                                     help="Annual Fixed Charge Rate (FCR) accounting for WACC, depreciation, taxes, and asset life (NREL ATB Regulated Utility: 7.5%–8.8%, Merchant: 9.5%–11.2%).")
         with col_ct2:
-            ct_fom = st.number_input("Fixed O&M ($/kW-yr)", min_value=0.0, max_value=100.0, value=def_fom, step=0.5, format="%.2f")
-            ct_life = st.number_input("Economic Life (yrs)", min_value=10, max_value=50, value=def_life, step=1)
+            ct_fom = st.number_input("Fixed O&M ($/kW-yr)", min_value=0.0, max_value=100.0, value=def_fom, step=0.5, format="%.2f",
+                                     help="Annual fixed operations and maintenance cost ($/kW-yr) from NREL ATB (typical CT range: $15 – $25/kW-yr).")
             ct_eas = st.number_input("E&AS Offset ($/kW-yr)", min_value=0.0, max_value=50.0, value=def_eas, step=0.5, format="%.2f",
-                                     help="Inframarginal energy/ancillary profit offset. Often 0 in Southeast cost-of-service IRPs.")
+                                     help="Inframarginal energy/ancillary profit offset. Often $0 in Southeast cost-of-service IRPs (Gross CONE).")
 
-        fcr = calculate_regulated_fcr(wacc=ct_wacc/100.0, economic_life=ct_life, tax_rate=ct_tax/100.0)
+        with st.expander("Financing & Tax Depreciation Detail (WACC / MACRS)", expanded=False):
+            st.caption("Optionally calculate FCR from underlying utility WACC and 15-year MACRS depreciation tax shield:")
+            col_fin1, col_fin2 = st.columns(2)
+            with col_fin1:
+                ct_wacc = st.number_input("Utility WACC (%)", min_value=1.0, max_value=15.0, value=def_wacc, step=0.1, format="%.2f")
+                ct_tax = st.number_input("Corporate Tax (%)", min_value=0.0, max_value=40.0, value=def_tax, step=0.5, format="%.1f")
+            with col_fin2:
+                ct_life = st.number_input("Economic Life (yrs)", min_value=10, max_value=50, value=def_life, step=1)
+                calc_fcr_toggle = st.checkbox("Use Synthesized WACC/MACRS FCR", value=False,
+                                              help="When checked, computes FCR dynamically via Capital Recovery Factor (CRF) and MACRS depreciation rather than using the direct NREL ATB FCR.")
+
+        if calc_fcr_toggle:
+            fcr = calculate_regulated_fcr(wacc=ct_wacc/100.0, economic_life=ct_life, tax_rate=ct_tax/100.0)
+            st.caption(f"Synthesized Regulated FCR: **{fcr*100:.2f}%**")
+        else:
+            fcr = ct_fcr / 100.0
+
         ct_calc = calculate_ct_carrying_cost(ct_capex, ct_fom, fcr, eas_offset_kw_yr=ct_eas)
         cap_value = ct_calc["net_capacity_cost"]
         st.metric(
             label="Calculated Avoided Capacity",
             value=f"${cap_value:,.2f}/kW-yr",
-            delta=f"FCR: {fcr*100:.2f}% | Gross: ${ct_calc['gross_carrying_cost']:,.2f}"
+            delta=f"FCR: {fcr*100:.2f}% | Cap Recovery: ${ct_calc['capital_recovery_annuity']:,.2f} | FOM: ${ct_calc['fom_kw_yr']:,.2f}"
         )
+        st.caption("Source: [Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)")
     else:
         cap_value = st.number_input(
             "Total Economic Carrying Cost of a CT ($/kW-year)",
             min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1], value=DEFAULT_CAP_VALUE, step=CAP_VALUE_RANGE[2], format="%.2f",
-            help="Commission-approved avoided generation capacity credit from utility IRP or PURPA docket (Total ECC of a CT)."
+            help="Commission-approved avoided generation capacity credit from utility IRP or PURPA docket (Total ECC of a CT). Default $110.20/kW-yr from NLR ATB 2024."
         )
+        st.caption("Source: [Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)")
+        # Populate benchmark breakdown for waterfall visualization when default is unchanged
+        if abs(cap_value - DEFAULT_CAP_VALUE) < 1e-4:
+            ct_calc = calculate_ct_carrying_cost(1100.0, 20.00, 0.082)
 
 # 5. Capacity Risk Allocation (CWF)
-with st.sidebar.expander("Capacity Risk Allocation (CWF)", expanded=False):
-    selected_cwf_method = st.selectbox(
-        "Allocation Methodology",
-        options=CWF_METHOD_OPTIONS,
-        index=CWF_METHOD_OPTIONS.index("Cambium Price-Exceedance LOLP Proxy (Exponential)"),
-        help="Determines how the annual capacity value ($/kW-yr) is distributed across the 8,760 hours of the year. "
-             "Defaults to a Cambium-price-based method (alpha=4, spread across ~6,000 hours rather than "
-             "concentrated in a handful) so capacity risk reflects system-wide grid stress, not the shape of "
-             "whichever single building's load happens to be selected as Baseline."
+with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation", expanded=False):
+    cwf_source_mode = st.radio(
+        "Allocation Method",
+        options=["Southeast Dual-Peak (Weather-Driven)", "Custom 8,760 File (CSV / Excel)"],
+        index=0,
+        help="Select 'Southeast Dual-Peak' to allocate capacity risk across Southeast utility winter/summer reliability windows, or 'Custom 8,760 File' to upload/specify your own 8,760 hourly CWF profile."
     )
 
+    # Core background defaults
+    selected_cwf_method = "Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)"
     cwft_filepath = "CWFT.csv"
-    winter_split_pct = 50.0
+    cwft_uploaded_file = None
+    winter_split_pct = 80.0
     freeze_threshold_f = 32.0
     heat_threshold_f = 90.0
+    lag_days = 3
+    lag_weight_pct = 30.0
     lolp_alpha = 4.0
     top_n_peak_hours = 100
     peaker_heat_rate = 10500.0
     peaker_gas_price = 3.50
 
-    if "Southeast Dual-Peak" in selected_cwf_method:
-        st.caption("Allocates risk across Southeast winter morning freeze events (6–9 AM Dec–Feb) and summer afternoon heat domes (2–6 PM Jun–Sep).")
-        winter_split_pct = st.slider("Winter Morning Risk Share (%)", min_value=0.0, max_value=100.0, value=50.0, step=5.0,
-                                     help="Percent of annual capacity value assigned to winter morning freeze hours (remainder goes to summer afternoon).")
-        st.caption(f"Seasonal split: **{winter_split_pct:.0f}% Winter Morning** / **{100.0 - winter_split_pct:.0f}% Summer Afternoon**")
-    elif "Ambient Temperature Severity" in selected_cwf_method:
-        st.caption("Allocates capacity value directly based on ambient dry-bulb temperature severity during Southeast winter freeze mornings (6–9 AM Dec–Feb) and summer heat waves (2–6 PM Jun–Sep).")
-        winter_split_pct = st.slider("Winter Freeze Risk Share (%)", min_value=0.0, max_value=100.0, value=50.0, step=5.0,
-                                     help="Percent of annual capacity value assigned to sub-freezing morning hours.")
-        st.caption(f"Seasonal split: **{winter_split_pct:.0f}% Winter Freeze** / **{100.0 - winter_split_pct:.0f}% Summer Heat**")
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            freeze_threshold_f = st.number_input("Freeze Threshold (°F)", min_value=10.0, max_value=45.0, value=32.0, step=1.0,
-                                                 help="Hours below this temperature in winter mornings accrue heating capacity risk.")
-        with col_t2:
-            heat_threshold_f = st.number_input("Heat Threshold (°F)", min_value=75.0, max_value=110.0, value=90.0, step=1.0,
-                                               help="Hours above this temperature in summer afternoons accrue cooling capacity risk.")
-    elif "Cambium Price-Exceedance LOLP" in selected_cwf_method:
+    if cwf_source_mode == "Southeast Dual-Peak (Weather-Driven)":
         st.caption(
-            "Calculates exponential Loss-of-Load Probability risk weights from Cambium's own hourly wholesale "
-            "energy price series (the same `Cambium_Energy_MWh` column used for the Wholesale Energy avoided-cost "
-            "component) — **not** real-world EIA-930 demand data. Because it's driven by Cambium, it automatically "
-            "inherits the same weather-year basis as the rest of this tool's inputs (see the Weather Year Alignment "
-            "check), unlike an external demand dataset that would need its own separate weather-year alignment."
+            "Allocates annual capacity risk across Southeast utility reliability windows "
+            "(Winter 6–9 AM Dec–Feb and Summer 2–6 PM Jun–Sep), weighted by ambient temperature severity "
+            "and multi-day thermal buildup."
         )
-        lolp_alpha = st.slider("Risk Concentration (α)", min_value=1.0, max_value=30.0, value=4.0, step=1.0,
-                               help="Higher alpha concentrates risk exclusively into the highest-price hours (a proxy for scarcity, not a direct measure of it — see the method description above for caveats). Default of 4 keeps risk spread across thousands of hours instead of collapsing onto a handful.")
-    elif "Top-N Peak Hours" in selected_cwf_method:
-        top_n_peak_hours = st.slider("Top Peak Hours (N)", min_value=10, max_value=500, value=100, step=10,
-                                     help="Number of highest system load hours that receive capacity credit.")
-    elif "Wholesale Peaker Rent" in selected_cwf_method:
-        col_pk1, col_pk2 = st.columns(2)
-        with col_pk1:
-            peaker_heat_rate = st.number_input("Peaker Heat Rate (Btu/kWh)", min_value=8000.0, max_value=15000.0, value=10500.0, step=250.0)
-        with col_pk2:
-            peaker_gas_price = st.number_input("Gas Price ($/MMBtu)", min_value=1.0, max_value=20.0, value=3.50, step=0.25)
-    else:  # Uploaded / Default CSV
-        cwft_filepath = st.text_input("CWFT CSV File Path", value="CWFT.csv")
+        winter_split_pct = st.slider(
+            "Winter Morning Risk Share (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=80.0,
+            step=5.0,
+            help="Percent of annual capacity value assigned to winter morning freeze hours (remainder goes to summer afternoon). Defaults to 80% winter to reflect Southeast winter heating peak risk. Regional utility benchmarks: TVA ~85%, Southern Co (GA/AL/MS) ~80%, Duke Energy Carolinas ~70%, Entergy ~65%."
+        )
+        st.caption(f"Seasonal split: **{winter_split_pct:.0f}% Winter Morning** / **{100.0 - winter_split_pct:.0f}% Summer Afternoon** | *Utility benchmarks: TVA 85%, Southern Co 80%, Duke Carolinas 70%, Entergy 65%*")
+
+        with st.expander("Advanced Calibration Settings", expanded=False):
+            st.caption("Background engineering parameters. Defaults reflect Southeast utility reliability standards.")
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                freeze_threshold_f = st.number_input(
+                    "Freeze Threshold (°F)", min_value=10.0, max_value=45.0, value=32.0, step=1.0,
+                    help="Hours below this temperature in winter mornings accrue heating capacity risk."
+                )
+            with col_t2:
+                heat_threshold_f = st.number_input(
+                    "Heat Threshold (°F)", min_value=75.0, max_value=110.0, value=90.0, step=1.0,
+                    help="Hours above this temperature in summer afternoons accrue cooling capacity risk."
+                )
+            thermal_memory_enabled = st.checkbox(
+                "Account for Multi-Day Thermal Buildup / Cold Penetration (3-Day Memory)",
+                value=True,
+                help="Blends instantaneous hour temperature with the preceding 3-day (72-hour) rolling average to capture building thermal mass saturation and equipment heat/cold stress."
+            )
+            if thermal_memory_enabled:
+                lag_weight_pct = st.slider(
+                    "Thermal Memory Weight (%)", min_value=0.0, max_value=100.0, value=30.0, step=5.0,
+                    help="Percentage weight given to the preceding 3-day mean temperature vs instantaneous hour (default 30% multi-day memory / 70% current hour)."
+                )
+            else:
+                lag_weight_pct = 0.0
+
+            use_alt_method = st.checkbox("Use Alternative Academic Methodology", value=False)
+            if use_alt_method:
+                alt_options = [
+                    "Ambient Temperature Severity (Weather-Triggered)",
+                    "Cambium Price-Exceedance LOLP Proxy (Exponential)",
+                    "Top-N Peak Hours Exceedance",
+                    "Wholesale Peaker Rent (Spark Spread)",
+                ]
+                selected_alt = st.selectbox("Alternative Methodology", options=alt_options)
+                selected_cwf_method = selected_alt
+                if "Cambium Price-Exceedance LOLP" in selected_alt:
+                    st.caption(
+                        "Calculates exponential Loss-of-Load Probability risk weights from Cambium's own hourly wholesale "
+                        "energy price series (the same Cambium_Energy_MWh column used for the Wholesale Energy avoided-cost "
+                        "component) — not real-world EIA-930 demand data."
+                    )
+                    lolp_alpha = st.slider("Risk Concentration (α)", min_value=1.0, max_value=30.0, value=4.0, step=1.0)
+                elif "Top-N Peak Hours" in selected_alt:
+                    top_n_peak_hours = st.slider("Top Peak Hours (N)", min_value=10, max_value=500, value=100, step=10)
+                elif "Wholesale Peaker Rent" in selected_alt:
+                    col_pk1, col_pk2 = st.columns(2)
+                    with col_pk1:
+                        peaker_heat_rate = st.number_input("Peaker Heat Rate (Btu/kWh)", min_value=8000.0, max_value=15000.0, value=10500.0, step=250.0)
+                    with col_pk2:
+                        peaker_gas_price = st.number_input("Gas Price ($/MMBtu)", min_value=1.0, max_value=20.0, value=3.50, step=0.25)
+    else:
+        selected_cwf_method = "Uploaded / Default CWFT CSV"
+        st.caption("Upload or specify an 8,760-hour Capacity Worth Factor table (`.csv` or `.xlsx`). Values are auto-normalized to sum to 1.0.")
+        cwft_uploaded_file = st.file_uploader(
+            "Upload 8,760 CWF File (.csv, .xlsx)",
+            type=["csv", "xlsx", "xls"],
+            help="Select a CSV or Excel file containing an 8,760 hourly CWF profile (with a 'CWFT' column or single numeric column)."
+        )
+        cwft_filepath = st.text_input(
+            "Or specify local file path",
+            value="CWFT.csv",
+            help="Local file path to load if no file is uploaded above."
+        )
+        cwft_filepath = sanitize_filepath(cwft_filepath)
 
 # 6. Transmission & Distribution Deferral & Feeder
-with st.sidebar.expander("T&D Deferral & Feeder Constraints", expanded=False):
+with st.sidebar.expander("T&D Deferral & Local Feeder Profile", expanded=False):
     selected_td_preset = st.selectbox(
-        "Southeast T&D Preset",
+        "Southeast T&D Benchmark Preset",
         options=list(SOUTHEAST_TD_PRESETS.keys()) + ["Custom T&D Values"],
         index=0,
-        help="Select empirical T&D deferral benchmarks from Southeast utility rate cases or enter custom values."
+        help="Select empirical T&D deferral benchmarks from Southeast utility rate cases, exclude T&D, or enter custom values."
     )
 
     if selected_td_preset in SOUTHEAST_TD_PRESETS:
@@ -703,26 +818,48 @@ with st.sidebar.expander("T&D Deferral & Feeder Constraints", expanded=False):
 
     col_td1, col_td2 = st.columns(2)
     with col_td1:
-        trans_value = st.number_input("Transmission ($/kW-yr)", min_value=TRANS_VALUE_RANGE[0], max_value=TRANS_VALUE_RANGE[1], value=def_trans, step=TRANS_VALUE_RANGE[2], format="%.2f")
+        trans_value = st.number_input(
+            "Transmission ($/kW-yr)",
+            min_value=TRANS_VALUE_RANGE[0],
+            max_value=TRANS_VALUE_RANGE[1],
+            value=def_trans,
+            step=TRANS_VALUE_RANGE[2],
+            format="%.2f",
+            key=f"td_trans_{selected_td_preset}",
+            help="Bulk transmission capacity deferral credit ($/kW-yr). Allocated across top 100 system wholesale price hours."
+        )
     with col_td2:
-        dist_value = st.number_input("Distribution ($/kW-yr)", min_value=DIST_VALUE_RANGE[0], max_value=DIST_VALUE_RANGE[1], value=def_dist, step=DIST_VALUE_RANGE[2], format="%.2f")
+        dist_value = st.number_input(
+            "Distribution ($/kW-yr)",
+            min_value=DIST_VALUE_RANGE[0],
+            max_value=DIST_VALUE_RANGE[1],
+            value=def_dist,
+            step=DIST_VALUE_RANGE[2],
+            format="%.2f",
+            key=f"td_dist_{selected_td_preset}",
+            help="Local distribution capacity deferral credit ($/kW-yr). Allocated across local feeder peak hours."
+        )
 
+    combined_td = trans_value + dist_value
+    if combined_td == 0.0:
+        st.info("ℹ️ **T&D Deferral Excluded** ($0.00/kW-yr). Results reflect generation capacity & wholesale energy savings only.")
+    else:
+        st.caption(f"⚡ **Combined T&D Rate:** **${combined_td:,.2f}/kW-yr** (${trans_value:,.2f} Trans + ${dist_value:,.2f} Dist)")
+
+    st.markdown("---")
+    st.markdown("**Distribution Peak Alignment**")
     selected_feeder_type = st.selectbox(
         "Local Distribution Feeder Peaking Type",
         options=FEEDER_TYPE_OPTIONS,
-        index=FEEDER_TYPE_OPTIONS.index("Wholesale Price PCAF (Top 100 Hours)"),
+        index=0,
         help="Select whether the target distribution feeder/substation is winter-peaking (electric heating), "
-             "summer-peaking (cooling), or follows system prices. Defaults to system prices so this doesn't depend "
-             "on the shape of whichever single building's load happens to be selected as Baseline."
+             "summer-peaking (cooling), or follows system prices. Transmission deferral tracks bulk system peak "
+             "while distribution deferral follows this local profile."
     )
+    st.caption("💡 *Transmission deferral tracks bulk system peak hours; Distribution deferral tracks the local feeder profile selected above.*")
 
-    carbon_tax = st.slider(
-        "Carbon Penalty ($/metric ton)",
-        min_value=CARBON_TAX_RANGE[0], max_value=CARBON_TAX_RANGE[1], value=DEFAULT_CARBON_TAX, step=CARBON_TAX_RANGE[2], format="$%.2f"
-    )
-
-# 5. Retail Tariff & URDB Selector
-with st.sidebar.expander("Retail Tariff (NREL URDB)", expanded=True):
+# 7. Retail Tariff & URDB Selector
+with st.sidebar.expander("Retail Tariff Structure", expanded=True):
     tariff_type = st.selectbox(
         "Retail Utility Tariff Type",
         options=TARIFF_OPTIONS,
@@ -743,6 +880,22 @@ with st.sidebar.expander("Retail Tariff (NREL URDB)", expanded=True):
         active_tariff_json = GP_R31_URDB
     elif tariff_type == "Alabama Power - Rate FD (Family Dwelling)":
         active_tariff_json = AL_FD_URDB
+    elif tariff_type == "Alabama Power - Rate FD-D (Family Dwelling Demand)" or "FD-D" in tariff_type:
+        active_tariff_json = AL_FDD_URDB
+    elif tariff_type == "Alabama Power - Rate RTA (Residential Time Advantage - Demand)" or ("RTA" in tariff_type and "Energy Only" not in tariff_type and "RTA-E" not in tariff_type):
+        active_tariff_json = AL_RTA_URDB
+    elif tariff_type == "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)" or "RTA-E" in tariff_type or "Energy Only" in tariff_type:
+        active_tariff_json = AL_RTA_E_URDB
+    elif "Duke Energy Carolinas" in tariff_type:
+        active_tariff_json = DUKE_RES_URDB
+    elif "TVA LPC" in tariff_type:
+        active_tariff_json = TVA_LPC_URDB
+    elif "Mississippi Power" in tariff_type:
+        active_tariff_json = MS_RS_URDB
+    elif "Entergy" in tariff_type:
+        active_tariff_json = ENTERGY_RS_URDB
+    elif "Southeast Regional Average" in tariff_type:
+        active_tariff_json = SOUTHEAST_AVG_URDB
     elif tariff_type == "Import from NREL URDB (API Label)":
         urdb_label = st.text_input(
             "URDB Rate Label", 
@@ -757,7 +910,7 @@ with st.sidebar.expander("Retail Tariff (NREL URDB)", expanded=True):
             )
         urdb_api_key = st.text_input("OpenEI API Key", value="DEMO_KEY", type="password")
 
-        if st.button("Fetch Tariff Structure", use_container_width=True):
+        if st.button("Fetch Tariff Structure", width="stretch"):
             with st.spinner("Downloading rate from NREL OpenEI..."):
                 try:
                     fetched_rate = fetch_urdb_rate(urdb_label, urdb_api_key)
@@ -798,7 +951,7 @@ with st.sidebar.expander("Financial Assumptions", expanded=False):
     utility_incentive = st.number_input("Utility Rebate / Incentive ($)", min_value=0.0, value=DEFAULT_UTILITY_INCENTIVE, step=50.0, format="%.2f", help="Customer rebate or financial incentive provided by utility.")
     utility_admin_cost = st.number_input("Utility Admin & Marketing Cost ($)", min_value=0.0, value=DEFAULT_UTILITY_ADMIN_COST, step=25.0, format="%.2f", help="Utility administrative, marketing, and processing costs per participant.")
 
-run_simulation = st.sidebar.button("Run Valuation Engine", type="primary", use_container_width=True)
+run_simulation = st.sidebar.button("Run Valuation Engine", type="primary", width="stretch")
 
 if 'simulation_executed' not in st.session_state:
     st.session_state['simulation_executed'] = False
@@ -809,9 +962,12 @@ if run_simulation:
     st.session_state['simulation_executed'] = True
 
 if st.session_state.get('simulation_executed', False):
-    if st.sidebar.button("🏠 Home / Info Screen", use_container_width=True, help="Return to the Instructions & Setup screen"):
+    if st.sidebar.button("🏠 Home / Info Screen", width="stretch", help="Return to the Instructions & Setup screen"):
         st.session_state['simulation_executed'] = False
         st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.caption(f"⚠️ **Disclaimer:** {TOOL_DISCLAIMER_TEXT}")
 
 # ==============================================================================
 # MAIN PANEL
@@ -844,7 +1000,7 @@ with st.container(border=True):
         )
     with mock_home_col:
         st.markdown("<div style='padding-top: 2px;'></div>", unsafe_allow_html=True)
-        if st.button("🏠 Home", use_container_width=True, help="Return to the original Instructions & Setup info screen."):
+        if st.button("🏠 Home", width="stretch", help="Return to the original Instructions & Setup info screen."):
             st.session_state['simulation_executed'] = False
             st.rerun()
 
@@ -881,6 +1037,7 @@ if not st.session_state['simulation_executed']:
     ])
     
     with welcome_tab_instruct:
+        st.markdown(TOOL_DISCLAIMER_HTML, unsafe_allow_html=True)
         st.markdown("##### Before you run, check three things:")
         st.markdown(
             "1. **Load profile CSV** — 8,760 hourly rows; baseline + proposed columns (kW)\n"
@@ -986,10 +1143,12 @@ else:
 
         try:
             # 1. Load profiles and grid aggregated data
-            default_load_path = generate_default_load_profiles_file(load_profiles_filepath)
+            if load_profiles_filepath == "load_profiles.csv":
+                generate_default_load_profiles_file("load_profiles.csv")
             load_profiles_df = load_load_profiles_from_csv(load_profiles_filepath)
             profile_columns = [col for col in load_profiles_df.columns if col != 'Hour']
-            for w in load_profiles_df.attrs.get('ingestion_warnings', []):
+            active_cols = [baseline_col] if dr_mode else [baseline_col, proposed_col]
+            for w in get_load_profile_warnings(load_profiles_df, active_cols):
                 st.warning(f"Load profile data gap: {w}")
             
             raw_df, cambium_ingestion_warnings = load_and_aggregate_data(
@@ -1010,18 +1169,25 @@ else:
             # Setup Baseline and Proposed loads
             baseline_load = load_profiles_df[baseline_col].to_numpy()
 
+            # Extract hourly temperature array (if present from EPW weather)
+            temp_arr = raw_df['Temperature_F'].to_numpy() if 'Temperature_F' in raw_df.columns else None
+
             # Capacity Risk Allocation (CWF Array)
             if "Southeast Dual-Peak" in selected_cwf_method:
                 cwft_array = calculate_southeast_dual_peak_cwf(
                     datetime_series=datetime_series,
                     winter_weight=winter_split_pct / 100.0,
                     summer_weight=(100.0 - winter_split_pct) / 100.0,
-                    load_array=baseline_load
+                    temperature_array=temp_arr,
+                    freeze_threshold_f=freeze_threshold_f,
+                    heat_threshold_f=heat_threshold_f,
+                    lag_days=lag_days,
+                    lag_weight=lag_weight_pct / 100.0
                 )
             elif "Ambient Temperature Severity" in selected_cwf_method:
-                temp_arr = raw_df['Temperature_F'].to_numpy() if 'Temperature_F' in raw_df.columns else np.full(len(datetime_series), 65.0)
+                weather_arr = temp_arr if temp_arr is not None else np.full(len(datetime_series), 65.0)
                 cwft_array = calculate_cwf_temperature_exceedance(
-                    temperature_array=temp_arr,
+                    temperature_array=weather_arr,
                     datetime_series=datetime_series,
                     freeze_threshold_f=freeze_threshold_f,
                     heat_threshold_f=heat_threshold_f,
@@ -1035,8 +1201,12 @@ else:
             elif "Wholesale Peaker Rent" in selected_cwf_method:
                 cwft_array = calculate_cwf_peaker_rent(raw_df['Cambium_Energy_MWh'].to_numpy(), heat_rate=peaker_heat_rate, gas_price=peaker_gas_price)
             else:
-                generate_default_cwft_file(cwft_filepath)
-                cwft_array = load_cwft_from_csv(cwft_filepath)
+                if cwft_uploaded_file is not None:
+                    cwft_array = load_cwft_file(cwft_uploaded_file)
+                else:
+                    if cwft_filepath == "CWFT.csv":
+                        generate_default_cwft_file("CWFT.csv")
+                    cwft_array = load_cwft_file(cwft_filepath)
 
             # Localized Feeder Distribution Weights
             dist_weight_array = calculate_feeder_pcaf_weights(
@@ -1346,7 +1516,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             npv_net_savings=npv_net_savings,
                             npv_program_cost=npv_program_cost
                         )
-                        st.plotly_chart(fig_balance, use_container_width=True, config={"displayModeBar": False})
+                        st.plotly_chart(fig_balance, width="stretch", config={"displayModeBar": False})
                     with col_bal_net:
                         st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
                         st.markdown(
@@ -1370,24 +1540,46 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 # RIM when the customer's bill increase is large enough that "lost revenue
                 # + program cost" nets negative) -- a degenerate case, not a real 0-1+ ratio.
                 # Show "N/A" with an explanatory sublabel instead of a misleading number.
-                def _ratio_card(label, ratio, sublabel):
+                def _ratio_card(label, ratio, sublabel, help_text=None):
                     if np.isnan(ratio):
                         st.markdown(
-                            ratio_card_html(label, "N/A", "Cost basis went negative — see Net NPV", False),
+                            ratio_card_html(label, "N/A", "Cost basis went negative — see Net NPV", False, help_text=help_text),
                             unsafe_allow_html=True
                         )
                     else:
                         st.markdown(
-                            ratio_card_html(label, f"{ratio:.3f}", sublabel, ratio >= 1.0),
+                            ratio_card_html(label, f"{ratio:.3f}", sublabel, ratio >= 1.0, help_text=help_text),
                             unsafe_allow_html=True
                         )
 
                 # 2. Row of 4 Primary Headline Cards (No duplicates)
                 kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
                 with kpi_col1:
-                    _ratio_card("Total Resource Cost (TRC)", trc_ratio, "NPV Grid / (Measure + Admin)")
+                    _ratio_card(
+                        "Total Resource Cost (TRC)",
+                        trc_ratio,
+                        "NPV Grid / (Measure + Admin)",
+                        help_text=(
+                            "<strong>Total Resource Cost (TRC) Test</strong><br>"
+                            "Measures overall cost-effectiveness from the combined perspective of the utility and customer.<br><br>"
+                            "<strong>Basis:</strong> NPV Grid Avoided Costs ÷ (Gross Installed Measure Cost + Utility Admin Cost)<br><br>"
+                            "<strong>• Above 1.0 (Pass):</strong> Lifetime avoided grid benefits exceed total installed measure and program costs, delivering net resource savings.<br><br>"
+                            "<strong>• Below 1.0 (Fail):</strong> Total costs exceed grid benefits (net resource loss)."
+                        )
+                    )
                 with kpi_col2:
-                    _ratio_card("Rate Impact Measure (RIM)", rim_ratio, "NPV Grid / (Lost Rev + Program)")
+                    _ratio_card(
+                        "Rate Impact Measure (RIM)",
+                        rim_ratio,
+                        "NPV Grid / (Lost Rev + Program)",
+                        help_text=(
+                            "<strong>Rate Impact Measure (RIM) Test</strong><br>"
+                            "Evaluates whether this measure increases or decreases electric rates, measuring the impact on non-participating ratepayers.<br><br>"
+                            "<strong>Basis:</strong> NPV Grid Avoided Costs ÷ (NPV Lost Retail Revenue + Utility Program Costs)<br><br>"
+                            "<strong>• Above 1.0 (Pass):</strong> Avoided grid savings exceed lost revenue and program costs, putting <em>downward pressure</em> on electric rates (benefiting non-participating customers with no cross-subsidy).<br><br>"
+                            "<strong>• Below 1.0 (Cross-Subsidy):</strong> Avoided grid savings are less than lost revenue and program costs, putting <em>upward pressure</em> on electric rates (non-participating ratepayers cross-subsidize participants)."
+                        )
+                    )
                 with kpi_col3:
                     sp_str = f"{simple_payback:.1f} yrs" if simple_payback != float('inf') else "N/A"
                     dp_str = f"{discounted_payback:.1f} yrs" if discounted_payback != float('inf') else "N/A"
@@ -1478,6 +1670,8 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     energy_only_json = active_tariff_json.copy()
                     energy_only_json["demandratestructure"] = None
                     energy_only_json["demandratewindow"] = None
+                    energy_only_json["demandweekdayschedule"] = None
+                    energy_only_json["demandweekendschedule"] = None
                     
                     bill_base_e, _ = calculate_urdb_bill(baseline_load, datetime_series, energy_only_json)
                     bill_prop_e, _ = calculate_urdb_bill(proposed_load, datetime_series, energy_only_json)
@@ -1552,7 +1746,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         retail_demand_savings=retail_demand_savings,
                         annual_net_savings=annual_net_savings
                     )
-                    st.plotly_chart(fig_two_sided, use_container_width=True, config={"displayModeBar": False})
+                    st.plotly_chart(fig_two_sided, width="stretch", config={"displayModeBar": False})
 
                 with col_breakdown:
                     pct_cap = (annual_gen_cap_savings / annual_grid_savings * 100) if annual_grid_savings > 0 else 0
@@ -1679,7 +1873,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         return f"${val:,.2f}"
                     df_val["Value ($/yr)"] = df_val.apply(lambda r: format_vals(r["Value ($/yr)"], r["Valuation Component"]), axis=1)
                     
-                    st.dataframe(df_val, use_container_width=True, hide_index=True)
+                    st.dataframe(df_val, width="stretch", hide_index=True)
                 
             # ------------------------------------------------------------------
             # TAB 4: CHARTS (ordered simplest/most relatable → most technical)
@@ -1700,7 +1894,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         "*Generation Capacity and Distribution Deferral values on this page "
                         "come from the sidebar's CWF Allocation Methodology (default: Cambium "
                         "Price-Exceedance LOLP Proxy, alpha=4) and Feeder Peaking Type (default: "
-                        "Wholesale Price PCAF) — simplified proxies for system stress, not a "
+                        "System Coincident / Wholesale Price PCAF) — simplified proxies for system stress, not a "
                         "full probabilistic LOLP study.*"
                     )
 
@@ -1789,7 +1983,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         fig_load_temp = build_weekly_load_and_temp_chart(
                             dt_slice, baseline_slice, proposed_slice, temp_slice
                         )
-                        st.plotly_chart(fig_load_temp, use_container_width=True)
+                        st.plotly_chart(fig_load_temp, width="stretch")
                     with col_text:
                         _chart_explainer(
                             "This chart shows the hourly demand of the Baseline and Proposed "
@@ -1825,7 +2019,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     col_chart, col_text = st.columns([3, 2])
                     with col_chart:
                         fig_grid_econ = build_weekly_grid_economics_chart(slice_df, mode=econ_view_mode)
-                        st.plotly_chart(fig_grid_econ, use_container_width=True)
+                        st.plotly_chart(fig_grid_econ, width="stretch")
 
                         total_week_savings = slice_df['Hourly_Savings_hr'].sum()
                         total_week_customer_savings = (slice_df['Customer_Cost_Baseline_hr'] - slice_df['Customer_Cost_Proposed_hr']).sum()
@@ -1871,7 +2065,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     col_chart, col_text = st.columns([3, 2])
                     with col_chart:
                         fig_grid_full = build_annual_avoided_cost_chart(results_df, mode=annual_view_mode)
-                        st.plotly_chart(fig_grid_full, use_container_width=True)
+                        st.plotly_chart(fig_grid_full, width="stretch")
                     with col_text:
                         _chart_explainer(
                             "This shows the same $/MWh wholesale avoided-cost value as the "
@@ -1912,7 +2106,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             winter_slice, summer_slice,
                             winter_label=winter_panel_label, summer_label=summer_panel_label
                         )
-                        st.plotly_chart(fig_seasonal, use_container_width=True)
+                        st.plotly_chart(fig_seasonal, width="stretch")
 
                         st.markdown(f"###### Zoomed in — typical range ({pct_visible:.0f}% of hours fully visible, capped at ${zoom_cap:,.0f}/MWh)")
                         fig_seasonal_zoom = build_winter_summer_comparison_chart(
@@ -1920,7 +2114,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             winter_label=winter_panel_label, summer_label=summer_panel_label,
                             y_range=(0, zoom_cap)
                         )
-                        st.plotly_chart(fig_seasonal_zoom, use_container_width=True)
+                        st.plotly_chart(fig_seasonal_zoom, width="stretch")
                     with col_text:
                         _chart_explainer(
                             "Side-by-side comparison of the same 5 wholesale avoided-cost "
@@ -1950,31 +2144,28 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         with col_chart:
                             st.caption("Annual gross carrying cost annuity and net avoided capacity credit ($/kW-yr).")
                             fig_peaker_wf = plot_peaker_carrying_cost_breakdown(ct_calc)
-                            st.plotly_chart(fig_peaker_wf, use_container_width=True)
+                            st.plotly_chart(fig_peaker_wf, width="stretch")
                         with col_text:
                             _chart_explainer(
                                 "This builds up the **Generation Capacity ($/kW-yr)** value "
                                 "used throughout the rest of the tool, using the Next "
-                                "Planned Peaker — an SCCT gas plant — as the benchmark for "
-                                "what new capacity costs the utility to build:\n\n"
+                                "Planned Peaker — a Simple-Cycle Combustion Turbine (CT / SCCT) — "
+                                "as the benchmark for what new capacity costs the utility to build:\n\n"
                                 "- **Capital Recovery = CAPEX × FCR** — the annualized cost "
-                                "of building 1 kW of the peaker. FCR (Fixed Charge Rate) "
-                                "works like a mortgage rate, converting that upfront cost "
-                                "into a yearly payment based on WACC, economic life, taxes, "
-                                "and depreciation.\n"
+                                "of building 1 kW of the peaker ($1,100/kW × 8.20% = $90.20/kW-yr "
+                                "under central NREL ATB 2024 Moderate values). FCR (Fixed Charge Rate) "
+                                "accounts for utility WACC, depreciation tax shield (MACRS), corporate tax, "
+                                "and economic project life.\n"
                                 "- **+ Fixed O&M** — the annual cost to staff and maintain "
-                                "the plant, whether or not it actually runs.\n"
+                                "the plant ($20.00/kW-yr in NREL ATB 2024).\n"
                                 "- **= Gross Carrying Cost** — what it costs to simply own "
-                                "the plant for a year, per kW.\n"
-                                "- **− E&AS Offset** (if any) — energy/ancillary revenue "
-                                "the peaker earns when it does run; usually $0 in Southeast "
-                                "IRPs, which price capacity and energy separately.\n"
+                                "and maintain the plant for a year ($110.20/kW-yr benchmark).\n"
+                                "- **− E&AS Offset** (if any) — energy/ancillary profit offset; "
+                                "usually $0 in Southeast cost-of-service IRPs (Gross CONE).\n"
                                 "- **= Net Avoided Capacity** — the final number, fed back "
-                                "in as the Generation Capacity scalar everywhere else in "
-                                "this tool.\n\n"
-                                "This tab only has something to show when \"Capacity "
-                                "Valuation Method\" in the sidebar is set to \"Carrying "
-                                "cost of a CT Builder\" instead of a direct IRP scalar."
+                                "as the Generation Capacity scalar everywhere in this tool.\n\n"
+                                "**Data Source:** [Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data), "
+                                "*Electricity > Fossil Energy Technologies > Natural Gas: Combustion Turbine (CT)*."
                             )
                             _cwf_methodology_caveat()
                     else:
@@ -1987,10 +2178,10 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     col_cwf1, col_cwf2, col_text = st.columns([3, 3, 2])
                     with col_cwf1:
                         fig_cwf_dist = plot_southeast_cwf_distribution(cwft_array, datetime_series)
-                        st.plotly_chart(fig_cwf_dist, use_container_width=True)
+                        st.plotly_chart(fig_cwf_dist, width="stretch")
                     with col_cwf2:
                         fig_feeder = plot_feeder_vs_system_load(dist_weight_array, results_df['PCAF_Weight'].to_numpy(), datetime_series)
-                        st.plotly_chart(fig_feeder, use_container_width=True)
+                        st.plotly_chart(fig_feeder, width="stretch")
                     with col_text:
                         _chart_explainer(
                             "Two diagnostic views of *when during the day* risk "
@@ -2050,7 +2241,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 upfront_cost=net_customer_cost,
                                 upfront_name="Upfront Cost (after rebate)"
                             )
-                        st.plotly_chart(fig_lifetime, use_container_width=True)
+                        st.plotly_chart(fig_lifetime, width="stretch")
                     with col_text:
                         if perspective == "Utility":
                             st.markdown(
@@ -2206,7 +2397,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         change_y_title="Change ($/hr)",
                         y_range=(0, duration_y_cap) if duration_y_cap < actual_max else None
                     )
-                    st.plotly_chart(fig_duration, use_container_width=True)
+                    st.plotly_chart(fig_duration, width="stretch")
 
                     if n_capped > 0:
                         st.caption(f"Y-axis capped at ${duration_y_cap:,.0f}/hr (10x {period_label}'s "
@@ -2248,7 +2439,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             title=f"{duration_y_title.replace(' ($/hr)', '')} Impact by Day x Hour ({selected_month_label})",
                             colorbar_title="$/hr"
                         )
-                    st.plotly_chart(fig_heatmap, use_container_width=True)
+                    st.plotly_chart(fig_heatmap, width="stretch")
 
                     st.markdown(
                         "*Grid-side values above depend on the sidebar's CWF Allocation Methodology and Feeder "
@@ -2299,7 +2490,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             baseline_cost_hr, proposed_cost_hr,
                             utility_row_title=utility_row_title
                         )
-                        st.plotly_chart(fig_cumulative, use_container_width=True)
+                        st.plotly_chart(fig_cumulative, width="stretch")
 
                         utility_net_annual = float(utility_net_hr.sum())
                         cust_net_annual = float(cust_diff_hr.sum())
@@ -2385,7 +2576,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     scenario_run_name = st.text_input("Enter Scenario Run name to save", value="Base Run")
                 with col_save2:
                     st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                    if st.button("Save Current Run", type="secondary", use_container_width=True):
+                    if st.button("Save Current Run", type="secondary", width="stretch"):
                         new_run = {
                             "Name": scenario_run_name,
                             "Grid Scenario": selected_scenario,
@@ -2415,7 +2606,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             "T&D Deferral savings ($)": "${:,.2f}",
                             "Lost Revenue ($)": "${:,.2f}"
                         }),
-                        use_container_width=True, hide_index=True
+                        width="stretch", hide_index=True
                     )
                     
                     if st.button("Clear saved runs"):
@@ -2468,7 +2659,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
   $$\\text{{Transmission Credit}} = \\text{{Transmission Scalar}} \\times \\text{{Peak Avg Reduction}} = \\${trans_value:,.2f}/\\text{{kW-yr}} \\times {avg_reduct_pcaf:.4f}\\text{{ kW}} = \\mathbf{{\\${trans_value * avg_reduct_pcaf:,.2f}/\\text{{yr}}}}$$
   *(Matches Transmission Deferral Avoided Costs: **${annual_trans_savings:,.2f}/yr**)*
 - **Distribution Deferral avoided costs:**
-  $$\\text{{Distribution Credit}} = \\text{{Distribution Scalar}} \\times \\text{{Peak Avg Reduction}} = \\${dist_value:,.2f}/\\text{{kW-yr}} \\times {avg_reduct_pcaf:.4f}\\text{{ kW}} = \\mathbf{{\\${dist_value * avg_reduct_pcaf:,.2f}/\\text{{yr}}}}$$
+  $$\\text{{Distribution Credit}} = \\text{{Distribution Scalar}} \\times \\text{{Feeder Peak Avg Reduction}} = \\${dist_value:,.2f}/\\text{{kW-yr}} \\times {avg_reduct_dist:.4f}\\text{{ kW}} = \\mathbf{{\\${dist_value * avg_reduct_dist:,.2f}/\\text{{yr}}}}$$
   *(Matches Distribution Deferral Avoided Costs: **${annual_dist_savings:,.2f}/yr**)*
 """
                     )
@@ -2551,12 +2742,12 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 "Load Change (kW)": "{:+.2f}",
                                 "$ Impact ($/hr)": "${:+,.2f}",
                             }),
-                            use_container_width=True, hide_index=True, height=320
+                            width="stretch", hide_index=True, height=320
                         )
                         st.download_button(
                             "Download CSV", subset.to_csv(index=False).encode('utf-8'),
                             file_name=f"{title.lower().replace(' ', '_').replace('—', '-')}.csv",
-                            mime="text/csv", use_container_width=True, key=f"dl_{title}"
+                            mime="text/csv", width="stretch", key=f"dl_{title}"
                         )
 
                 row1_col1, row1_col2 = st.columns(2)
@@ -2586,6 +2777,9 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         "Unused opportunity: hours that were inexpensive relative to their own month where the technology didn't take advantage.",
                         low_cost_mask & ~response_mask, "Grid Avoided Cost ($/hr)", True
                     )
+
+            # Persistent disclaimer at the base of the valuation dashboard
+            st.markdown(TOOL_DISCLAIMER_HTML, unsafe_allow_html=True)
 
         except Exception as e:
             st.error(f"**Data Processing/CSV Parsing Error:** {str(e)}")

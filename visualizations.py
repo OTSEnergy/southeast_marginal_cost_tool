@@ -1152,6 +1152,24 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
     x.append(0)
     text.append(_signed_dollar(npv_net_savings))
 
+    # Calculate cumulative positions of waterfall steps to determine full extent
+    running = [0.0]
+    curr = 0.0
+    curr += float(npv_grid_savings)
+    running.append(curr)
+    curr -= float(npv_retail_lost_revenue)
+    running.append(curr)
+    if npv_program_cost > 0:
+        curr -= float(npv_program_cost)
+        running.append(curr)
+    running.append(float(npv_net_savings))
+
+    min_x = min(running)
+    max_x = max(running)
+    span = max(100.0, max_x - min_x)
+    # Add generous 25% padding on each side so outside labels are never clipped by the axis boundary
+    x_range = [min_x - (span * 0.25), max_x + (span * 0.25)]
+
     fig = go.Figure(go.Waterfall(
         name="Economic Balance",
         orientation="h",
@@ -1160,6 +1178,7 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
         x=x,
         text=text,
         textposition="outside",
+        cliponaxis=False,
         decreasing={"marker": {"color": "#F43F5E"}},
         increasing={"marker": {"color": "#10B981"}},
         totals={"marker": {"color": "#10B981" if npv_net_savings >= 0 else "#E11D48"}},
@@ -1173,6 +1192,7 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
         margin=dict(l=145, r=110, t=15, b=25),
         xaxis=dict(
             title="",
+            range=x_range,
             showgrid=True,
             gridcolor="#F1F5F9",
             zeroline=True,
