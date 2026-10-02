@@ -49,7 +49,7 @@ def _rgba(hex_color, alpha=0.5):
 
 
 def _add_signed_bars(fig, x, y, row, positive_name, negative_name, legend=None,
-                      pos_color=None, neg_color=None, show_zero_line=True):
+                      pos_color=None, neg_color=None, show_zero_line=True, width=None):
     """
     Add a two-trace signed bar chart to a subplot row: one bar per hour,
     green when the value is >= 0 (good), red when it's negative (bad), plus
@@ -65,6 +65,16 @@ def _add_signed_bars(fig, x, y, row, positive_name, negative_name, legend=None,
     shares a row with another one, so the two remain visually distinguishable.
     `show_zero_line` can be set False on a second call for the same row, so
     the dotted zero line isn't drawn twice.
+
+    `width` (in x-axis units -- milliseconds for a datetime axis) pins each
+    bar to an explicit size. With the figure's shared `barmode="group"`,
+    Plotly otherwise auto-divides a row's bar width by however many trace
+    pairs share that row, so a row with two signed-bar pairs (four traces)
+    renders each bar half as wide -- and visually much fainter -- as a row
+    with only one pair, even though the colors themselves are unchanged.
+    Pass the same explicit `width` to every `_add_signed_bars` call sharing
+    a figure so all rows render at consistent visual weight regardless of
+    how many trace pairs happen to share any one row.
     """
     y = np.asarray(y, dtype=float)
     pos_vals = np.where(y >= 0, y, np.nan)
@@ -74,7 +84,7 @@ def _add_signed_bars(fig, x, y, row, positive_name, negative_name, legend=None,
         go.Bar(
             x=x, y=pos_vals, name=positive_name,
             marker_color=pos_color or COLORS["green"],
-            legend=legend
+            legend=legend, width=width
         ),
         row=row, col=1
     )
@@ -82,7 +92,7 @@ def _add_signed_bars(fig, x, y, row, positive_name, negative_name, legend=None,
         go.Bar(
             x=x, y=neg_vals, name=negative_name,
             marker_color=neg_color or COLORS["red"],
-            legend=legend
+            legend=legend, width=width
         ),
         row=row, col=1
     )
@@ -219,6 +229,20 @@ def build_weekly_grid_economics_chart(slice_df, mode="Stacked Components"):
     row_heights = [0.34, 0.20, 0.20, 0.26]
     vertical_spacing = 0.055
 
+    # Explicit bar width (ms) for every signed-bar row, derived from the data's own
+    # hour-to-hour spacing. Without this, Plotly's barmode="group" auto-divides a
+    # row's bar width by how many trace pairs share that row -- Row 3 has two signed-
+    # bar pairs (four traces) vs. Row 2's one pair (two traces), so its bars would
+    # otherwise render half as wide, and visually much fainter, for no data-driven
+    # reason. Passing the same explicit width to every row keeps them visually
+    # consistent regardless of how many pairs land on any one row.
+    dt_vals = pd.to_datetime(slice_df['Datetime']).to_numpy()
+    if len(dt_vals) > 1:
+        median_gap_ms = np.median(np.diff(dt_vals)).astype('timedelta64[ms]').astype(float)
+    else:
+        median_gap_ms = 3_600_000.0  # fall back to 1 hour
+    bar_width_ms = median_gap_ms * 0.7
+
     fig = make_subplots(
         rows=4, cols=1,
         shared_xaxes=True,
@@ -288,7 +312,7 @@ def build_weekly_grid_economics_chart(slice_df, mode="Stacked Components"):
         fig, slice_df['Datetime'], reduction_vals, row=2,
         positive_name='Reduces Demand (kW)',
         negative_name='Increases Demand (kW)',
-        legend='legend2'
+        legend='legend2', width=bar_width_ms
     )
 
     # Row 3, series A: Hourly Grid Value Created ($/hr). Positive = grid
@@ -303,7 +327,7 @@ def build_weekly_grid_economics_chart(slice_df, mode="Stacked Components"):
         fig, slice_df['Datetime'], hourly_savings, row=3,
         positive_name='Grid Value Created ($/hr)',
         negative_name='Grid Value Lost ($/hr)',
-        legend='legend3'
+        legend='legend3', width=bar_width_ms
     )
 
     # Customer bill cost (needed here for Row 3, series B, and again for Row 4's lines).
@@ -335,7 +359,7 @@ def build_weekly_grid_economics_chart(slice_df, mode="Stacked Components"):
         negative_name='Lost Retail Revenue ($/hr)',
         legend='legend3',
         neg_color=COLORS["pink"],
-        show_zero_line=False
+        show_zero_line=False, width=bar_width_ms
     )
 
     # Row 4: Customer Retail Operating Cost ($/hr) — Baseline vs. Proposed,
@@ -1005,19 +1029,25 @@ def plot_southeast_cwf_distribution(cwf_array, datetime_series=None):
     s_vals = [summer_profile.get(h, 0.0) for h in all_hours]
 
     fig = go.Figure()
+    # Explicit width: on a linear (numeric) x-axis, Plotly's auto bar-width
+    # sizing for barmode="group" can render unevenly when most hours are
+    # zero-height -- a fixed width keeps every hour's pair of bars the same
+    # size regardless of how sparse the non-zero values are.
     fig.add_trace(go.Bar(
         x=all_hours,
         y=w_vals,
         name="Winter Cold Snaps (Dec–Feb)",
         marker_color="#2563EB",
-        opacity=0.85
+        opacity=0.85,
+        width=0.4
     ))
     fig.add_trace(go.Bar(
         x=all_hours,
         y=s_vals,
         name="Summer Heat Waves (Jun–Sep)",
         marker_color="#DC2626",
-        opacity=0.85
+        opacity=0.85,
+        width=0.4
     ))
 
     fig.update_layout(
@@ -1480,6 +1510,73 @@ def build_cost_duration_chart(x_vals, baseline_vals, proposed_vals, x_title,
     fig.update_yaxes(title_text=y_title, row=1, col=1)
     fig.update_yaxes(title_text=change_y_title, row=2, col=1)
     fig.update_xaxes(title_text=x_title, row=2, col=1)
+    return fig
+
+
+def build_top_risk_hours_chart(load_change, flat_threshold_kw=0.1):
+    """
+    Up/down/flat view of the technology's load response during the top-100
+    capacity-risk hours (the caller selects which 100 hours via CWFT weight
+    and passes them in already sorted, most-critical-risk-hour first).
+
+    One stem per hour: green/down = the technology reduced load during a
+    risk hour (good — eases exactly the hours generation capacity risk is
+    concentrated in), red/up = it increased load during a risk hour (bad —
+    adds to system risk right when it matters most), and a small gray dot
+    at zero for hours where the response was smaller than
+    `flat_threshold_kw` (no meaningful response either way).
+
+    `load_change` follows the baseline-minus-proposed convention used
+    elsewhere in this app (e.g. the paired "Top 100 Capacity-Risk Hours"
+    diagnostics table's Load Change column): positive = load went down,
+    negative = load went up. That sign convention reads as "+ is good" when
+    skimming a column of numbers, but a bare "+8" on hover is easy to misread
+    as "load increased 8 kW" -- so every trace below carries an explicit
+    hovertemplate spelling out "Reduced"/"Increased" in words rather than
+    relying on the sign alone.
+    """
+    load_change = np.asarray(load_change, dtype=float)
+    rank = np.arange(1, len(load_change) + 1)
+    down_mask = load_change > flat_threshold_kw
+    up_mask = load_change < -flat_threshold_kw
+    flat_mask = ~down_mask & ~up_mask
+
+    fig = go.Figure()
+
+    down_x, down_y = _stem_trace_xy(rank, load_change, down_mask)
+    down_hover = np.repeat(load_change[down_mask], 3)
+    fig.add_trace(go.Scatter(
+        x=down_x, y=down_y, name=f"Load Down ({int(down_mask.sum())} hrs)", mode="lines",
+        line=dict(color=COLORS["green"], width=3),
+        customdata=down_hover,
+        hovertemplate="Risk Hour Rank %{x}<br><b>Reduced %{customdata:.2f} kW</b><extra></extra>"
+    ))
+    up_x, up_y = _stem_trace_xy(rank, load_change, up_mask)
+    up_hover = np.abs(np.repeat(load_change[up_mask], 3))
+    fig.add_trace(go.Scatter(
+        x=up_x, y=up_y, name=f"Load Up ({int(up_mask.sum())} hrs)", mode="lines",
+        line=dict(color=COLORS["red"], width=3),
+        customdata=up_hover,
+        hovertemplate="Risk Hour Rank %{x}<br><b>Increased %{customdata:.2f} kW</b><extra></extra>"
+    ))
+    fig.add_trace(go.Scatter(
+        x=rank[flat_mask], y=np.zeros(int(flat_mask.sum())),
+        name=f"Flat ({int(flat_mask.sum())} hrs)", mode="markers",
+        marker=dict(color=COLORS["slate_light"], size=6),
+        customdata=load_change[flat_mask],
+        hovertemplate="Risk Hour Rank %{x}<br>Flat (change: %{customdata:+.2f} kW)<extra></extra>"
+    ))
+    fig.add_hline(y=0, line_width=1, line_color="rgba(100,100,100,0.5)")
+
+    fig.update_layout(
+        template="plotly_white",
+        height=380,
+        margin=dict(l=50, r=20, t=30, b=50),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    fig.update_yaxes(title_text="Load Change (kW): + = reduced, - = increased")
+    fig.update_xaxes(title_text="Risk Hour Rank (1 = highest capacity-risk weight)")
     return fig
 
 

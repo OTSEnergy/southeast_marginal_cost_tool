@@ -48,6 +48,7 @@ from visualizations import (
     build_winter_summer_comparison_chart,
     build_lifetime_npv_chart,
     build_cost_duration_chart,
+    build_top_risk_hours_chart,
     build_hour_month_heatmap,
     build_day_hour_heatmap,
     build_cumulative_cost_chart,
@@ -860,12 +861,23 @@ with st.sidebar.expander("T&D Deferral & Local Feeder Profile", expanded=False):
 
 # 7. Retail Tariff & URDB Selector
 with st.sidebar.expander("Retail Tariff Structure", expanded=True):
-    tariff_type = st.selectbox(
-        "Retail Utility Tariff Type",
-        options=TARIFF_OPTIONS,
-        index=0,
-        help="Define customer bill impact using packaged rates, pasting URDB JSONs, or querying the OpenEI API."
-    )
+    lock_tariff = selected_example.get("tariff") if selected_example else None
+    if lock_tariff and lock_tariff in TARIFF_OPTIONS:
+        tariff_type = st.selectbox(
+            "Retail Utility Tariff Type",
+            options=TARIFF_OPTIONS,
+            index=TARIFF_OPTIONS.index(lock_tariff),
+            disabled=True,
+            help="Define customer bill impact using packaged rates, pasting URDB JSONs, or querying the OpenEI API."
+        )
+        st.caption(f"Locked to {lock_tariff} by the selected example building, so all its variants are compared on the same rate.")
+    else:
+        tariff_type = st.selectbox(
+            "Retail Utility Tariff Type",
+            options=TARIFF_OPTIONS,
+            index=0,
+            help="Define customer bill impact using packaged rates, pasting URDB JSONs, or querying the OpenEI API."
+        )
 
     retail_escalation_rate = st.number_input(
         "Retail Price Escalation (%)",
@@ -2202,6 +2214,24 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         )
                         _cwf_methodology_caveat()
 
+                    st.markdown("---")
+                    st.markdown("#### Top 100 Capacity-Risk Hours — Did Load Go Up, Down, or Flat?")
+                    col_risk_chart, col_risk_text = st.columns([3, 2])
+                    with col_risk_chart:
+                        top_risk_load_change = load_reduction[top_100_cwft_indices]
+                        fig_top_risk = build_top_risk_hours_chart(top_risk_load_change)
+                        st.plotly_chart(fig_top_risk, width="stretch")
+                    with col_risk_text:
+                        _chart_explainer(
+                            "The 100 hours this run's CWFT weighting treats as carrying the most "
+                            "generation-capacity risk, ranked left-to-right from the single most "
+                            "critical hour down to the 100th. Each is colored by whether the "
+                            "technology's load went **down** (green — eases the system exactly "
+                            "when capacity risk is highest), **up** (red — adds to risk right when "
+                            "it matters most), or stayed within "
+                            "±0.1 kW (gray — no meaningful response)."
+                        )
+
                 # --- Sub-tab 7: Overall Scorecard (most technical — lifetime discounted cash flow) ---
                 with chart_tab_lifetime:
                     st.markdown("#### Lifetime Cash Flow")
@@ -2665,6 +2695,42 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     )
 
                 st.markdown("---")
+                st.markdown("#### Export Hourly Cost Data")
+                st.caption(
+                    "The full 8,760-hour wholesale price, avoided-cost, and retail rate series for this "
+                    "exact run (current state/scenario/planning year/CWF/tariff selections) — useful for "
+                    "designing a synthetic load profile outside the tool, e.g. a battery dispatch "
+                    "schedule that charges during the cheapest hours and discharges during the priciest "
+                    "ones, to test against the Load Response Diagnostics tables below. Includes the "
+                    "hourly retail rate so a TOU tariff's own peak/off-peak windows — which don't "
+                    "necessarily line up with wholesale price timing — can be designed against too."
+                )
+                export_df = pd.DataFrame({
+                    "Hour index": results_df['Hour'],
+                    "Date & Time": pd.to_datetime(results_df['Datetime']),
+                    "Temperature (°F)": results_df['Temperature_F'],
+                    "Wholesale Energy Price ($/MWh)": results_df['Cambium_Energy_MWh'],
+                    "Generation Capacity Value ($/MWh)": results_df['Gen_Capacity_Value_MWh'],
+                    "Transmission Value ($/MWh)": results_df['Trans_Value_MWh'],
+                    "Distribution Value ($/MWh)": results_df['Dist_Value_MWh'],
+                    "Emissions Value ($/MWh)": results_df['Emissions_Value_MWh'],
+                    "Total Grid Avoided Cost ($/MWh)": results_df['Total_Avoided_Cost_MWh'],
+                    "CWFT Weight": results_df['CWFT'],
+                    "Retail Energy Rate ($/kWh)": hourly_retail_rate,
+                    "Baseline Customer Bill Cost ($/hr)": baseline_cost_hr,
+                    "Proposed Customer Bill Cost ($/hr)": proposed_cost_hr,
+                    "Baseline Load (kW)": baseline_load,
+                    "Proposed Load (kW)": proposed_load,
+                })
+                st.download_button(
+                    "Download Full Year Hourly Cost Data (CSV)",
+                    export_df.to_csv(index=False).encode('utf-8'),
+                    file_name="hourly_wholesale_retail_and_avoided_cost.csv",
+                    mime="text/csv",
+                    width="stretch"
+                )
+
+                st.markdown("---")
                 st.markdown("#### Load Response Diagnostics")
                 st.caption(
                     "Cross-references each hour's grid cost against whether the technology actually "
@@ -2728,8 +2794,20 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     "$ Impact ($/hr)": diag_value_hr,
                 })
 
-                def _response_table(title, caption, mask, sort_col, ascending):
-                    subset = diag_df[mask].sort_values(sort_col, ascending=ascending).head(rows_per_table)
+                def _response_table(title, caption, mask, sort_col, ascending, sort_by_abs=False):
+                    # sort_by_abs ranks by the magnitude of sort_col instead of its raw
+                    # signed value, so a big "made it worse" hour surfaces at the top
+                    # alongside a big "saved a lot" hour instead of sinking to the bottom
+                    # just because it's negative. Only meaningful for columns that can
+                    # actually go negative ($ Impact, Load Change) -- the cost columns
+                    # used by the "No Response" tables are already >= 0, so abs() there
+                    # is a no-op and ascending/descending keeps its current meaning
+                    # (priciest-of-the-expensive or cheapest-of-the-cheap first).
+                    if sort_by_abs:
+                        subset = diag_df[mask].assign(_sort_key=diag_df.loc[mask, sort_col].abs()) \
+                            .sort_values('_sort_key', ascending=False).drop(columns='_sort_key').head(rows_per_table)
+                    else:
+                        subset = diag_df[mask].sort_values(sort_col, ascending=ascending).head(rows_per_table)
                     with st.container(border=True):
                         st.markdown(f"##### {title}")
                         st.caption(f"{caption} ({int(mask.sum())} qualifying hour(s); showing up to {rows_per_table}.)")
@@ -2754,8 +2832,8 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 with row1_col1:
                     _response_table(
                         "High Cost — Technology Responded",
-                        "Best savings hours: hours that were expensive relative to their own month where the technology cut load and captured that value (a negative $ Impact here means it made an expensive hour worse).",
-                        high_cost_mask & response_mask, "$ Impact ($/hr)", False
+                        "Expensive hours where the technology responded, sorted by the size of the $ impact so the biggest hits and misses show first (a negative $ Impact means it made an expensive hour worse).",
+                        high_cost_mask & response_mask, "$ Impact ($/hr)", False, sort_by_abs=True
                     )
                 with row1_col2:
                     _response_table(
@@ -2768,8 +2846,8 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 with row2_col1:
                     _response_table(
                         "Low Cost — Load Shifted Here",
-                        "Cheap-hour arbitrage: hours that were inexpensive relative to their own month where the technology deliberately used more power (e.g. pre-heating/cooling, battery charging).",
-                        low_cost_mask & response_mask, "Load Change (kW)", True
+                        "Cheap-hour arbitrage: hours that were inexpensive relative to their own month where the technology deliberately used more power (e.g. pre-heating/cooling, battery charging), sorted by the size of the load change so the biggest responses show first.",
+                        low_cost_mask & response_mask, "Load Change (kW)", True, sort_by_abs=True
                     )
                 with row2_col2:
                     _response_table(
@@ -2777,6 +2855,15 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         "Unused opportunity: hours that were inexpensive relative to their own month where the technology didn't take advantage.",
                         low_cost_mask & ~response_mask, "Grid Avoided Cost ($/hr)", True
                     )
+
+                st.markdown("---")
+                top_risk_mask = np.zeros(len(diag_cost_hr), dtype=bool)
+                top_risk_mask[top_100_cwft_indices] = True
+                _response_table(
+                    "Top 100 Capacity-Risk Hours",
+                    "The 100 hours this run's CWFT weighting treats as carrying the most generation-capacity risk — not a cost-pool table like the four above, but the diagnostic counterpart to the Capacity Risk & Feeder Stress tab's up/down/flat chart. Sorted by the size of the $ impact so the biggest hits and misses show first.",
+                    top_risk_mask, "$ Impact ($/hr)", False, sort_by_abs=True
+                )
 
             # Persistent disclaimer at the base of the valuation dashboard
             st.markdown(TOOL_DISCLAIMER_HTML, unsafe_allow_html=True)

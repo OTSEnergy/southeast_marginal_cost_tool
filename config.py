@@ -108,6 +108,14 @@ TOOL_DISCLAIMER_HTML = (
 # docs/roadmap.md M4.3). "baseline_col"/"proposed_col" must match the column
 # names produced by data_loaders.load_load_profiles_from_csv() for
 # Load_Profiles_raw/ (folder mode names columns "<filename>_kW").
+#
+# Optional "tariff" key: set to one of the exact strings in TARIFF_OPTIONS
+# (below) to lock the sidebar's Retail Tariff Structure selector to that
+# tariff whenever this example is selected — so multiple variants of the
+# same building (e.g. different battery dispatch strategies) are always
+# compared on an identical utility rate rather than whatever the sidebar
+# happened to be left on. Omit the key (or leave it None) to leave the
+# tariff selector unlocked.
 
 EXAMPLE_BUILDINGS = [
     {
@@ -122,6 +130,7 @@ EXAMPLE_BUILDINGS = [
         "proposed_col": "HeatPumpBeOptModel_Birmingham2012_kW",
         "weather_year": "2012",
         "state": "AL",
+        "tariff": None,
     },
     {
         "label": "Birmingham, AL — No Battery vs. 10 kWh Battery (BEopt, 2012)",
@@ -137,6 +146,78 @@ EXAMPLE_BUILDINGS = [
         "proposed_col": "BEOptExample_Battery_Birmingham2012_kW",
         "weather_year": "2012",
         "state": "AL",
+        "tariff": None,
+    },
+    {
+        "label": "Birmingham, AL — No Battery vs. Balanced-Priority Battery Dispatch (BEopt, 2012)",
+        "description": (
+            "Single-family home in Birmingham, AL. Baseline has no battery; Proposed adds a "
+            "5 kWh / 2 kW battery dispatched hour-by-hour to balance homeowner retail cost and "
+            "grid avoided cost equally (percentile-rank blend of both signals). Uses a simple "
+            "24-hour look-ahead, similar to a utility's day-ahead price signal: it only charges/"
+            "discharges when an hour is at or near the best opportunity in the next 24 hours, so "
+            "it won't drain itself on a merely-good spike right before an even bigger one. Both "
+            "simulated in BEopt on the same 2012 AMY weather year."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/Battery_Priority_Examples",
+        "baseline_col": "Baseline_NoBattery_Birmingham2012_kW",
+        "proposed_col": "Battery_Balanced_Birmingham2012_kW",
+        "weather_year": "2012",
+        "state": "AL",
+        "tariff": "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
+    },
+    {
+        "label": "Birmingham, AL — No Battery vs. Homeowner-Priority Battery Dispatch (BEopt, 2012)",
+        "description": (
+            "Single-family home in Birmingham, AL. Baseline has no battery; Proposed adds a "
+            "5 kWh / 2 kW battery dispatched to primarily minimize the homeowner's retail bill, "
+            "with grid avoided cost as a lower-priority tiebreaker. Uses the same 24-hour "
+            "look-ahead as the Balanced case (like a utility's day-ahead price signal) so it "
+            "holds its charge for the best hour in sight rather than draining early. Both "
+            "simulated in BEopt on the same 2012 AMY weather year."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/Battery_Priority_Examples",
+        "baseline_col": "Baseline_NoBattery_Birmingham2012_kW",
+        "proposed_col": "Battery_HomeownerPriority_Birmingham2012_kW",
+        "weather_year": "2012",
+        "state": "AL",
+        "tariff": "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
+    },
+    {
+        "label": "Birmingham, AL — No Battery vs. Grid-Priority Battery Dispatch (BEopt, 2012)",
+        "description": (
+            "Single-family home in Birmingham, AL. Baseline has no battery; Proposed adds a "
+            "5 kWh / 2 kW battery dispatched to primarily minimize grid avoided cost, with "
+            "homeowner retail rate as a lower-priority tiebreaker. Uses the same 24-hour "
+            "look-ahead as the Balanced case (like a utility's day-ahead price signal) so it "
+            "holds its charge for the best hour in sight rather than draining early. Both "
+            "simulated in BEopt on the same 2012 AMY weather year."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/Battery_Priority_Examples",
+        "baseline_col": "Baseline_NoBattery_Birmingham2012_kW",
+        "proposed_col": "Battery_GridPriority_Birmingham2012_kW",
+        "weather_year": "2012",
+        "state": "AL",
+        "tariff": "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
+    },
+    {
+        "label": "Birmingham, AL — No Battery vs. Strict-TOU Battery Dispatch (BEopt, 2012)",
+        "description": (
+            "Single-family home in Birmingham, AL. Baseline has no battery; Proposed adds a "
+            "5 kWh / 2 kW battery dispatched purely off the retail tariff's own on-peak/off-peak "
+            "windows (charges only in that month's cheapest tier, discharges only in that month's "
+            "most expensive tier — evaluated per month since this tariff's true on-peak tier only "
+            "exists Jun-Sep, so winter runs off its own, more modest shoulder-tier gap instead), "
+            "ignoring grid avoided cost entirely — a tariff-only benchmark case. No look-ahead "
+            "needed here, unlike the other 3 battery cases: a TOU schedule is already fully known "
+            "in advance. Both simulated in BEopt on the same 2012 AMY weather year."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/Battery_Priority_Examples",
+        "baseline_col": "Baseline_NoBattery_Birmingham2012_kW",
+        "proposed_col": "Battery_TOUStrict_Birmingham2012_kW",
+        "weather_year": "2012",
+        "state": "AL",
+        "tariff": "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
     },
 ]
 

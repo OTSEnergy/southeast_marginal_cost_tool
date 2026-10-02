@@ -140,6 +140,7 @@ from visualizations import (  # noqa: E402
     build_lifetime_npv_chart,
     build_temp_power_cost_bubble_chart,
     build_cost_duration_chart,
+    build_top_risk_hours_chart,
     build_hour_month_heatmap,
     build_day_hour_heatmap,
     build_cumulative_cost_chart,
@@ -1037,6 +1038,31 @@ class TestVisualizations:
         # confirming the two series are independent, not netted together.
         assert grid_value[20] > 0
 
+    def test_weekly_grid_economics_row3_bars_match_row2_width(
+        self, grid_df_8760, cwft_uniform, datetime_2012
+    ):
+        """
+        Row 3 carries two signed-bar pairs (4 traces) sharing one row, vs.
+        Row 2's single pair (2 traces). With the figure's shared
+        barmode="group", Plotly auto-divides a row's bar width by its own
+        trace count -- so without an explicit width, Row 3's bars render
+        half as wide, and visually much fainter, than Row 2's for no
+        data-driven reason. All bar traces must share one explicit width.
+        """
+        from calculations import calculate_avoided_costs
+        results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
+        results["Datetime"] = datetime_2012.values
+        slice_df = results.iloc[0:168].copy()
+        slice_df['Load_Reduction_kW'] = np.linspace(-2, 2, 168)
+        slice_df['Customer_Cost_Baseline_hr'] = np.ones(168) * 0.30
+        slice_df['Customer_Cost_Proposed_hr'] = np.ones(168) * 0.20
+        slice_df['Retail_Rate_kWh'] = np.ones(168) * 0.15
+
+        fig = build_weekly_grid_economics_chart(slice_df, mode="Total Marginal Cost ($/MWh)")
+        bar_widths = {t.width for t in fig.data if t.type == "bar"}
+        assert len(bar_widths) == 1, f"expected one shared bar width, got {bar_widths}"
+        assert next(iter(bar_widths)) is not None
+
     def test_annual_avoided_cost_returns_figure(self, grid_df_8760, cwft_uniform):
         from calculations import calculate_avoided_costs
         results = calculate_avoided_costs(grid_df_8760, 100, 15, 15, 30, cwft_uniform)
@@ -1175,6 +1201,62 @@ class TestVisualizations:
         proposed = np.array([90.0, 190.0])
         fig = build_cost_duration_chart(x_vals, baseline, proposed, x_title="Hour Rank")
         assert fig.layout.yaxis.range is None
+
+    def test_top_risk_hours_chart_returns_figure(self):
+        n = 100
+        rng = np.random.default_rng(3)
+        load_change = rng.normal(0, 2, n)
+        fig = build_top_risk_hours_chart(load_change)
+        assert isinstance(fig, go.Figure)
+        # 2 stem traces (Load Down, Load Up) + 1 marker trace (Flat)
+        assert len(fig.data) == 3
+        trace_names = [t.name for t in fig.data]
+        assert any(n.startswith("Load Down") for n in trace_names)
+        assert any(n.startswith("Load Up") for n in trace_names)
+        assert any(n.startswith("Flat") for n in trace_names)
+
+    def test_top_risk_hours_chart_classifies_up_down_flat(self):
+        # rank 1: load went down 5 kW (good), rank 2: load went up 3 kW (bad),
+        # rank 3: load barely changed (flat, within the default 0.1 kW band)
+        load_change = np.array([5.0, -3.0, 0.02])
+        fig = build_top_risk_hours_chart(load_change)
+        down_trace = next(t for t in fig.data if t.name.startswith("Load Down"))
+        up_trace = next(t for t in fig.data if t.name.startswith("Load Up"))
+        flat_trace = next(t for t in fig.data if t.name.startswith("Flat"))
+
+        assert "(1 hrs)" in down_trace.name
+        assert "(1 hrs)" in up_trace.name
+        assert "(1 hrs)" in flat_trace.name
+        assert 1 in np.asarray(down_trace.x)
+        assert 2 in np.asarray(up_trace.x)
+        assert 3 in np.asarray(flat_trace.x)
+        assert flat_trace.y[np.where(np.asarray(flat_trace.x) == 3)[0][0]] == 0.0
+
+    def test_top_risk_hours_chart_hover_spells_out_direction_in_words(self):
+        # The chart's sign convention (+ = reduced, - = increased) matches
+        # the paired diagnostics table's Load Change column, but a bare
+        # "+8"/"−8" on hover reads ambiguously -- hover text must spell out
+        # "Reduced"/"Increased" so the direction is unambiguous regardless
+        # of the sign convention.
+        load_change = np.array([8.0, -8.0, 0.02])
+        fig = build_top_risk_hours_chart(load_change)
+        down_trace = next(t for t in fig.data if t.name.startswith("Load Down"))
+        up_trace = next(t for t in fig.data if t.name.startswith("Load Up"))
+
+        assert "Reduced" in down_trace.hovertemplate
+        assert "Increased" in up_trace.hovertemplate
+        # Both the down (positive-valued) and up (negative-valued) hover
+        # numbers must display as positive magnitudes -- "Increased -8.00 kW"
+        # would be just as confusing as a bare sign.
+        assert np.all(np.asarray(down_trace.customdata) >= 0)
+        assert np.all(np.asarray(up_trace.customdata) >= 0)
+
+    def test_top_risk_hours_chart_custom_flat_threshold(self):
+        load_change = np.array([0.5, -0.5])
+        fig_default = build_top_risk_hours_chart(load_change)  # default 0.1 kW band -> both count as responses
+        fig_wide = build_top_risk_hours_chart(load_change, flat_threshold_kw=1.0)  # both now "flat"
+        assert "(0 hrs)" in next(t for t in fig_default.data if t.name.startswith("Flat")).name
+        assert "(2 hrs)" in next(t for t in fig_wide.data if t.name.startswith("Flat")).name
 
     def test_hour_month_heatmap_returns_figure(self, datetime_2012):
         n = 8760
@@ -2349,6 +2431,21 @@ class TestSoutheastUtilityCapacityEngine:
         system = np.ones(8760) / 8760
         fig3 = plot_feeder_vs_system_load(feeder, system)
         assert fig3 is not None
+
+    def test_cwf_distribution_bars_have_explicit_uniform_width(self):
+        # Sparse, uneven data (risk concentrated in just a few hours) used to
+        # let Plotly's auto bar-width sizing render the Winter/Summer groups
+        # inconsistently on the linear hour-of-day axis; both trace widths
+        # must now be explicitly set and equal regardless of how sparse the
+        # underlying data is.
+        from visualizations import plot_southeast_cwf_distribution
+        cwf = np.zeros(8760)
+        cwf[5:8] = 0.1   # only 3 winter-season hours carry any risk
+        fig = plot_southeast_cwf_distribution(cwf)
+        bar_traces = [t for t in fig.data if t.type == "bar"]
+        assert len(bar_traces) == 2
+        assert all(t.width is not None for t in bar_traces)
+        assert bar_traces[0].width == bar_traces[1].width
 
     def test_cwf_temperature_exceedance_sums_and_shape(self):
         from calculations import calculate_cwf_temperature_exceedance

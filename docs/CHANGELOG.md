@@ -2,6 +2,83 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-10-02] — Battery Dispatch v2: Fixed Winter Inactivity and a Missed Price Spike
+
+### Context
+User noticed the battery examples weren't behaving as expected in winter: the Strict-TOU case was completely inactive all winter, and on a real cold-snap morning (Feb 12) with the single highest grid avoided cost of the year, none of the 4 variants discharged at all. Both were real bugs in the standalone dispatch script (outside the app), not in the tool's own calculation engine.
+
+### Changes Made (standalone battery-schedule design script, not part of the app itself)
+- **Bug 1 — Strict-TOU dead all winter:** the script compared every hour against the GLOBAL year-max/min retail rate. This tariff's true on-peak tier only exists Jun–Sep, so winter (which only ever sees the off-peak/shoulder split) never crossed the discharge trigger — the battery charged once in January and sat full and idle for months. Fixed by comparing each hour against *that calendar month's own* min/max rate instead, so winter runs off its own, more modest shoulder-tier gap.
+- **Bug 2 — missed the Feb 12 spike (Balanced/Homeowner-Priority/Grid-Priority):** the original dispatch used one fixed year-wide percentile threshold with no foresight, so it fully drained the battery on a "good enough" expensive hour (Feb 11, 6 PM) with no recharge window before an even bigger spike 13 hours later. Root cause traced hour-by-hour: Feb 12 turned out to be the first of a back-to-back double cold-snap (Feb 13 spikes just as hard, in a pricier TOU tier), and the battery had nothing left to give either day. Fixed with a 24-hour forward-looking "day-ahead" rule (mirroring how a real utility's day-ahead market actually works): only discharge if an hour is at or near the best opportunity in the *next* 24 hours, only charge if it's at or near the cheapest — so the battery reserves itself for a bigger spike in sight instead of draining blindly.
+- Both fixes improved *both* homeowner retail cost and grid avoided cost for all 4 variants simultaneously (e.g. Balanced: retail savings roughly doubled, grid savings nearly quadrupled vs. the original version).
+- Delivered as `Battery_Dispatch_Schedules_v2_CORRECTED.xlsx` (8,760-hour sheet, matching the non-leap EPW already in use) for copy-paste into BEopt.
+- **`Load_Profiles_raw/Battery_Priority_Examples/`**: all 5 files (baseline + 4 variants) re-generated from a corrected BEopt re-run using the fixed schedules, replacing the earlier (buggy-dispatch) versions. Verified by exact-matching each BEopt run's `schedules.csv` against the known-correct schedule values before overwriting, and by confirming Strict-TOU now shows real activity in 1,299 winter hours (vs. zero before).
+- **`config.py`**: the 4 battery `EXAMPLE_BUILDINGS` descriptions updated with a plain-language note on each one's dispatch approach (24h look-ahead vs. per-month TOU tiers), per the user's request that the methodology be described in the example picker itself, not just in code comments.
+- One intermediate hazard caught and corrected before it reached the example library: an earlier copy-paste used the OLD leap-year-padded (8,784-hour) schedule against the model's current non-leap (8,760-hour) weather file, which silently truncated the last day of the year and shifted everything from Feb 29 onward by one full day for ~84% of the year. Caught by diff-checking the actual BEopt-used schedule against the intended one before accepting results; the corrected workbook makes the properly-sized 8,760-hour sheet the obvious default to avoid a repeat.
+- **`tests/test_calculations.py`**: no source-module logic changed by this fix (the dispatch script lives outside the app); existing suite re-verified at 154/154 passing after the data refresh.
+
+## [2026-10-02] — Weekly Grid Economics Row 3 Bars Rendering Faint/Washed Out
+
+### Context
+User screenshot showed the "Grid Value Created vs. Lost Retail Revenue" row on the Weekly Grid Economics chart rendering visibly fainter/thinner than the "Load Change vs. Baseline" row above it, even though both use the same green/red signed-bar convention.
+
+### Changes Made
+- **`visualizations.py`**:
+  - Root cause: Row 3 carries two signed-bar pairs (4 `go.Bar` traces: Grid Value Created/Lost, Revenue Gain/Lost Retail Revenue) sharing one subplot row, vs. Row 2's single pair (2 traces). With the figure's shared `barmode="group"`, Plotly auto-divides each row's bar width by its own trace count — so Row 3's bars rendered half as wide (and visually much fainter) than Row 2's, for no data-driven reason, just trace-count happenstance.
+  - `_add_signed_bars()` gained an explicit `width` parameter (x-axis units — milliseconds for a datetime axis). `build_weekly_grid_economics_chart()` now computes one explicit width from the data's own median hour-to-hour spacing (70% of one interval) and passes it to all 3 `_add_signed_bars()` calls (Row 2 and both Row 3 pairs), so every row renders at consistent visual weight regardless of how many trace pairs share it.
+- **`tests/test_calculations.py`**: added `test_weekly_grid_economics_row3_bars_match_row2_width`, asserting every bar trace in the figure shares one explicit, non-`None` width. All 154 tests passing.
+
+## [2026-10-02] — Capacity-Risk Hour Diagnostics, Abs-Value Sorting, and Battery Priority Example Library
+
+### Context
+Added a pre-loaded example library for a custom battery dispatch schedule (hand-designed outside the app from the tool's own hourly cost export, then re-run through BEopt), and a tariff-locking mechanism so multiple variants of the same building can be compared on an identical utility rate regardless of whatever the sidebar's Retail Tariff selector was last left on.
+
+### Changes Made
+- **`config.py`**:
+  - `EXAMPLE_BUILDINGS` entries gained an optional `"tariff"` key (one of the exact strings in `TARIFF_OPTIONS`) that, when set, locks the sidebar's Retail Tariff Structure selector to that tariff whenever the example is active.
+  - Added 4 new `EXAMPLE_BUILDINGS` entries — Birmingham, AL, No Battery vs. a 5 kWh / 2 kW battery dispatched under 4 different priority strategies (Balanced, Homeowner-Priority, Grid-Priority, Strict-TOU) — all locked to `Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)`.
+- **`app.py`**:
+  - Sidebar's Retail Tariff Structure selectbox now checks the selected example's `tariff` key; if set, renders disabled at the matching index with a "Locked to X by the selected example" caption, mirroring the existing weather-year lock pattern.
+- **`Load_Profiles_raw/Battery_Priority_Examples/`** (new folder): 5 native BEopt hourly `results_timeseries.csv` exports (1 baseline + 4 battery variants), copied directly from real BEopt runs — no reprocessing needed since this is the same native export format (`wxDVFileHeaderVer.1` header) the loader already parses for the two pre-existing example buildings.
+- The 4 battery dispatch schedules themselves (percentile-rank blends of retail rate and grid avoided cost, plus a tariff-only benchmark) were hand-designed outside the app from the tool's own new hourly cost CSV export (wholesale price, avoided cost, and retail rate columns added to the Diagnostics & Load Response tab) and fed back into BEopt — not generated by `app.py` itself.
+- **`tests/test_calculations.py`**: all 148 tests passing (no new source-module logic to test for the example-library wiring itself).
+
+### Context
+Addressed 3 of 6 open action items review-commented by the user: (1) a chart showing whether load went up/down/flat during the year's top-100 capacity-risk hours, (2) a matching dollar-impact table for those same hours on the Diagnostics & Load Response tab, and (3) fixing two of the four existing Load Response Diagnostics tables to sort by the *size* of the response instead of its raw signed value, so a technology that makes an expensive hour worse (or barely nudges a cheap hour) surfaces at the top instead of sinking to the bottom just because the number is negative.
+
+### Changes Made
+- **`visualizations.py`**:
+  - Added `build_top_risk_hours_chart(load_change, flat_threshold_kw=0.1)` — a 3-way stem/marker chart (green stem = load down during a risk hour, red stem = load up, gray dot = flat/no meaningful response) over the top-100 CWFT-weighted risk hours, ranked most-critical-hour-first. Reuses the existing `_stem_trace_xy()` helper built earlier for the Cost Duration Curve.
+- **`app.py`**:
+  - **Capacity Risk & Feeder Stress tab**: added the new chart below the existing Capacity Risk Distribution / Feeder Stress pair, fed by the already-computed `top_100_cwft_indices` and `load_reduction` arrays.
+  - **Diagnostics & Load Response tab**: added a 5th table, "Top 100 Capacity-Risk Hours," reusing the existing `_response_table()` helper and `diag_df` dollar-impact formatting — the diagnostic counterpart to the new chart.
+  - `_response_table()` gained a `sort_by_abs` parameter: when set, ranks by the magnitude of the sort column instead of its raw signed value. Applied to "High Cost — Technology Responded" (sorts by `$ Impact ($/hr)`) and "Low Cost — Load Shifted Here" (sorts by `Load Change (kW)`) — the two tables whose sort column can actually go negative. The two "No Response" tables are left on their existing (non-abs) sort, since their sort column (Grid Avoided Cost) is always ≥ 0, so abs() would be a no-op there and the existing ascending/descending direction already correctly surfaces the most extreme hour for that pool.
+- **`tests/test_calculations.py`**:
+  - Added `test_top_risk_hours_chart_returns_figure`, `test_top_risk_hours_chart_classifies_up_down_flat`, `test_top_risk_hours_chart_custom_flat_threshold` for the new chart builder.
+  - `_response_table()`'s `sort_by_abs` logic lives inside `app.py`'s Streamlit script as a closure (not an extracted/importable module function), consistent with how the rest of the Load Response Diagnostics table logic is handled — not unit-tested directly, same as the pre-existing per-month high/low-cost pooling logic it sits alongside.
+  - All 151 tests passing.
+
+### Known Doc Drift
+`docs/app_annotated.py` and `docs/app_code_tour.md` were not re-synced this session (the line-level changes above are additive and don't change `app.py`'s overall structure) — flagging per the standing instruction rather than doing a full re-sync for a handful of added lines.
+
+### Context
+User feedback on the new Top 100 Capacity-Risk Hours chart (screenshot review): (1) the pre-existing "Capacity Risk by Hour of Day" bar chart above it had visibly uneven bar spacing, and (2) the new chart's hover showed a bare signed number ("Load Change: +8") for a load *reduction*, which reads ambiguously even though it matches the app's established sign convention (positive = reduced, used consistently in the paired diagnostics table and the Cost Duration Curve).
+
+### Changes Made
+- **`visualizations.py`**:
+  - `plot_southeast_cwf_distribution()`: both Winter/Summer `go.Bar` traces now set an explicit `width=0.4` — on a linear (numeric) hour-of-day axis, Plotly's automatic group bar-width sizing could render unevenly when most hours are zero-height (risk concentrated in only a handful of hours), so a fixed width guarantees uniform spacing regardless of data sparsity.
+  - `build_top_risk_hours_chart()`: kept the existing sign convention (unifying it would break consistency with the paired diagnostics table's Load Change column, which uses the same baseline-minus-proposed convention everywhere else in the app) but added explicit `hovertemplate`/`customdata` to each trace so hovering shows "Reduced X kW" / "Increased X kW" in words instead of a bare signed number.
+- **`tests/test_calculations.py`**: added `test_cwf_distribution_bars_have_explicit_uniform_width` and `test_top_risk_hours_chart_hover_spells_out_direction_in_words`. All 153 tests passing.
+
+## [2026-09-30] — Export Hourly Cost Data (Diagnostics & Load Response Tab)
+
+### Context
+User wanted to extract a run's full hourly wholesale/avoided-cost and retail-rate data to design a synthetic load profile outside the tool (e.g. a battery dispatch schedule to test against the Load Response Diagnostics tables) — there was no way to get the underlying hourly series out of the app.
+
+### Changes Made
+- **`app.py`**: added an "Export Hourly Cost Data" section to the Diagnostics & Load Response tab, between the Capacity Math Trace expander and the Load Response Diagnostics tables. Downloads a CSV with all 8,760 hours of: hour index, date/time, temperature, the 5 avoided-cost components plus their total, CWFT weight, the hourly retail rate, baseline/proposed customer bill cost, and baseline/proposed load — i.e. everything needed to independently replicate or test against this exact run's cost basis, including a TOU tariff's own peak/off-peak timing (which doesn't necessarily line up with wholesale price timing).
+- **`tests/test_calculations.py`**: no new source-module logic (the export is a direct `st.download_button` over already-computed `results_df` columns); full suite re-verified passing.
+
 ## [2026-09-29] — Moved State(s) Selector to Top of Grid Scenario & Region
 
 ### Context

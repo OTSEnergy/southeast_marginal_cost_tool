@@ -2,8 +2,8 @@
 
 > **Document Purpose:** Maps the current state of `app.py` against the project abstract and phased development plan to identify gaps, placeholders, hardcoded assumptions, and unresolved design decisions.
 >
-> **Last Updated:** 2026-09-25
-> **Assessed Against:** app.py (~2,500 lines) + calculations.py + billing.py + data_loaders.py + visualizations.py + config.py
+> **Last Updated:** 2026-10-02
+> **Assessed Against:** app.py (~2,880 lines) + calculations.py + billing.py + data_loaders.py + visualizations.py + config.py
 >
 > **[Assistant, 2026-09-25]:** Updated after a substantial round of Charts-tab work (see
 > `CHANGELOG.md` [2026-09-25] entry for full detail — Cost Duration Curve and Cumulative
@@ -11,6 +11,11 @@
 > toggle) and a full cross-tab QA/consistency review. Several items below were only
 > partially updated to reflect that review; treat any section not explicitly touched
 > below as possibly stale relative to the current app.py.
+>
+> **[Assistant, 2026-10-02]:** Updated §3.2 (real example buildings now substantially
+> expanded — see `CHANGELOG.md` [2026-10-02] entries). Other sections not explicitly
+> touched below may still be stale relative to the Top 100 Capacity-Risk Hours
+> diagnostics, Export Hourly Cost Data feature, and tariff-locking work from this round.
 
 ---
 
@@ -107,20 +112,24 @@ The tool now supports six robust allocation methodologies alongside custom file 
 
 ---
 
-### 3.2 🔴 Load Profiles Are Synthetic Placeholders
-**File:** `load_profiles.csv` / `generate_default_load_profiles_file()`
-**Lines:** app.py 174–197
+### 3.2 🟡 Load Profiles: Real Examples Now Available, Synthetic Default Remains a Fallback
+**File:** `load_profiles.csv` / `generate_default_load_profiles_file()` (fallback); `config.py` `EXAMPLE_BUILDINGS` (real data)
+**Lines:** app.py 174–197 (synthetic generator, unchanged)
 
-The default load profiles (`Standard_Heat_Pump_kW`, `High_Efficiency_Heat_Pump_kW`) are **random uniform noise** with hardcoded spike ranges. They do not come from EnergyPlus simulations or any real building model.
+**Updated 2026-10-02:** The `EXAMPLE_BUILDINGS` library (`config.py`) now has **6 real, BEopt-simulated entries**, all Birmingham, AL, 2012 AMY weather year:
+1. Electric Resistance Heat vs. Heat Pump
+2. No Battery vs. 10 kWh Battery (seasonal fixed charge/discharge)
+3–6. No Battery vs. a 5 kWh / 2 kW battery under 4 different dispatch priority strategies (Balanced, Homeowner-Priority, Grid-Priority, Strict-TOU) — each hand-designed outside the app from the tool's own hourly cost export, then run through BEopt, then registered with a locked retail tariff (`Alabama Power RTA-E`) so all 4 variants compare on an identical rate.
 
-**Gap:** No real building energy models are included. The project plan explicitly calls for:
+The underlying **default** (`load_profiles.csv`, used only when no example is selected and no custom path is given) is still random uniform noise with hardcoded spike ranges — that fallback generator itself is unchanged. For most real analysis, picking one of the 6 example buildings now avoids synthetic data entirely.
+
+**Remaining gap:** still no multifamily or small-commercial building types, and no building types outside AL/Birmingham's specific climate. The project plan's broader ask:
 > *"Populate some example building models representing typical buildings — leverage existing models where possible"*
 
-**What's Needed:**
-- Real 8760-hour EnergyPlus or DOE prototype building outputs for Southeast climate zones
-- Multiple representative building types (single-family, multifamily, small commercial)
-- Multiple technology scenarios per building (baseline resistance/gas, standard HP, high-efficiency HP, HP + storage, etc.)
-- A library or file picker so users can select from pre-loaded example buildings
+**What's Still Needed:**
+- Representative building types beyond single-family residential (multifamily, small commercial)
+- Coverage beyond Birmingham, AL's climate zone (at least one GA/coastal example)
+- A what-if explorer so a user can adjust an example's assumptions rather than only pick-and-view (tracked separately in `docs/roadmap.md` §4.2)
 
 ---
 
@@ -398,7 +407,7 @@ All 1,957 lines of application logic, UI, and data processing live in one `app.p
 ---
 
 ### 6.2 🟡 `app_annotated.py` Is Out of Sync with `app.py`
-`app_annotated.py` (1,256 lines) is a **teaching duplicate** of `app.py` (1,957 lines). The annotated version has significantly less dashboard content — tabs 2-7 are stubs with only 1-2 lines of output each, while `app.py` has full implementations.
+`app_annotated.py` (1,378 lines) is a **teaching duplicate** of `app.py` (~2,880 lines as of 2026-10-02). The annotated version has significantly less dashboard content — tabs 2-7 are stubs with only 1-2 lines of output each, while `app.py` has full implementations. The gap has continued to widen with each round of feature work (Top 100 Capacity-Risk Hours diagnostics, Export Hourly Cost Data, tariff-locking, battery example library — see `CHANGELOG.md` [2026-10-02] entries) without a corresponding annotated-copy update, consistent with the "Known Doc Drift" notes logged there each time.
 
 **Risk:** As `app.py` evolves, the annotated version will drift further out of sync unless actively maintained.
 

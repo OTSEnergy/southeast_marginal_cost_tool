@@ -6,14 +6,20 @@ The application is structured into **6 modular Python files** to ensure clean se
 
 | Module | Role & Purpose |
 |--------|----------------|
-| **`app.py`** (~1,660 lines) | Streamlit web application layout, sidebar controls, dashboard tabs, and orchestration. |
+| **`app.py`** (~2,880 lines) | Streamlit web application layout, sidebar controls, dashboard tabs, and orchestration. |
 | **`calculations.py`** (~670 lines) | Pure-Python calculation engine: 5-component avoided costs, Southeast Next Planned Peaker carrying cost / regulated FCR, dual-peak CWF allocation, LOLP proxies, feeder PCAF, DR dispatch, and SPM/payback math. |
 | **`billing.py`** (~420 lines) | URDB V3 retail electricity billing engine and pre-packaged tariff schedules (Georgia Power R-31, Alabama Power Rate FD, Rate FD-D demand, Rate RTA demand, Rate RTA-E energy-only). |
 | **`data_loaders.py`** (~825 lines) | Data ingestion pipeline: NREL Cambium CSV scanner, raw BEopt/EnergyPlus load profile parser (including BEopt's native `wxDVFileHeaderVer` hourly export format), weather EPW loader, CWFT loader, URDB API client. |
-| **`visualizations.py`** (~780 lines) | Streamlit-free Plotly chart builder functions (10 chart types) returning interactive `go.Figure` objects for all dashboard tabs. |
-| **`config.py`** (~480 lines) | Central configuration: sidebar defaults, Southeast peaker & T&D presets, option lists, the `EXAMPLE_BUILDINGS` library, color palettes, and CSS styling. |
+| **`visualizations.py`** (~1,580 lines) | Streamlit-free Plotly chart builder functions returning interactive `go.Figure` objects for all dashboard tabs, including the Top 100 Capacity-Risk Hours chart added 2026-10-02. |
+| **`config.py`** (~560 lines) | Central configuration: sidebar defaults, Southeast peaker & T&D presets, option lists, the `EXAMPLE_BUILDINGS` library (now 6 real BEopt examples, with an optional per-example tariff lock), color palettes, and CSS styling. |
 
-> **Note:** Updated 2026-09-10 with Southeast utility capacity, dual-peak CWF, and feeder T&D engine additions.
+> **Note:** Updated 2026-10-02 — Top 100 Capacity-Risk Hours chart + matching diagnostics
+> table, abs-value sorting on 2 of the 4 Load Response Diagnostics tables, an Export
+> Hourly Cost Data download, 4 new battery-dispatch example buildings with tariff
+> locking, and a couple of chart rendering fixes (bar width/spacing, hover labeling).
+> See `CHANGELOG.md` [2026-10-02] entries for full detail. Previous note: updated
+> 2026-09-10 with Southeast utility capacity, dual-peak CWF, and feeder T&D engine
+> additions.
 
 ---
 
@@ -229,17 +235,18 @@ When the user clicks **Run Valuation Engine**, the app executes financial calcul
 1.  **Setup & Calibration Guide**: EPW/weather alignment best practices for matching EnergyPlus building simulations to Cambium grid datasets, plus the in-app AMY Weather Generator (`diyepw`). Placed first since these are setup-stage tools, not results.
 2.  **Overview Scorecard**: Top-level KPI metrics (Net NPV, RIM Ratio, Grid Savings, Customer Bill Savings, EPC Reduction), temperature responsiveness checks, and the TRC/PCT/RIM ratio cards (now rendered via the shared `ratio_card_html()` helper in `config.py` for a consistent style).
 3.  **Cost-Effectiveness Table**: Side-by-side cost-effectiveness comparison table (wholesale grid savings vs. retail lost revenue vs. RIM ratio).
-4.  **Charts**: All chart/plot content consolidated into one tab with three logical groups: **Overall Scorecard** (lifetime discounted cash flow chart), **Utility Cost Tests** (annual wholesale avoided cost distribution, winter/summer stacked component charts, weekly grid economics chart), and **Customer & Building Load** (weekly building demand vs. outdoor temperature chart).
+4.  **Charts**: All chart/plot content consolidated into one tab, now with 9 sub-tabs: Building Load vs. Temperature, Weekly Grid Economics, Annual Wholesale Cost, Winter and Summer Peak Comparison, Peaker Carrying Cost, **Capacity Risk & Feeder Stress** (now also includes a Top 100 Capacity-Risk Hours up/down/flat chart, added 2026-10-02), Lifetime Cash Flow, Cost Duration Curve, and Cumulative Annual Cost.
 5.  **Weather & Peak Diagnostics**: Statistical correlations, temperature extremes, and a peak coincidence table showing peak-to-average demand ratios (top 50/100 CWFT hours and top 100 price hours) with hover tooltips explaining each formula, plus EPC and ELCC proxy.
 6.  **Scenario Manager**: Save runs and compare scenarios side-by-side in a table (the lifetime NPV chart itself moved to the Charts tab).
-7.  **Diagnostics & Top Hours**: Validation checks and the capacity avoided-cost math trace are now tucked into a collapsed expander at the top; the Top Stress Hours table + CSV export is the main visible content.
+7.  **Diagnostics & Load Response**: Validation checks and the capacity avoided-cost math trace are tucked into a collapsed expander at the top, followed by an **Export Hourly Cost Data** download (full 8,760-hour wholesale/avoided-cost/retail-rate series for the current run, added 2026-09-30) and **Load Response Diagnostics** — 5 tables cross-referencing each hour's grid cost against whether the technology actually responded: High/Low Cost × Responded/No-Response (4 tables, "high"/"low" ranked within each calendar month, not the whole year), plus a 5th "Top 100 Capacity-Risk Hours" table added 2026-10-02 as the diagnostic counterpart to the new Charts-tab chart. Two of the four cost-pool tables sort by response magnitude (absolute value) rather than raw signed value, so a technology that makes an expensive hour worse surfaces alongside one that helped a lot, instead of sinking to the bottom.
 
-### Example Building Library (introduced 2026-08-18, expanded 2026-08-26)
-The sidebar's Building/Technology section includes a pre-configured example picker (`EXAMPLE_BUILDINGS` in `config.py`), currently with two entries — both Birmingham, AL, BEopt, 2012 weather year:
+### Example Building Library (introduced 2026-08-18, expanded 2026-08-26, 2026-10-02)
+The sidebar's Building/Technology section includes a pre-configured example picker (`EXAMPLE_BUILDINGS` in `config.py`), now with six entries — all Birmingham, AL, BEopt, 2012 weather year:
 1.  Electric Resistance Heat (Baseline) vs. Heat Pump (Proposed)
-2.  No Battery (Baseline) vs. 10 kWh Battery (Proposed) — seasonal charge/discharge strategy (winter: charge 12PM–4PM / discharge 5AM–9AM; summer: charge 2AM–6AM / discharge 4PM–8PM)
+2.  No Battery (Baseline) vs. 10 kWh Battery (Proposed) — seasonal fixed charge/discharge strategy (winter: charge 12PM–4PM / discharge 5AM–9AM; summer: charge 2AM–6AM / discharge 4PM–8PM)
+3–6. No Battery (Baseline) vs. a 5 kWh / 2 kW battery (Proposed) under four different dispatch priority strategies — Balanced, Homeowner-Priority, Grid-Priority, Strict-TOU. The first three use a 24-hour forward look-ahead (similar to a utility's day-ahead price signal); Strict-TOU dispatches purely off the retail tariff's own on-peak/off-peak tiers, evaluated per calendar month. These schedules were hand-designed outside the app (from the tool's own Export Hourly Cost Data download) and fed back into BEopt — not generated by `app.py` itself.
 
-Selecting an example auto-loads its baseline/proposed load columns and locks the Weather Alignment Metadata to the example's documented weather year. Current scope is **pick-and-view only** — editing an example via a what-if explorer is planned for later (see `docs/roadmap.md` §4.2).
+Selecting an example auto-loads its baseline/proposed load columns and locks the Weather Alignment Metadata to the example's documented weather year. Examples 3–6 additionally lock the sidebar's Retail Tariff Structure selector to `Alabama Power - Rate RTA-E`, via an optional `"tariff"` key on each `EXAMPLE_BUILDINGS` entry, so all four battery variants are always compared on an identical rate rather than whatever the sidebar was last left on. Current scope is **pick-and-view only** — editing an example via a what-if explorer is planned for later (see `docs/roadmap.md` §4.2).
 
 ---
 *Generated for the Southeast Marginal Cost Valuation Engine. Designed for clear, transparent energy modeling.*
