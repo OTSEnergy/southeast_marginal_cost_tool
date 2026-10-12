@@ -223,6 +223,44 @@ EXAMPLE_BUILDINGS = [
         "state": "AL",
         "tariff": "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
     },
+    {
+        "label": "Birmingham, AL — No ETS vs. Electric Thermal Storage (Fixed Schedule)",
+        "description": (
+            "Single-family home in Birmingham, AL. Baseline has no electric thermal storage "
+            "(ETS); Proposed adds a winter-only ETS system (electric resistance charging, "
+            "offsetting a heat pump plus electric-resistance backup heat) dispatched by a "
+            "manufacturer's Excel-based simulation tool using a fixed internal schedule — no "
+            "real-time grid price signal as an input. Active only Nov-Feb; zero activity the "
+            "rest of the year. Compare against the Real-Time Price version below to see the "
+            "value of adding price-awareness to the same technology."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/ETS_Examples",
+        "baseline_col": "Total_NoETS_Scheduled",
+        "proposed_col": "Total_WithETS_Scheduled",
+        "weather_year": "2012",
+        "state": "AL",
+        "tariff": "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
+    },
+    {
+        "label": "Birmingham, AL — No ETS vs. Electric Thermal Storage (Real-Time Price)",
+        "description": (
+            "Same Birmingham, AL home and ETS technology as the Fixed Schedule case, but "
+            "Proposed is instead dispatched using a 24-hour forward-looking charge/discharge "
+            "permissive signal derived from real hourly grid avoided cost (top/bottom 25% of "
+            "the next 24 hours), restricted to the technology's winter-only window (Nov-Feb). "
+            "Discharging offsets a heat pump that itself falls back to electric-resistance "
+            "backup heat during the coldest hours — exactly when grid prices spike here — so "
+            "the cost benefit per kWh shifted should be better than one-for-one. Compare "
+            "against the Fixed Schedule case above to see the value of adding real-time price "
+            "awareness to the same technology."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/ETS_Examples",
+        "baseline_col": "Total_NoETS_RTP",
+        "proposed_col": "Total_WithETS_RTP",
+        "weather_year": "2012",
+        "state": "AL",
+        "tariff": "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
+    },
 ]
 
 
