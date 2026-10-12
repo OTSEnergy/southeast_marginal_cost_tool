@@ -152,8 +152,9 @@ EXAMPLE_BUILDINGS = [
         "label": "Birmingham, AL — No Battery vs. Balanced-Priority Battery Dispatch (BEopt, 2012)",
         "description": (
             "Single-family home in Birmingham, AL. Baseline has no battery; Proposed adds a "
-            "5 kWh / 2 kW battery dispatched hour-by-hour to balance homeowner retail cost and "
-            "grid avoided cost equally (percentile-rank blend of both signals). Uses a simple "
+            "20 kWh battery (92.5% round-trip efficiency, ~11 kW effective rate) dispatched "
+            "hour-by-hour to balance homeowner retail cost and grid avoided cost equally "
+            "(percentile-rank blend of both signals). Uses a simple "
             "24-hour look-ahead, similar to a utility's day-ahead price signal: it only charges/"
             "discharges when an hour is at or near the best opportunity in the next 24 hours, so "
             "it won't drain itself on a merely-good spike right before an even bigger one. Both "
@@ -170,7 +171,8 @@ EXAMPLE_BUILDINGS = [
         "label": "Birmingham, AL — No Battery vs. Homeowner-Priority Battery Dispatch (BEopt, 2012)",
         "description": (
             "Single-family home in Birmingham, AL. Baseline has no battery; Proposed adds a "
-            "5 kWh / 2 kW battery dispatched to primarily minimize the homeowner's retail bill, "
+            "20 kWh battery (92.5% round-trip efficiency, ~11 kW effective rate) dispatched to "
+            "primarily minimize the homeowner's retail bill, "
             "with grid avoided cost as a lower-priority tiebreaker. Uses the same 24-hour "
             "look-ahead as the Balanced case (like a utility's day-ahead price signal) so it "
             "holds its charge for the best hour in sight rather than draining early. Both "
@@ -187,7 +189,8 @@ EXAMPLE_BUILDINGS = [
         "label": "Birmingham, AL — No Battery vs. Grid-Priority Battery Dispatch (BEopt, 2012)",
         "description": (
             "Single-family home in Birmingham, AL. Baseline has no battery; Proposed adds a "
-            "5 kWh / 2 kW battery dispatched to primarily minimize grid avoided cost, with "
+            "20 kWh battery (92.5% round-trip efficiency, ~11 kW effective rate) dispatched to "
+            "primarily minimize grid avoided cost, with "
             "homeowner retail rate as a lower-priority tiebreaker. Uses the same 24-hour "
             "look-ahead as the Balanced case (like a utility's day-ahead price signal) so it "
             "holds its charge for the best hour in sight rather than draining early. Both "
@@ -204,7 +207,8 @@ EXAMPLE_BUILDINGS = [
         "label": "Birmingham, AL — No Battery vs. Strict-TOU Battery Dispatch (BEopt, 2012)",
         "description": (
             "Single-family home in Birmingham, AL. Baseline has no battery; Proposed adds a "
-            "5 kWh / 2 kW battery dispatched purely off the retail tariff's own on-peak/off-peak "
+            "20 kWh battery (92.5% round-trip efficiency, ~11 kW effective rate) dispatched "
+            "purely off the retail tariff's own on-peak/off-peak "
             "windows (charges only in that month's cheapest tier, discharges only in that month's "
             "most expensive tier — evaluated per month since this tariff's true on-peak tier only "
             "exists Jun-Sep, so winter runs off its own, more modest shoulder-tier gap instead), "
