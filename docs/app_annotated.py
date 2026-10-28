@@ -1,5 +1,5 @@
 
-# Note: app.py synced at 3214 lines on 2026-10-27 (Aligned Peak Hours 100/100 and Relabeled Grid Energy Savings).
+# Note: app.py synced at 3253 lines on 2026-10-28 (Manual Cambium fallback guide & NLR branding).
 """
 ================================================================================
 ⚡ ANNOTATED TOUR OF APP.PY: SOUTHEAST MARGINAL COST VALUATION ENGINE ⚡
@@ -142,7 +142,7 @@ div[data-testid="metric-container"]:hover {
 # Retail utility rates can be very complex. They often charge a fixed monthly fee,
 # different volumetric energy rates per kWh depending on season (Summer vs. Winter),
 # and tiered blocks (e.g. charging more per kWh after you cross 650 kWh).
-# Here we define pre-packaged Python dictionaries matching NREL's Utility Rate 
+# Here we define pre-packaged Python dictionaries matching NLR's Utility Rate 
 # Database (URDB) format for Georgia Power and Alabama Power residential rates.
 # ==============================================================================
 
@@ -239,7 +239,7 @@ AL_RTA_E_URDB = {
     "energyratestructure": [[{"rate": 0.128554}], [{"rate": 0.328554}], [{"rate": 0.148554}]],
 }
 
-# Default directory where raw NREL Cambium grid data files are expected
+# Default directory where raw NLR Cambium grid data files are expected
 INPUT_DIRECTORY = "./Cambium_Hourly_Data_raw"
 
 # ==============================================================================
@@ -487,7 +487,7 @@ def generate_mock_state_file(filepath, state_code, scenario):
 
 
 def file_matches_scenario(filepath, scenario):
-    """Utility helper that checks if a CSV file matches the user-selected NREL scenario."""
+    """Utility helper that checks if a CSV file matches the user-selected NLR scenario."""
     filename = os.path.basename(filepath).lower()
     scenario_clean = scenario.lower()
     if scenario_clean in filename:
@@ -506,7 +506,7 @@ def file_matches_scenario(filepath, scenario):
 # ==============================================================================
 # LAYPERSON SUMMARY:
 # This section contains the core computational engines:
-#   1. Column Mapping Engine: Auto-detects column names in raw NREL files.
+#   1. Column Mapping Engine: Auto-detects column names in raw NLR files.
 #   2. Weather Ingestion Engine: Reads EPW building weather files.
 #   3. Aggregation Engine: Blends regional data & computes T&D stress (PCAF).
 #   4. Avoided Cost Engine: Combines energy, capacity, T&D, and carbon values.
@@ -514,9 +514,9 @@ def file_matches_scenario(filepath, scenario):
 
 def parse_cambium_columns(df):
     """
-    NREL CAMBIUM COLUMN MAPPING ENGINE:
+    NLR CAMBIUM COLUMN MAPPING ENGINE:
     Audits column names to dynamically map real Cambium variables.
-    Different versions of NREL Cambium datasets name columns slightly differently 
+    Different versions of NLR Cambium datasets name columns slightly differently 
     (e.g., 'lmp_energy' vs 'Cambium_Energy_MWh'). This intelligent scanner finds 
     the right columns automatically.
     """
@@ -737,7 +737,7 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
         raise FileNotFoundError(
             f"Missing Cambium grid data for state(s): {', '.join(missing_states)} "
             f"(Scenario: {selected_scenario} | Year: {planning_year}). "
-            "Please download raw NREL CSV files into 'Cambium_Hourly_Data_raw' directory."
+            "Please download raw NLR CSV files into 'Cambium_Hourly_Data_raw' directory."
         )
         
     if not combined_list:
@@ -959,7 +959,7 @@ def calculate_urdb_bill(load_kw, datetime_series, rate_json):
 
 def fetch_urdb_rate(rate_label, api_key="DEMO_KEY"):
     """
-    Downloads rate structures live over HTTP from NREL's OpenEI API.
+    Downloads rate structures live over HTTP from NLR's OpenEI API.
     """
     url = f"https://api.openei.org/utility_rates?version=3&format=json&api_key={api_key}&detail=full&getpage={rate_label}"
     try:
@@ -975,7 +975,7 @@ def fetch_urdb_rate(rate_label, api_key="DEMO_KEY"):
             else:
                 raise ValueError(f"No rate found matching label: {rate_label}")
     except Exception as e:
-        raise ConnectionError(f"Failed to connect to NREL URDB API: {str(e)}")
+        raise ConnectionError(f"Failed to connect to NLR URDB API: {str(e)}")
 
 
 def dispatch_dr_program(datetime_series, cwft_array, dr_hours_per_year, season_name, max_hours_per_day, dr_capacity_kw, baseline_load):
@@ -1018,7 +1018,7 @@ def render_weather_generator(key_suffix: str):
     st.markdown(
         """This utility automates generation of **Actual Meteorological Year (AMY) EPW weather files** 
 using PNNL's `diyepw` tool. It downloads observations from NOAA Integrated Surface Database (ISD),
-interpolates missing points, and builds a customized `.epw` file using NREL's TMY3 as template."""
+interpolates missing points, and builds a customized `.epw` file using NLR's TMY3 as template."""
     )
     
     st.info("💡 **Requirements:** Active internet connection needed (~1MB per station/year). Takes 1-2 mins.")
@@ -1092,8 +1092,8 @@ st.sidebar.markdown(
 
 st.sidebar.markdown("### 🌤️ Grid Weather & Scenario")
 scenario_options = ["HighDemandGrowth", "MidCase", "LowCarbonConstraint", "LowDemandGrowth"]
-selected_scenario = st.sidebar.selectbox("NREL Future Scenario", options=scenario_options, index=0)
-planning_year = st.sidebar.selectbox("NREL Planning Year", options=["2025", "2030", "2035", "2040", "2045", "2050"], index=1)
+selected_scenario = st.sidebar.selectbox("NLR Future Scenario", options=scenario_options, index=0)
+planning_year = st.sidebar.selectbox("NLR Planning Year", options=["2025", "2030", "2035", "2040", "2045", "2050"], index=1)
 weather_case = st.sidebar.selectbox("Grid Weather Case", options=["2012 (Cambium-aligned baseline)", "Extreme Winter", "Extreme Summer"], index=0)
 target_states = st.sidebar.multiselect("Target States", options=["AL", "GA", "FL", "TN", "MS", "NC", "SC"], default=["AL", "GA"])
 
@@ -1105,13 +1105,13 @@ dist_value = st.sidebar.number_input("Distribution Deferral ($/kW-year)", min_va
 carbon_tax = st.sidebar.slider("Carbon Penalty ($/metric ton)", min_value=0.0, max_value=100.00, value=30.00, step=5.00, format="$%.2f")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🔌 Retail Tariff (NREL URDB)")
+st.sidebar.markdown("### 🔌 Retail Tariff (NLR URDB)")
 tariff_type = st.sidebar.selectbox(
     "Retail Utility Tariff Type",
     options=[
         "Georgia Power - Schedule R-31 (Residential)",
         "Alabama Power - Rate FD (Family Dwelling)",
-        "Import from NREL URDB (API Label)",
+        "Import from NLR URDB (API Label)",
         "Paste Custom URDB V3 JSON",
         "Custom Flat Rate / Demand"
     ],
@@ -1134,7 +1134,7 @@ elif tariff_type == "Alabama Power - Rate RTA (Residential Time Advantage - Dema
     active_tariff_json = AL_RTA_URDB
 elif tariff_type == "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)" or "RTA-E" in tariff_type or "Energy Only" in tariff_type:
     active_tariff_json = AL_RTA_E_URDB
-elif tariff_type == "Import from NREL URDB (API Label)":
+elif tariff_type == "Import from NLR URDB (API Label)":
     urdb_label = st.sidebar.text_input("URDB Rate Label", value="5d4b00595457a3e73a0e6988")
     urdb_api_key = st.sidebar.text_input("OpenEI API Key", value="DEMO_KEY", type="password")
     if st.sidebar.button("📥 Fetch Tariff Structure", width="stretch"):

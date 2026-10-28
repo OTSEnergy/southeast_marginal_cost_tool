@@ -45,7 +45,7 @@ CAMBIUM_DOC_URL = "https://docs.nlr.gov/docs/fy25osti/93005.pdf"
 SCENARIO_DESCRIPTIONS = {
     "MidCase": (
         "Central baseline projection under current federal and state policies (including the Inflation Reduction Act [IRA]). "
-        "Uses moderate technology cost declines (NREL ATB) and benchmark fuel prices (EIA AEO Reference)."
+        "Uses moderate technology cost declines (NLR ATB) and benchmark fuel prices (EIA AEO Reference)."
     ),
     "HighDemandGrowth": (
         "High electricity demand growth driven by rapid electrification across transportation (EVs) and building space/water heating (heat pumps), "
@@ -347,7 +347,7 @@ EXAMPLE_BUILDINGS = [
 # GRID VALUATION SCALAR DEFAULTS
 # ==============================================================================
 
-DEFAULT_CAP_VALUE = 110.20       # $/kW-year  (Generation Capacity: NREL ATB 2024 CT Carrying Cost Benchmark: $1,100/kW * 8.2% FCR + $20/kW-yr FOM)
+DEFAULT_CAP_VALUE = 110.20       # $/kW-year  (Generation Capacity: NLR ATB 2024 CT Carrying Cost Benchmark: $1,100/kW * 8.2% FCR + $20/kW-yr FOM)
 DEFAULT_TRANS_VALUE = 14.00      # $/kW-year  (Transmission Deferral: LBNL Southeast Regional Average Benchmark)
 DEFAULT_DIST_VALUE = 22.00       # $/kW-year  (Distribution Deferral: LBNL Southeast Regional Average Benchmark)
 DEFAULT_CARBON_TAX = 30.00       # $/metric ton CO₂
@@ -363,8 +363,8 @@ CARBON_TAX_RANGE = (0.0, 100.0, 5.00)
 # ==============================================================================
 
 SOUTHEAST_PEAKER_PRESETS = {
-    "NREL ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)": {
-        "description": "NREL Annual Technology Baseline (ATB 2024) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario, Regulated Utility Financing. (CAPEX: $1,100/kW, FCR: 8.20%, FOM: $20.00/kW-yr -> ECC: $110.20/kW-yr).",
+    "NLR ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)": {
+        "description": "NLR Annual Technology Baseline (ATB 2024) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario, Regulated Utility Financing. (CAPEX: $1,100/kW, FCR: 8.20%, FOM: $20.00/kW-yr -> ECC: $110.20/kW-yr).",
         "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
         "capex_kw": 1100.0,
         "fom_kw_yr": 20.00,
@@ -374,8 +374,8 @@ SOUTHEAST_PEAKER_PRESETS = {
         "tax_rate": 0.257,
         "eas_offset_kw_yr": 0.0,
     },
-    "NREL ATB 2024: Natural Gas CT (Merchant / R&D Financing)": {
-        "description": "NREL ATB 2024 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (CAPEX: $1,100/kW, FCR: 10.20%, FOM: $20.00/kW-yr -> ECC: $132.20/kW-yr).",
+    "NLR ATB 2024: Natural Gas CT (Merchant / R&D Financing)": {
+        "description": "NLR ATB 2024 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (CAPEX: $1,100/kW, FCR: 10.20%, FOM: $20.00/kW-yr -> ECC: $132.20/kW-yr).",
         "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
         "capex_kw": 1100.0,
         "fom_kw_yr": 20.00,
@@ -431,7 +431,7 @@ SOUTHEAST_PEAKER_PRESETS = {
     },
     "Southeast Regional Composite SCCT Benchmark": {
         "description": "Composite average simple-cycle combustion turbine carrying cost across Southeast utilities ($104.00/kW-yr).",
-        "source": "Composite Southeast Utility IRPs & NREL ATB 2024",
+        "source": "Composite Southeast Utility IRPs & NLR ATB 2024",
         "capex_kw": 1060.0,
         "fom_kw_yr": 16.00,
         "fcr": 0.083,
@@ -440,9 +440,9 @@ SOUTHEAST_PEAKER_PRESETS = {
         "tax_rate": 0.25,
         "eas_offset_kw_yr": 0.0,
     },
-    "NREL ATB 2024: Aeroderivative CT": {
+    "NLR ATB 2024: Aeroderivative CT": {
         "description": "Fast-ramping aeroderivative peaker (e.g. LM6000) for winter morning cold snap / peak following.",
-        "source": "NREL ATB 2024 Natural Gas: Combustion Turbine (Aeroderivative)",
+        "source": "NLR ATB 2024 Natural Gas: Combustion Turbine (Aeroderivative)",
         "capex_kw": 1250.0,
         "fom_kw_yr": 18.00,
         "fcr": 0.082,
@@ -452,6 +452,11 @@ SOUTHEAST_PEAKER_PRESETS = {
         "eas_offset_kw_yr": 0.0,
     },
 }
+
+# Backward compatibility aliases for legacy NREL preset keys
+SOUTHEAST_PEAKER_PRESETS["NREL ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)"] = SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
+SOUTHEAST_PEAKER_PRESETS["NREL ATB 2024: Natural Gas CT (Merchant / R&D Financing)"] = SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Natural Gas CT (Merchant / R&D Financing)"]
+SOUTHEAST_PEAKER_PRESETS["NREL ATB 2024: Aeroderivative CT"] = SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Aeroderivative CT"]
 
 SOUTHEAST_TD_PRESETS = {
     "Georgia Power Rate Case Benchmark": {
@@ -766,7 +771,7 @@ TARIFF_OPTIONS = [
     "Mississippi Power - Rate Schedule RS (Residential)",
     "Entergy Mississippi - Rate Schedule RS (Residential)",
     "Southeast Regional Average Tariff ($0.135/kWh)",
-    "Import from NREL URDB (API Label)",
+    "Import from NLR URDB (API Label)",
     "Paste Custom URDB V3 JSON",
     "Custom Flat Rate / Demand",
 ]

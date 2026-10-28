@@ -12,7 +12,7 @@ This module handles everything related to retail electricity billing:
        • Alabama Power Rate RTA (residential time advantage, TOU energy + flat monthly demand)
        • Alabama Power Rate RTA-E (residential time advantage, energy-only TOU)
 
-       These are dictionaries formatted to match the NREL Utility Rate Database
+       These are dictionaries formatted to match the NLR Utility Rate Database
        (URDB) V3 JSON schema, which uses weekday/weekend hour-of-day schedules
        to map each hour into a "period", then applies tiered rate structures
        within each period.
@@ -50,7 +50,7 @@ import numpy as np
 # PRE-PACKAGED TARIFF SCHEDULES (URDB V3 JSON FORMAT)
 # ==============================================================================
 #
-# Each tariff is a dict matching the NREL URDB schema:
+# Each tariff is a dict matching the NLR URDB schema:
 #   fixedcharge:           Monthly fixed charge ($)
 #   energyratewindow:      12×24 matrix mapping (month, hour) → period index
 #     OR energyweekdayschedule + energyweekendschedule for weekday/weekend split

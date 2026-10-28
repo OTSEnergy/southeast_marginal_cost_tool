@@ -62,9 +62,10 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
-# Raw large dataset folders (ignore contents except instructions.txt)
+# Raw large dataset folders (ignore contents except instructions.txt and Southeast 2030 MidCase files)
 Cambium_Hourly_Data_raw/*
 !Cambium_Hourly_Data_raw/instructions.txt
+!Cambium_Hourly_Data_raw/Cambium24_MidCase_hourly_p*.csv
 
 # Weather large dataset folders (ignore contents except instructions.txt)
 Weather_Data_raw/Baseline/*

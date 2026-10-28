@@ -2141,7 +2141,9 @@ class TestSoutheastUtilityCapacityEngine:
         from calculations import calculate_ct_carrying_cost
         import config
 
+        nlr_preset = config.SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
         atb_preset = config.SOUTHEAST_PEAKER_PRESETS["NREL ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
+        assert nlr_preset == atb_preset
         capex = atb_preset["capex_kw"]
         fom = atb_preset["fom_kw_yr"]
         fcr = atb_preset["fcr"]

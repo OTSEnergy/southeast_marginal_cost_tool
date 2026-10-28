@@ -1,13 +1,13 @@
 """
-cambium_downloader.py — Automated NREL Cambium Grid Data Downloader
+cambium_downloader.py — Automated NLR Cambium Grid Data Downloader
 ===================================================================
 
-Provides automated on-demand retrieval of NREL Cambium hourly 8,760-hour grid
+Provides automated on-demand retrieval of NLR Cambium hourly 8,760-hour grid
 datasets (energy marginal costs, emissions rates, etc.) directly from the NREL
 Scenario Viewer API and S3 data store.
 
 KEY CAPABILITIES:
-    • Resolves state codes (GA, AL, TN, NC, SC, FL, MS, etc.) to NREL Balancing Areas.
+    • Resolves state codes (GA, AL, TN, NC, SC, FL, MS, etc.) to NLR Balancing Areas.
     • Uses HTTP Range requests (via RemoteZipReader) to inspect the remote ZIP central
       directory without downloading the entire 600+ MB archive.
     • Streams and extracts *only* the specific balancing area CSV files required for
@@ -32,19 +32,25 @@ from typing import List, Dict, Tuple, Optional, Callable, Any
 
 logger = logging.getLogger(__name__)
 
-# Base API URLs for NREL Scenario Viewer
+# Base API URLs for NLR Scenario Viewer
 SCENARIO_VIEWER_HOST = "https://scenarioviewer.nlr.gov"
 FILE_LIST_API = f"{SCENARIO_VIEWER_HOST}/api/file-list/"
 DOWNLOAD_API = f"{SCENARIO_VIEWER_HOST}/api/download/"
 
-# Project UUIDs on NREL Scenario Viewer
+# Project UUIDs on NLR Scenario Viewer
 PROJECT_UUIDS = {
     "Cambium 2024": "5c7bef16-7e38-4094-92ce-8b03dfa93380",
     "Cambium 2023": "0f92fe57-3365-428a-8fe8-0afc326b3b43",
     "Cambium 2022": "82460f06-548c-4954-b2d9-b84ba92d63e2",
 }
 
-# Pinned NREL ReEDS-2.0 hierarchy commit SHA used to derive STATE_TO_BALANCING_AREAS
+# Bundled Southeast 2024 MidCase 2030 package (fallback when NLR Scenario Viewer cloud S3 is unreachable/403)
+BUNDLED_SOUTHEAST_ARCHIVE: str = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "cambium_southeast_midcase_2030.zip"
+)
+
+
+# Pinned NLR ReEDS-2.0 hierarchy commit SHA used to derive STATE_TO_BALANCING_AREAS
 # Source: https://github.com/NREL/ReEDS-2.0/blob/b9fbed8759767c8efb9e26492a5bdc8ec903f969/inputs/hierarchy.csv
 # Local copy: ./data/reeds_state_ba_hierarchy.csv
 # IMPORTANT: ReEDS model balancing areas (p1..p134, z122) are NOT EIA-930 Balancing Authority codes.
@@ -296,9 +302,70 @@ def pd_read_first_rows(filepath: str) -> Optional[Dict[str, any]]:
         return None
 
 
+def extract_from_bundled_archive(
+    target_bas: set,
+    output_directory: str = "./Cambium_Hourly_Data_raw",
+    progress_callback: Optional[Callable[[str, float], None]] = None,
+    only_missing: bool = True,
+) -> Optional[List[str]]:
+    """
+    Extracts required ReEDS balancing area CSV files from the local bundled archive
+    (data/cambium_southeast_midcase_2030.zip) if present.
+
+    Returns list of extracted file paths if all target_bas can be satisfied, or None.
+    """
+    if not os.path.exists(BUNDLED_SOUTHEAST_ARCHIVE):
+        return None
+
+    try:
+        with zipfile.ZipFile(BUNDLED_SOUTHEAST_ARCHIVE, "r") as zf:
+            namelist = zf.namelist()
+            matched_members = []
+            for member in namelist:
+                member_lower = member.lower()
+                for ba in target_bas:
+                    if f"_{ba}_" in member_lower or f"_{ba}." in member_lower or member_lower.endswith(f"_{ba}.csv"):
+                        matched_members.append(member)
+                        break
+
+            found_bas = set()
+            for member in matched_members:
+                for ba in target_bas:
+                    if f"_{ba}_" in member.lower() or f"_{ba}." in member.lower() or member.lower().endswith(f"_{ba}.csv"):
+                        found_bas.add(ba)
+
+            if not target_bas.issubset(found_bas):
+                return None
+
+            saved_files = []
+            total = len(matched_members)
+            for idx, member in enumerate(matched_members):
+                basename = os.path.basename(member)
+                dest_path = os.path.join(output_directory, basename)
+                frac = 0.30 + 0.65 * (idx / max(total, 1))
+                if only_missing and os.path.exists(dest_path) and os.path.getsize(dest_path) > 1000:
+                    if progress_callback:
+                        progress_callback(f"Already cached: {basename} ({idx + 1}/{total})...", frac)
+                    saved_files.append(os.path.abspath(dest_path))
+                    continue
+
+                if progress_callback:
+                    progress_callback(f"Extracting bundled {basename} ({idx + 1}/{total})...", frac)
+                with zf.open(member) as src, open(dest_path, "wb") as dst:
+                    dst.write(src.read())
+                saved_files.append(os.path.abspath(dest_path))
+
+            if progress_callback:
+                progress_callback("Extraction from local package complete!", 1.0)
+            return saved_files
+    except Exception as e:
+        logger.warning(f"Failed extracting from bundled archive {BUNDLED_SOUTHEAST_ARCHIVE}: {e}")
+        return None
+
+
 def get_s3_download_url(project_uuid: str, file_id: int) -> Tuple[str, int]:
     """
-    POSTs to the NREL Scenario Viewer /api/download/ endpoint to obtain
+    POSTs to the NLR Scenario Viewer /api/download/ endpoint to obtain
     the AWS S3 pre-signed URL and content length for the given file package.
     """
     data = urllib.parse.urlencode({
@@ -312,11 +379,22 @@ def get_s3_download_url(project_uuid: str, file_id: int) -> Tuple[str, int]:
     }
 
     req = urllib.request.Request(DOWNLOAD_API, data=data, headers=headers)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        s3_url = resp.geturl()
-        content_len_str = resp.headers.get("Content-Length")
-        content_len = int(content_len_str) if content_len_str else 0
-        return s3_url, content_len
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            s3_url = resp.geturl()
+            content_len_str = resp.headers.get("Content-Length")
+            content_len = int(content_len_str) if content_len_str else 0
+            return s3_url, content_len
+    except urllib.error.HTTPError as http_err:
+        if http_err.code == 403:
+            raise ConnectionError(
+                f"NLR Scenario Viewer upstream cloud storage returned HTTP 403: Forbidden for package "
+                f"(project_uuid={project_uuid}, file_id={file_id}). "
+                f"NLR's AWS S3 IAM permissions on 'cambium-prod' currently reject download requests. "
+                f"A bundled Southeast dataset fallback is available."
+            ) from http_err
+        raise
+
 
 
 def download_cambium_data(
@@ -331,7 +409,7 @@ def download_cambium_data(
     Downloads and extracts only the required hourly Cambium balancing area CSV files
     for the specified states, scenario, and planning year directly into output_directory.
 
-    Uses RemoteZipReader to stream only the target files from NREL's S3 storage, avoiding
+    Uses RemoteZipReader to stream only the target files from NLR's S3 storage, avoiding
     the multi-hundred-megabyte full archive download.
 
     Parameters
@@ -358,18 +436,6 @@ def download_cambium_data(
     project_uuid = package_info["project_uuid"]
     file_id = package_info["file_id"]
 
-    if progress_callback:
-        progress_callback(f"Connecting to NREL Scenario Viewer ({selected_scenario})...", 0.05)
-
-    s3_url, content_len = get_s3_download_url(project_uuid, file_id)
-
-    if progress_callback:
-        progress_callback("Reading remote Cambium dataset package index...", 0.20)
-
-    remote_reader = RemoteZipReader(s3_url, content_len)
-    zf = zipfile.ZipFile(remote_reader)
-    namelist = zf.namelist()
-
     target_bas = set()
     deferred_requested = [st.upper() for st in target_states if st.upper() in DEFERRED_CAMBIUM_STATES]
     if deferred_requested:
@@ -388,6 +454,29 @@ def download_cambium_data(
 
     if not target_bas:
         raise ValueError(f"No balancing area mappings found for states: {target_states}")
+
+    if progress_callback:
+        progress_callback(f"Connecting to NLR Scenario Viewer ({selected_scenario})...", 0.05)
+
+    zf = None
+    try:
+        s3_url, content_len = get_s3_download_url(project_uuid, file_id)
+        if progress_callback:
+            progress_callback("Reading remote Cambium dataset package index...", 0.20)
+        remote_reader = RemoteZipReader(s3_url, content_len)
+        zf = zipfile.ZipFile(remote_reader)
+        namelist = zf.namelist()
+    except Exception as exc:
+        logger.warning(f"Remote NLR Scenario Viewer connection failed ({exc}). Checking bundled package...")
+        bundled = extract_from_bundled_archive(
+            target_bas=target_bas,
+            output_directory=output_directory,
+            progress_callback=progress_callback,
+            only_missing=only_missing,
+        )
+        if bundled:
+            return bundled
+        raise
 
     matched_members = []
     year_str = str(planning_year)
@@ -594,7 +683,7 @@ def download_cambium_gea_data(
 ) -> List[str]:
     """
     Downloads and extracts all constituent ReEDS BA CSV files needed to reconstruct
-    the specified GEAs directly from NREL's remote S3 archive via HTTP range requests.
+    the specified GEAs directly from NLR's remote S3 archive via HTTP range requests.
     """
     if target_bas_subset:
         required_bas = sorted(list(set(b.lower() for b in target_bas_subset)))
@@ -609,22 +698,33 @@ def download_cambium_gea_data(
     project_uuid = package_info["project_uuid"]
     file_id = package_info["file_id"]
 
-    if progress_callback:
-        progress_callback(f"Connecting to NREL Scenario Viewer for GEAs {geas}...", 0.05)
-
-    s3_url, content_len = get_s3_download_url(project_uuid, file_id)
-
-    if progress_callback:
-        progress_callback("Reading remote Cambium dataset package index...", 0.20)
-
-    remote_reader = RemoteZipReader(s3_url, content_len)
-    zf = zipfile.ZipFile(remote_reader)
-    namelist = zf.namelist()
-
     target_bas = set(b.lower() for b in required_bas)
     for ba in list(target_bas):
         if ba in REEDS_CAMBIUM24_AGGREG_MAP:
             target_bas.add(REEDS_CAMBIUM24_AGGREG_MAP[ba].lower())
+
+    if progress_callback:
+        progress_callback(f"Connecting to NLR Scenario Viewer for GEAs {geas}...", 0.05)
+
+    zf = None
+    try:
+        s3_url, content_len = get_s3_download_url(project_uuid, file_id)
+        if progress_callback:
+            progress_callback("Reading remote Cambium dataset package index...", 0.20)
+        remote_reader = RemoteZipReader(s3_url, content_len)
+        zf = zipfile.ZipFile(remote_reader)
+        namelist = zf.namelist()
+    except Exception as exc:
+        logger.warning(f"Remote NLR Scenario Viewer connection failed ({exc}). Checking bundled package...")
+        bundled = extract_from_bundled_archive(
+            target_bas=target_bas,
+            output_directory=output_directory,
+            progress_callback=progress_callback,
+            only_missing=only_missing,
+        )
+        if bundled:
+            return bundled
+        raise
 
     matched_members = []
     year_str = str(planning_year)

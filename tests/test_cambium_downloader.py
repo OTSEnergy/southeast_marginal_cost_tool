@@ -113,7 +113,7 @@ class TestMissingDataDetection:
 
     def test_detected_file_reduces_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create a mock raw NREL file for GA
+            # Create a mock raw NLR file for GA
             mock_file = os.path.join(tmpdir, "Cambium24_MidCase_hourly_p94_2040.csv")
             with open(mock_file, "w", encoding="utf-8") as f:
                 f.write("Project,Scenario,Dollar_year,Weather_year,Start_day,r,state,gea,country,tz,t\n")
@@ -255,3 +255,30 @@ class TestParseCambiumColumns:
         assert energy_c == 'energy_cost_busbar'
         assert carbon_c == 'lrmer_co2e'
         assert hr_c == 'hour'
+
+
+class TestBundledCambiumFallback:
+    def test_extract_from_bundled_archive_al(self):
+        import tempfile
+        from cambium_downloader import extract_from_bundled_archive, STATE_TO_BALANCING_AREAS
+
+        target_bas = set(STATE_TO_BALANCING_AREAS['AL'])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extracted = extract_from_bundled_archive(target_bas, output_directory=tmpdir)
+            assert extracted is not None
+            assert len(extracted) == 2
+            for p in extracted:
+                assert os.path.exists(p)
+                assert os.path.getsize(p) > 1000
+
+    def test_download_cambium_data_uses_bundled_fallback_on_403(self):
+        import tempfile
+        from cambium_downloader import download_cambium_data
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # download AL data into clean empty directory
+            files = download_cambium_data(['AL'], 'MidCase', '2030', output_directory=tmpdir)
+            assert len(files) == 2
+            basenames = [os.path.basename(f) for f in files]
+            assert 'Cambium24_MidCase_hourly_p89_2030.csv' in basenames
+            assert 'Cambium24_MidCase_hourly_p90_2030.csv' in basenames

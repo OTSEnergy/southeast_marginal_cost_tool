@@ -113,7 +113,7 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 #                     * CWFT loader/generator  (default is MOCK placeholder)
 #                     * Load profile loader/generator (default is MOCK)
 #                     * Weather file loader (.epw / .csv, real files supported)
-#                     * URDB API fetch (live tariff download from NREL)
+#                     * URDB API fetch (live tariff download from NLR)
 #                     * Mock state data generator (for dev/testing only)
 #                     See: load_and_aggregate_data(), load_cwft_from_csv(),
 #                          load_load_profiles_from_csv(), fetch_urdb_rate(), etc.
@@ -173,7 +173,7 @@ from cambium_downloader import (
 # All data I/O has been moved to data_loaders.py. Here is what is imported
 # and what each function does:
 #
-#   INPUT_DIRECTORY          './Cambium_Hourly_Data_raw' - where raw NREL CSVs live
+#   INPUT_DIRECTORY          './Cambium_Hourly_Data_raw' - where raw NLR CSVs live
 #
 #   generate_default_cwft_file(filepath)
 #       MOCK - Generates a synthetic Southeast dual-peak CWFT CSV
@@ -197,7 +197,7 @@ from cambium_downloader import (
 #       REAL - Checks if a simplified-format CSV matches the selected scenario.
 #
 #   parse_cambium_columns(df)
-#       REAL - Dynamic column mapping engine for NREL naming conventions.
+#       REAL - Dynamic column mapping engine for NLR naming conventions.
 #
 #   load_custom_weather_file(weather_case)
 #       REAL - Loads .epw or .csv weather files from Weather_Data_raw/.
@@ -206,7 +206,7 @@ from cambium_downloader import (
 #       REAL - Main ingestion pipeline. @st.cache_data applied below.
 #
 #   fetch_urdb_rate(rate_label, api_key)
-#       REAL - Live API call to NREL OpenEI URDB for tariff download.
+#       REAL - Live API call to NLR OpenEI URDB for tariff download.
 #
 # Full implementations: data_loaders.py
 # ==============================================================================
@@ -226,12 +226,12 @@ def render_weather_generator(key_suffix: str):
     st.markdown(
         """This utility automates the generation of **Actual Meteorological Year (AMY) EPW weather files** 
 using PNNL's `diyepw` tool. It automatically downloads observations from the NOAA Integrated Surface Database (ISD),
-interpolates missing points, and builds a customized `.epw` file using NREL's TMY3 as a template."""
+interpolates missing points, and builds a customized `.epw` file using NLR's TMY3 as a template."""
     )
     
     st.info(
         "**Requirements:** Generating files requires an active internet connection to download "
-        "NOAA observations (~1MB per station/year) and NREL TMY3 templates. The process may take 1-2 minutes."
+        "NOAA observations (~1MB per station/year) and NLR TMY3 templates. The process may take 1-2 minutes."
     )
     
     station_lookup = load_wmo_station_lookup()
@@ -327,10 +327,10 @@ interpolates missing points, and builds a customized `.epw` file using NREL's TM
         st.markdown(
             """**World Meteorological Organization (WMO) Station IDs** are 6-digit numeric codes representing weather stations.
 
-The **Weather Station (City, State)** search box above looks up the WMO ID for you — just type a city or state name and pick your station from the list. It's built from the same NREL/onebuilding.org station catalog shown on the [EnergyPlus Weather Data map](https://energyplus.net/weather).
+The **Weather Station (City, State)** search box above looks up the WMO ID for you — just type a city or state name and pick your station from the list. It's built from the same NLR/onebuilding.org station catalog shown on the [EnergyPlus Weather Data map](https://energyplus.net/weather).
 
 If your station isn't in that list, check **"Enter WMO Station ID manually"** and look it up yourself:
-1. **Interactive Map (Recommended):** Go to NREL's [EnergyPlus Weather Data map](https://energyplus.net/weather). Browse the map or search for your location using the search field. The 6-digit WMO ID is the number shown in parentheses in the station's title field (or in the filename of download options).
+1. **Interactive Map (Recommended):** Go to NLR's [EnergyPlus Weather Data map](https://energyplus.net/weather). Browse the map or search for your location using the search field. The 6-digit WMO ID is the number shown in parentheses in the station's title field (or in the filename of download options).
 2. **Tabular Database:** Search the database at [Weather Station Identifiers](http://www.weathergraphics.com/identifiers/) to look up stations by state, city, or name.
 
 *Note: The generator defaults to `722300` (Birmingham-Shelby County AP, AL). Other local examples: Atlanta Hartsfield-Jackson, GA is `722190`.*"""
@@ -378,10 +378,10 @@ with st.sidebar.expander("Grid Scenario & Region", expanded=True):
         st.caption(f"ℹ️ {REGIONAL_PRESET_DISCLOSURE}")
 
     selected_scenario = st.selectbox(
-        "NREL Future Scenario",
+        "NLR Future Scenario",
         options=SCENARIO_OPTIONS,
         index=0,
-        help="Select which NREL Cambium future power sector scenario to model."
+        help="Select which NLR Cambium future power sector scenario to model."
     )
     if selected_scenario in SCENARIO_DESCRIPTIONS:
         st.caption(SCENARIO_DESCRIPTIONS[selected_scenario])
@@ -405,7 +405,7 @@ with st.sidebar.expander("Grid Scenario & Region", expanded=True):
     )
 
     planning_year = st.selectbox(
-        "NREL Planning Year",
+        "NLR Planning Year",
         options=PLANNING_YEAR_OPTIONS,
         index=DEFAULT_PLANNING_YEAR_INDEX,
         help="Select the target grid planning year for valuation."
@@ -420,7 +420,7 @@ with st.sidebar.expander("Grid Scenario & Region", expanded=True):
 
     missing_in_sidebar = check_missing_cambium_data(target_states, selected_scenario, planning_year)
     if missing_in_sidebar:
-        st.caption(f"⚡ *NREL data for {', '.join(missing_in_sidebar)} will auto-download on run.*")
+        st.caption(f"⚡ *NLR data for {', '.join(missing_in_sidebar)} will auto-download on run.*")
     else:
         st.caption("✅ *Cambium grid data cached locally.*")
 
@@ -641,7 +641,7 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         "Capacity Valuation Method",
         options=["Direct IRP Scaler ($/kW-year)", "Carrying cost of a CT Builder"],
         index=0,
-        help="Default: Direct IRP scalar pre-populated with calculated NREL ATB 2024 Combustion Turbine (CT) economic carrying cost ($110.20/kW-yr), or build custom capacity value using the CT Carrying Cost Builder."
+        help="Default: Direct IRP scalar pre-populated with calculated NLR ATB 2024 Combustion Turbine (CT) economic carrying cost ($110.20/kW-yr), or build custom capacity value using the CT Carrying Cost Builder."
     )
 
     ct_calc = None
@@ -650,7 +650,7 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
             "Combustion Turbine (CT) Benchmark Preset",
             options=list(SOUTHEAST_PEAKER_PRESETS.keys()) + ["Custom Peaker Parameters"],
             index=0,
-            help="Choose a pre-configured peaker benchmark from NREL Annual Technology Baseline (ATB 2024) or Southeast utility IRP dockets."
+            help="Choose a pre-configured peaker benchmark from NLR Annual Technology Baseline (ATB 2024) or Southeast utility IRP dockets."
         )
 
         if selected_peaker_preset in SOUTHEAST_PEAKER_PRESETS:
@@ -671,12 +671,12 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         col_ct1, col_ct2 = st.columns(2)
         with col_ct1:
             ct_capex = st.number_input("Overnight CAPEX ($/kW)", min_value=100.0, max_value=3000.0, value=def_capex, step=25.0, format="%.1f",
-                                       help="Overnight capital expenditure ($/kW) from NREL ATB (typical CT range: $950 – $1,250/kW).")
+                                       help="Overnight capital expenditure ($/kW) from NLR ATB (typical CT range: $950 – $1,250/kW).")
             ct_fcr = st.number_input("Fixed Charge Rate (FCR %)", min_value=1.0, max_value=30.0, value=def_fcr, step=0.1, format="%.2f",
-                                     help="Annual Fixed Charge Rate (FCR) accounting for WACC, depreciation, taxes, and asset life (NREL ATB Regulated Utility: 7.5%–8.8%, Merchant: 9.5%–11.2%).")
+                                     help="Annual Fixed Charge Rate (FCR) accounting for WACC, depreciation, taxes, and asset life (NLR ATB Regulated Utility: 7.5%–8.8%, Merchant: 9.5%–11.2%).")
         with col_ct2:
             ct_fom = st.number_input("Fixed O&M ($/kW-yr)", min_value=0.0, max_value=100.0, value=def_fom, step=0.5, format="%.2f",
-                                     help="Annual fixed operations and maintenance cost ($/kW-yr) from NREL ATB (typical CT range: $15 – $25/kW-yr).")
+                                     help="Annual fixed operations and maintenance cost ($/kW-yr) from NLR ATB (typical CT range: $15 – $25/kW-yr).")
             ct_eas = st.number_input("E&AS Offset ($/kW-yr)", min_value=0.0, max_value=50.0, value=def_eas, step=0.5, format="%.2f",
                                      help="Inframarginal energy/ancillary profit offset. Often $0 in Southeast cost-of-service IRPs (Gross CONE).")
 
@@ -689,7 +689,7 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
             with col_fin2:
                 ct_life = st.number_input("Economic Life (yrs)", min_value=10, max_value=50, value=def_life, step=1)
                 calc_fcr_toggle = st.checkbox("Use Synthesized WACC/MACRS FCR", value=False,
-                                              help="When checked, computes FCR dynamically via Capital Recovery Factor (CRF) and MACRS depreciation rather than using the direct NREL ATB FCR.")
+                                              help="When checked, computes FCR dynamically via Capital Recovery Factor (CRF) and MACRS depreciation rather than using the direct NLR ATB FCR.")
 
         if calc_fcr_toggle:
             fcr = calculate_regulated_fcr(wacc=ct_wacc/100.0, economic_life=ct_life, tax_rate=ct_tax/100.0)
@@ -915,7 +915,7 @@ with st.sidebar.expander("Retail Tariff Structure", expanded=True):
         active_tariff_json = ENTERGY_RS_URDB
     elif "Southeast Regional Average" in tariff_type:
         active_tariff_json = SOUTHEAST_AVG_URDB
-    elif tariff_type == "Import from NREL URDB (API Label)":
+    elif tariff_type in ["Import from NLR URDB (API Label)", "Import from NREL URDB (API Label)"]:
         urdb_label = st.text_input(
             "URDB Rate Label", 
             value="5d4b00595457a3e73a0e6988", 
@@ -923,14 +923,14 @@ with st.sidebar.expander("Retail Tariff Structure", expanded=True):
         )
         with st.expander("How to get the Rate Label"):
             st.markdown(
-                """1. Go to NREL's [Utility Rate Database](https://openei.org/wiki/Utility_Rate_Database).
+                """1. Go to NLR's [Utility Rate Database](https://openei.org/wiki/Utility_Rate_Database).
 2. Search for your utility (e.g., *Georgia Power*) and select the target rate plan.
 3. In the rate details page URL, copy the final segment (e.g., `5d4b00595457a3e73a0e6988` from `https://openei.org/apps/USURDB/rate/view/5d4b00595457a3e73a0e6988`)."""
             )
         urdb_api_key = st.text_input("OpenEI API Key", value="DEMO_KEY", type="password")
 
         if st.button("Fetch Tariff Structure", width="stretch"):
-            with st.spinner("Downloading rate from NREL OpenEI..."):
+            with st.spinner("Downloading rate from NLR OpenEI..."):
                 try:
                     fetched_rate = fetch_urdb_rate(urdb_label, urdb_api_key)
                     st.session_state['fetched_urdb_json'] = fetched_rate
@@ -945,7 +945,7 @@ with st.sidebar.expander("Retail Tariff Structure", expanded=True):
             st.warning("Click Fetch to load tariff details.")
 
     elif tariff_type == "Paste Custom URDB V3 JSON":
-        raw_pasted_json = st.text_area("Paste URDB JSON here", height=150, help="Paste a full NREL V3 utility rate JSON response.")
+        raw_pasted_json = st.text_area("Paste URDB JSON here", height=150, help="Paste a full NLR V3 utility rate JSON response.")
         if raw_pasted_json:
             try:
                 active_tariff_json = json.loads(raw_pasted_json)
@@ -1064,17 +1064,17 @@ if not st.session_state['simulation_executed']:
             "3. **Weather years match** — load data, Cambium grid data, and CWFT all use the same year"
         )
         st.caption("No load/CWFT files yet? Default examples are generated automatically the first time you run.")
-        st.info("💡 **Automated Grid Data:** Cambium hourly grid data is downloaded automatically on-demand from NREL Scenario Viewer if not already cached locally.")
+        st.info("💡 **Automated Grid Data:** Cambium hourly grid data is downloaded automatically on-demand from the NLR Scenario Viewer if not already cached locally.")
 
-        with st.expander("NREL Cambium Auto-Downloader & Data Guide"):
+        with st.expander("NLR Cambium Auto-Downloader & Data Guide"):
             st.markdown(
                 """**Automated On-Demand Retrieval:**
 - When you select your target states and click **Run Valuation Engine**, the tool automatically checks `Cambium_Hourly_Data_raw/`.
-- If missing, it connects directly to the NREL Scenario Viewer cloud data store, uses HTTP Range requests to target only your selected states/balancing areas, and extracts the CSVs in seconds (~2–4s per state).
+- If missing, it connects directly to the NLR Scenario Viewer cloud data store, uses HTTP Range requests to target only your selected states/balancing areas, and extracts the CSVs in seconds (~2–4s per state).
 - Extracted files remain cached locally in `Cambium_Hourly_Data_raw/` for 100% offline reuse.
 
 **Manual Placement (Optional / Air-Gapped Environments):**
-1. Visit the [NREL Cambium Scenario Viewer](https://scenarioviewer.nrel.gov/) or NREL data portal.
+1. Visit the [NLR Cambium Scenario Viewer](https://scenarioviewer.nlr.gov/) or NLR data portal.
 2. Select your desired dataset (e.g. Cambium 2024), **Scenario** (e.g. `MidCase`), **Geography / State** (e.g. `GA`, `AL`), and **Planning Horizon Year** (e.g. `2040`).
 3. Download the hourly dataset and extract the `.csv` files into the `Cambium_Hourly_Data_raw/` directory in the project root."""
             )
@@ -1092,9 +1092,9 @@ if not st.session_state['simulation_executed']:
 - **Constraint:** the `CWFT` column must sum to exactly 1.0 (100%) so annual capacity value is recovered precisely."""
             )
 
-        with st.expander("How to find an NREL URDB rate label"):
+        with st.expander("How to find an NLR URDB rate label"):
             st.markdown(
-                """1. Go to the [NREL Utility Rate Database (URDB)](https://openei.org/wiki/Utility_Rate_Database).
+                """1. Go to the [NLR Utility Rate Database (URDB)](https://openei.org/wiki/Utility_Rate_Database).
 2. Search for your utility (e.g. *"Georgia Power Co"*) and select your target rate plan.
 3. The **Rate Label** is the last segment of the URL — e.g. in `https://openei.org/apps/USURDB/rate/view/5d4b00595457a3e73a0e6988`, the label is `5d4b00595457a3e73a0e6988`."""
             )
@@ -1135,11 +1135,11 @@ else:
             col_dl_btn, col_dl_info = st.columns([1.6, 3.4])
             with col_dl_btn:
                 if st.button(
-                    f"📥 Auto-Download from NREL ({', '.join(missing_states)})",
+                    f"📥 Auto-Download from NLR ({', '.join(missing_states)})",
                     key="btn_auto_download_cambium",
                     type="primary"
                 ):
-                    prog_bar = st.progress(0, text="Connecting to NREL Scenario Viewer...")
+                    prog_bar = st.progress(0, text="Connecting to NLR Scenario Viewer...")
                     try:
                         def _cb(msg, frac):
                             prog_bar.progress(int(frac * 100), text=msg)
@@ -1152,11 +1152,50 @@ else:
                         st.success(f"Downloaded and extracted grid data for {', '.join(missing_states)}!")
                         st.rerun()
                     except Exception as dl_err:
-                        st.error(f"Failed to auto-download from NREL: {dl_err}")
+                        st.error(f"Failed to auto-download from NLR: {dl_err}")
             with col_dl_info:
                 st.caption(
-                    "The tool automatically streams only the required balancing area CSVs directly from NREL's cloud storage "
+                    "The tool automatically streams only the required balancing area CSVs directly from NLR's cloud storage "
                     "using HTTP range requests (~2–4 seconds per state) and saves them locally for permanent offline reuse."
+                )
+
+            # Look up specific balancing areas and sample filenames for missing states
+            needed_bas = []
+            for st_code in missing_states:
+                bas = STATE_TO_BALANCING_AREAS.get(st_code.upper(), [])
+                needed_bas.extend(bas)
+            needed_bas_str = ", ".join(needed_bas) if needed_bas else "constituent balancing areas"
+            sample_filenames = [
+                f"`Cambium24_{selected_scenario}_hourly_{ba}_{planning_year}.csv`" for ba in needed_bas[:4]
+            ]
+            sample_str = ", ".join(sample_filenames)
+            raw_dir_abs = os.path.abspath("./Cambium_Hourly_Data_raw")
+
+            with st.expander("🛠️ Manual Download Instructions & File Placement Guide (Fallback)", expanded=False):
+                st.markdown(
+                    f"""
+                    ### How to Manually Download and Place Cambium Grid Data
+                    If the automated cloud download fails (for example, if NLR's upstream AWS S3 cloud storage returns `HTTP 403 Forbidden` due to backend IAM restrictions, or if your machine is behind a firewall):
+
+                    1. **Open the NLR Scenario Viewer**:
+                       - Go to the [NLR Cambium Scenario Viewer](https://scenarioviewer.nlr.gov/?project=5c7bef16-7e38-4094-92ce-8b03dfa93380) or the [NLR Cambium Datasets Portal](https://www.nlr.gov/analysis/cambium.html).
+                    2. **Locate the Package**:
+                       - Filter by **Scenario**: `{selected_scenario}`
+                       - Filter by **Time Resolution**: `hourly`
+                       - Filter by **Location Type**: `Balancing Areas`
+                       - Download the dataset package ZIP (e.g., `Cambium24_{selected_scenario}_hourly_balancingArea.zip`).
+                    3. **Extract the Balancing Area CSV File(s)**:
+                       - Required Balancing Areas for **{', '.join(missing_states)}**: **{needed_bas_str}**
+                       - Files needed: {sample_str}
+                    4. **Place the Files in `./Cambium_Hourly_Data_raw/`**:
+                       - Copy the extracted `.csv` files into the local folder:
+                         ```
+                         ./Cambium_Hourly_Data_raw/
+                         ```
+                       - Destination folder path: `{raw_dir_abs}`
+                    5. **Rerun the Tool**:
+                       - Once the CSV files are placed in that folder, click the **Rerun** button in the top right or press **R** to resume analysis immediately.
+                    """
                 )
             st.stop()
 
@@ -1851,7 +1890,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         st.markdown("###### Valuation Run Settings")
                         st.markdown(
                             f"""- **Customer Retail Tariff:** `{tariff_name_label}`
-- **NREL Wholesale Scenario:** `{selected_scenario}`
+- **NLR Wholesale Scenario:** `{selected_scenario}`
 - **Selected Weather Case:** `{weather_case}`
 - **Target Region:** `{', '.join(target_states)}`
 - **Demand Response Mode:** `{"Active" if dr_mode else "Inactive"}`
@@ -2461,11 +2500,11 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 "as the benchmark for what new capacity costs the utility to build:\n\n"
                                 "- **Capital Recovery = CAPEX × FCR** — the annualized cost "
                                 "of building 1 kW of the peaker ($1,100/kW × 8.20% = $90.20/kW-yr "
-                                "under central NREL ATB 2024 Moderate values). FCR (Fixed Charge Rate) "
+                                "under central NLR ATB 2024 Moderate values). FCR (Fixed Charge Rate) "
                                 "accounts for utility WACC, depreciation tax shield (MACRS), corporate tax, "
                                 "and economic project life.\n"
                                 "- **+ Fixed O&M** — the annual cost to staff and maintain "
-                                "the plant ($20.00/kW-yr in NREL ATB 2024).\n"
+                                "the plant ($20.00/kW-yr in NLR ATB 2024).\n"
                                 "- **= Gross Carrying Cost** — what it costs to simply own "
                                 "and maintain the plant for a year ($110.20/kW-yr benchmark).\n"
                                 "- **− E&AS Offset** (if any) — energy/ancillary profit offset; "

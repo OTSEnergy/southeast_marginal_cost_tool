@@ -355,7 +355,7 @@ def calculate_regulated_fcr(wacc=0.071, economic_life=30, tax_rate=0.25, macrs_l
 def calculate_ct_carrying_cost(capex_kw, fom_kw_yr, fcr, eas_offset_kw_yr=0.0):
     """
     Calculate the annual Gross Economic Carrying Cost (ECC) and Net Avoided Capacity
-    cost for the Next Planned Combustion Turbine (CT / SCCT) using the NREL Annual
+    cost for the Next Planned Combustion Turbine (CT / SCCT) using the NLR Annual
     Technology Baseline (ATB) standard annualized carrying cost formulation:
 
         Carrying Cost ($/kW-yr) = (CAPEX * FCR) + Fixed O&M
@@ -368,7 +368,7 @@ def calculate_ct_carrying_cost(capex_kw, fom_kw_yr, fcr, eas_offset_kw_yr=0.0):
     - Gross Carrying Cost = Capital Recovery + FOM
     - Net Avoided Capacity = max(0, Gross Carrying Cost - E&AS Offset)
 
-    Default NREL ATB 2024 Moderate Benchmark (Regulated Utility Finance):
+    Default NLR ATB 2024 Moderate Benchmark (Regulated Utility Finance):
     - CAPEX: $1,100 / kW
     - FCR: 8.2% (0.082)
     - FOM: $20.00 / kW-yr

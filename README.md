@@ -50,13 +50,13 @@ This repository includes processed baseline datasets preloaded under the `cambiu
 * **Alabama (AL)** (Midcase & High Demand Growth scenarios)
 * **Georgia (GA)** (Midcase & High Demand Growth scenarios)
 
-### Expanding to Other Regions (Full NREL Cambium Data)
+### Expanding to Other Regions (Full NLR Cambium Data)
 To evaluate projects in states or balancing authorities outside of Alabama and Georgia, users must download the raw Cambium datasets from the official NREL sources:
 
 1. **Visit the NREL Scenario Viewer**:  
    Download datasets directly from [NREL Scenario Viewer](https://scenarioviewer.nlr.gov/).
 2. **Additional Information**:  
-   Read more about the methodology, metrics, and scenario assumptions on the [NREL Cambium Homepage](https://www.nlr.gov/analysis/cambium).
+   Read more about the methodology, metrics, and scenario assumptions on the [NLR Cambium Homepage](https://www.nlr.gov/analysis/cambium).
 
 #### Ingesting New Data:
 The tool is built to dynamically pull, parse, and aggregate raw Cambium datasets recursively. You do **not** need to manually rename, preprocess, or format individual files. 
@@ -87,7 +87,7 @@ The app is split into `app.py` (Streamlit UI/orchestration only) plus five pure-
 - `app.py`: Streamlit page layout, sidebar controls, and the 7 dashboard tabs. Calls into the modules below rather than containing the calculation/ingestion logic itself.
 - `calculations.py`: Avoided-cost engine (5 components), Demand Response dispatch, EPC/ELCC capacity metrics, and the TRC/PCT/RIM/payback cost-effectiveness math.
 - `billing.py`: URDB V3 retail billing engine plus pre-packaged tariff schedules (Georgia Power R-31, Alabama Power Rate FD).
-- `data_loaders.py`: All file I/O — NREL Cambium CSV scanner, CWFT loader, weather (.epw/.csv) loader, load-profile parser (synthetic CSVs, EnergyPlus-style exports, and BEopt's native hourly export format), URDB API client, and the default mock-data generators.
+- `data_loaders.py`: All file I/O — NLR Cambium CSV scanner, CWFT loader, weather (.epw/.csv) loader, load-profile parser (synthetic CSVs, EnergyPlus-style exports, and BEopt's native hourly export format), URDB API client, and the default mock-data generators.
 - `visualizations.py`: Plotly chart-builder functions (Streamlit-free), returning `go.Figure` objects for the dashboard tabs.
 - `config.py`: Central defaults, option lists, CSS styling, color palette, and the `EXAMPLE_BUILDINGS` pre-loaded example library.
 - `requirements.txt`: Python package dependencies (Streamlit, Pandas, NumPy, Plotly).
@@ -96,7 +96,7 @@ The app is split into `app.py` (Streamlit UI/orchestration only) plus five pure-
 - `Weather_Data_raw/`: Contains subfolders (`Baseline/`, `Extreme_Winter/`, `Extreme_Summer/`) where users can place real weather datasets (e.g. `.epw` or `.csv` files) to override synthetic temperatures with real weather profiles.
 - `CWFT.csv`: The Capacity Weighting Factor Table (CWFT) representing hour-by-hour system risk weights. *(Note: Must be replaced with real utility/ISO risk factor data for real-world evaluations).*
 - `load_profiles.csv`: Default synthetic building load shapes, auto-generated if no real load data is supplied.
-- `southeast_avoided_costs_AL_GA.csv`: Hourly avoided cost projections derived from NREL Cambium datasets for Alabama and Georgia balancing authorities. *(Role still unconfirmed with Justin — see `docs/roadmap.md` §1.8.)*
+- `southeast_avoided_costs_AL_GA.csv`: Hourly avoided cost projections derived from NLR Cambium datasets for Alabama and Georgia balancing authorities. *(Role still unconfirmed with Justin — see `docs/roadmap.md` §1.8.)*
 
 ---
 

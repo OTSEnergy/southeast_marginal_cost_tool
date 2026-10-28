@@ -2,6 +2,20 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-10-28] — Resolved HTTP 403 Cambium Download & Updated NREL References to NLR
+
+### Context
+1. Fixed `HTTP Error 403: Forbidden` when downloading Cambium hourly grid data (e.g. "Auto-Download from NREL (AL)") on clean/new machines.
+   - **Root Cause**: Upstream NLR Scenario Viewer (`scenarioviewer.nlr.gov/api/download/`) redirects via 302 to an AWS S3 pre-signed URL on bucket `cambium-prod`. NLR's upstream AWS IAM role (`cambium-web-ecstask-iam-role`) lacks `s3:GetObject` permission on `cambium-prod`, returning `AccessDenied` / HTTP 403.
+   - **Fix**:
+     - Bundled all 11 Southeast balancing area CSV files (p88..p98: AL, GA, FL, NC, SC, TN, MS) in `data/cambium_southeast_midcase_2030.zip` (10.69 MB) and unignored `Cambium24_MidCase_hourly_p*.csv` in `.gitignore`.
+     - Added `extract_from_bundled_archive()` in `cambium_downloader.py`.
+     - In `download_cambium_data()` and `download_cambium_gea_data()`, if remote connection returns HTTP 403 or is unreachable, the downloader seamlessly extracts required constituent BA CSVs directly from the bundled archive.
+     - Added diagnostic exception wrapping in `get_s3_download_url()` to clearly identify NLR upstream IAM permission issues if a non-bundled state is requested.
+2. Updated all user-facing UI labels, help captions, dropdowns, expander headers, configuration presets, code docstrings, and documentation from **NREL** to **NLR** (National Laboratory of the Rockies / `nlr.gov` rebranding).
+   - Maintained backward compatibility aliases in `config.SOUTHEAST_PEAKER_PRESETS` for legacy preset keys.
+3. Verified test suite: all **242/242** tests pass (including 2 new tests for bundled fallback extraction).
+
 ## [2026-10-27] — Reconciled Peak Hours (100 vs 100) & Relabeled "Grid Energy Savings"
 
 ### Context

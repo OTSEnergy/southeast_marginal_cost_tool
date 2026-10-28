@@ -6,11 +6,11 @@ This module handles ALL data loading and file generation for the
 Southeast Marginal Cost Valuation Engine:
 
     1. CAMBIUM GRID DATA
-       - Recursive scanner for NREL Cambium CSV files
-       - Supports both raw NREL download format (5-row header) and
+       - Recursive scanner for NLR Cambium CSV files
+       - Supports both raw NLR download format (5-row header) and
          pre-processed simplified format
        - Dynamic column mapping engine (auto-detects energy price and
-         carbon emissions columns across NREL naming conventions)
+         carbon emissions columns across NLR naming conventions)
        - Multi-state aggregation and 8760-hour alignment
 
     2. WEATHER DATA
@@ -28,7 +28,7 @@ Southeast Marginal Cost Valuation Engine:
        - Generates default mock profiles if file doesn't exist
 
     5. URDB API
-       - Fetches retail tariff structures from NREL OpenEI URDB API
+       - Fetches retail tariff structures from NLR OpenEI URDB API
 
     6. MOCK DATA GENERATORS
        - Synthetic Cambium-like state files for development/testing
@@ -107,7 +107,7 @@ def load_wmo_station_lookup(filepath=WMO_STATION_LOOKUP_PATH):
 
     The lookup file is derived from diyepw's bundled TMY3/TMYx EPW catalog
     (venv/Lib/site-packages/diyepw/data/tmy_epw_catalogs/tmy_epw_catalog.csv),
-    which mirrors the same NREL/onebuilding.org station set shown on the
+    which mirrors the same NLR/onebuilding.org station set shown on the
     EnergyPlus weather map. Returns an empty DataFrame with the expected
     columns if the file is missing, so callers can fall back to manual entry.
     """
@@ -596,7 +596,7 @@ def generate_mock_state_file(filepath, state_code, scenario):
         elif 4345 <= h <= 5832 and (h % 24 in [14, 15, 16, 17, 18]):
             energy_base[h-1] = np.random.uniform(*summer_spike_range)
 
-    # Outputs raw NREL Cambium column headers
+    # Outputs raw NLR Cambium column headers
     df = pd.DataFrame({
         'Hour': hours,
         'State': state_code,
@@ -631,7 +631,7 @@ def file_matches_scenario(filepath, scenario):
 
 def parse_cambium_columns(df):
     """
-    NREL Cambium Column Mapping Engine.
+    NLR Cambium Column Mapping Engine.
 
     Dynamically maps column names from various Cambium CSV formats to
     the standardized names used internally:
@@ -796,7 +796,7 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
 
     This is the primary entry point for loading grid data. It:
     1. Recursively scans Cambium_Hourly_Data_raw/ for matching CSV files
-    2. Dynamically maps NREL column names to internal names
+    2. Dynamically maps NLR column names to internal names
     3. Aggregates hourly data across states (mean of energy price + carbon)
     4. Generates the 8760-hour datetime series (aligned to target_year)
     5. Computes PCAF weights (top 100 price hours)
@@ -808,13 +808,13 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
     target_states : list of str
         State codes to include (e.g., ["AL", "GA"])
     selected_scenario : str
-        NREL scenario name (e.g., "MidCase", "HighDemandGrowth")
+        NLR scenario name (e.g., "MidCase", "HighDemandGrowth")
     weather_case : str
         Weather scenario for temperature/price adjustments
     target_year : str
         Calendar year for datetime alignment (default "2026")
     planning_year : str
-        NREL planning horizon year (default "2030")
+        NLR planning horizon year (default "2030")
     input_directory : str
         Path to Cambium CSV directory (default "./Cambium_Hourly_Data_raw")
 
@@ -852,7 +852,7 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
 
     for file in all_csv_files:
         try:
-            # Check if this is a raw NREL Cambium file
+            # Check if this is a raw NLR Cambium file
             first_row_df = pd.read_csv(file, nrows=0)
             cols = [c.lower() for c in first_row_df.columns]
 
@@ -918,7 +918,7 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
                 combined_list.append(filtered_df[['Hour', 'Cambium_Energy_MWh', 'Cambium_Carbon_kg_MWh', 'State']])
 
         except Exception as e:
-            # Reached only for a file that looked like a match (raw NREL metadata
+            # Reached only for a file that looked like a match (raw NLR metadata
             # matched, or file_matches_scenario() said yes) but then failed to
             # parse/map -- a genuinely broken file, not just a non-matching one.
             ingestion_warnings.append(f"Skipped '{os.path.basename(file)}': {e}")
@@ -929,7 +929,7 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
         raise FileNotFoundError(
             f"Missing Cambium grid data for state(s): {', '.join(missing_states)} "
             f"(Scenario: {selected_scenario} | Year: {planning_year}). "
-            "Please download the raw NREL CSV files and place them in the 'Cambium_Hourly_Data_raw' directory."
+            "Please download the raw NLR CSV files and place them in the 'Cambium_Hourly_Data_raw' directory."
         )
 
     if not combined_list:
@@ -1048,14 +1048,14 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
 
 def fetch_urdb_rate(rate_label, api_key="DEMO_KEY"):
     """
-    Fetch a retail tariff structure from the NREL OpenEI URDB API.
+    Fetch a retail tariff structure from the NLR OpenEI URDB API.
 
     Parameters
     ----------
     rate_label : str
         OpenEI unique tariff label (e.g., "5d4b00595457a3e73a0e6988")
     api_key : str
-        NREL API key (default "DEMO_KEY" for development)
+        NLR API key (default "DEMO_KEY" for development)
 
     Returns
     -------
@@ -1081,20 +1081,20 @@ def fetch_urdb_rate(rate_label, api_key="DEMO_KEY"):
             else:
                 raise ValueError(f"No rate found matching label: {rate_label}")
     except Exception as e:
-        raise ConnectionError(f"Failed to connect to NREL URDB API: {str(e)}")
+        raise ConnectionError(f"Failed to connect to NLR URDB API: {str(e)}")
 
 
 # ==============================================================================
-# 7. NREL ATB DIRECT EXTRACTION ENGINE
+# 7. NLR ATB DIRECT EXTRACTION ENGINE
 # ==============================================================================
 
 def extract_nrel_atb_ct_parameters(df_or_filepath, year=2024, scenario="Moderate", financial_case=None):
     """
     Extract Combustion Turbine (CT) CAPEX, Fixed O&M, and FCR parameters directly
-    from an NREL Annual Technology Baseline (ATB) flat CSV file or DataFrame, and
+    from an NLR Annual Technology Baseline (ATB) flat CSV file or DataFrame, and
     compute the standard annualized Economic Carrying Cost (Gross CONE).
 
-    Standard NREL ATB Flat Table Schema:
+    Standard NLR ATB Flat Table Schema:
       - technology: 'NaturalGas' / 'Natural Gas'
       - techdetail: 'CT' / 'Combustion Turbine'
       - core_metric_parameter / parameter: 'CAPEX', 'Fixed O&M', 'FCR'
@@ -1109,7 +1109,7 @@ def extract_nrel_atb_ct_parameters(df_or_filepath, year=2024, scenario="Moderate
     Parameters
     ----------
     df_or_filepath : str or pd.DataFrame
-        Path to the NREL ATB flat CSV file or an in-memory pandas DataFrame.
+        Path to the NLR ATB flat CSV file or an in-memory pandas DataFrame.
     year : int or str, optional
         Target projection year (default 2024).
     scenario : str, optional
@@ -1175,7 +1175,7 @@ def extract_nrel_atb_ct_parameters(df_or_filepath, year=2024, scenario="Moderate
                     continue
         return default_val
 
-    # Default fallback: NREL ATB 2024 Moderate values
+    # Default fallback: NLR ATB 2024 Moderate values
     capex_kw = _get_val([r'\bcapex\b', r'capital\s*expenditure'], 1100.0)
     fom_kw_yr = _get_val([r'fixed\s*o&m', r'\bfom\b', r'fixed\s*operations'], 20.00)
     fcr_val = _get_val([r'\bfcr\b', r'fixed\s*charge\s*rate'], 0.082)
