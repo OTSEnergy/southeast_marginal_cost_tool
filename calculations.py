@@ -1540,3 +1540,302 @@ def combine_gea_weights_to_state_portfolio(
     if comb_sum > 0.0:
         combined = combined / comb_sum
     return combined
+
+
+# ==============================================================================
+# MULTI-YEAR CAMBIUM MILESTONE INTERPOLATION & VALUATION ENGINE
+# ==============================================================================
+
+def interpolate_cambium_milestone_8760(
+    milestone_data: Dict[int, np.ndarray],
+    target_years: List[int],
+) -> Dict[int, np.ndarray]:
+    """
+    Linearly interpolate hourly 8,760 profiles between Cambium milestone years.
+
+    For inter-milestone years t between Y1 and Y2, each hour h is calculated as:
+        P_{h, t} = P_{h, Y1} + ((t - Y1) / (Y2 - Y1)) * (P_{h, Y2} - P_{h, Y1})
+
+    Years before the earliest milestone are clamped to the earliest milestone.
+    Years after the latest milestone are clamped to the latest milestone.
+
+    Parameters
+    ----------
+    milestone_data : Dict[int, np.ndarray]
+        Mapping from integer milestone year (e.g. {2024: p_24, 2030: p_30, 2035: p_35, 2045: p_45})
+        to 8,760-element numpy array.
+    target_years : List[int]
+        List of integer calendar years to interpolate across (e.g. [2025, 2026, ..., 2039]).
+
+    Returns
+    -------
+    Dict[int, np.ndarray]
+        Mapping from each target year to its interpolated 8,760 numpy array.
+    """
+    if not milestone_data:
+        raise ValueError("milestone_data dictionary cannot be empty.")
+
+    sorted_milestones = sorted(int(k) for k in milestone_data.keys())
+    first_arr = np.asarray(milestone_data[sorted_milestones[0]], dtype=float)
+    n_hours = len(first_arr)
+    if n_hours == 0:
+        raise ValueError("Milestone arrays cannot be empty.")
+
+    # Normalize keys to int and validate dimensions
+    norm_milestones: Dict[int, np.ndarray] = {}
+    for m in sorted_milestones:
+        arr = np.asarray(milestone_data[m], dtype=float)
+        if len(arr) != n_hours:
+            raise ValueError(f"Milestone year {m} length ({len(arr)}) does not match expected ({n_hours}).")
+        norm_milestones[m] = arr
+
+    interpolated: Dict[int, np.ndarray] = {}
+
+    for yr in target_years:
+        yr_int = int(yr)
+        if yr_int in norm_milestones:
+            interpolated[yr_int] = norm_milestones[yr_int].copy()
+        elif yr_int <= sorted_milestones[0]:
+            interpolated[yr_int] = norm_milestones[sorted_milestones[0]].copy()
+        elif yr_int >= sorted_milestones[-1]:
+            interpolated[yr_int] = norm_milestones[sorted_milestones[-1]].copy()
+        else:
+            # Find bounding milestone years Y1 <= yr_int <= Y2
+            y1 = max(m for m in sorted_milestones if m <= yr_int)
+            y2 = min(m for m in sorted_milestones if m >= yr_int)
+            if y1 == y2:
+                interpolated[yr_int] = norm_milestones[y1].copy()
+            else:
+                weight = float(yr_int - y1) / float(y2 - y1)
+                p1 = norm_milestones[y1]
+                p2 = norm_milestones[y2]
+                interpolated[yr_int] = p1 + weight * (p2 - p1)
+
+    return interpolated
+
+
+def calculate_multi_year_avoided_costs_and_npv(
+    asset_life: int,
+    start_year: int,
+    interpolated_energy_prices: Dict[int, np.ndarray],
+    load_reduction: np.ndarray,
+    cwft_array: np.ndarray,
+    pcaf_array: np.ndarray,
+    cap_value: float,
+    trans_value: float,
+    dist_value: float,
+    carbon_tax: float,
+    discount_rate: float,
+    customer_discount_rate: float,
+    degradation_rate: float,
+    annual_lost_revenue_yr1: float,
+    retail_escalation_rate: float,
+    gross_measure_cost: float = 0.0,
+    utility_incentive: float = 0.0,
+    utility_admin_cost: float = 0.0,
+    dr_capacity_derate: float = 1.0,
+    capacity_escalation_rate: float = 0.0,
+    interpolated_carbon_emissions: Optional[Dict[int, np.ndarray]] = None,
+    dist_weight_array: Optional[np.ndarray] = None,
+) -> Dict[str, Any]:
+    """
+    Compute multi-year avoided costs and NPV using dynamic hourly Cambium milestone trajectories.
+
+    Instead of applying a single flat annual percentage escalator across all hours,
+    this function evaluates each operating year t with that year's specific interpolated
+    8,760 wholesale energy price vector (and optionally carbon emissions vector).
+
+    Parameters
+    ----------
+    asset_life : int
+        Measure operating lifetime in years (e.g. 15).
+    start_year : int
+        Base calendar year (e.g. 2026).
+    interpolated_energy_prices : Dict[int, np.ndarray]
+        Mapping of calendar year to 8,760 wholesale energy prices ($/MWh).
+    load_reduction : np.ndarray
+        8,760 hourly load reduction array in kW.
+    cwft_array : np.ndarray
+        8,760 Capacity Weighting Factor Table values (sums to 1.0).
+    pcaf_array : np.ndarray
+        8,760 Peak Capacity Allocation Factors for transmission/distribution (sums to 1.0).
+    cap_value : float
+        Generation capacity value in $/kW-year.
+    trans_value : float
+        Transmission capacity value in $/kW-year.
+    dist_value : float
+        Distribution capacity value in $/kW-year.
+    carbon_tax : float
+        Carbon price in $/metric ton CO2.
+    discount_rate : float
+        Utility discount rate / WACC in percent (e.g. 7.0).
+    customer_discount_rate : float
+        Customer discount rate in percent (e.g. 7.0).
+    degradation_rate : float
+        Annual equipment efficiency degradation in percent (e.g. 1.0).
+    annual_lost_revenue_yr1 : float
+        Year 1 utility lost retail revenue / customer bill savings ($).
+    retail_escalation_rate : float
+        Annual retail tariff escalation rate in percent (e.g. 2.0).
+    gross_measure_cost : float, optional
+        Total installed measure cost ($). Default 0.0.
+    utility_incentive : float, optional
+        Utility customer rebate / incentive ($). Default 0.0.
+    utility_admin_cost : float, optional
+        Utility program administrative and marketing cost ($). Default 0.0.
+    dr_capacity_derate : float, optional
+        Capacity accreditation factor (default 1.0).
+    capacity_escalation_rate : float, optional
+        Annual inflation on generation and T&D capital replacement costs in percent (default 0.0).
+    interpolated_carbon_emissions : Optional[Dict[int, np.ndarray]], optional
+        Mapping of calendar year to 8,760 carbon emissions (kg CO2/MWh).
+    dist_weight_array : Optional[np.ndarray], optional
+        Localized distribution weights (default falls back to pcaf_array).
+
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary of NPV figures, cash flow arrays, cost tests, and summary DataFrame.
+    """
+    if asset_life < 1:
+        raise ValueError("asset_life must be at least 1 year.")
+
+    years = np.arange(1, asset_life + 1)
+    calendar_years = np.array([start_year + t - 1 for t in years])
+
+    discount_pct = discount_rate / 100.0
+    cust_discount_pct = customer_discount_rate / 100.0
+    degradation_pct = degradation_rate / 100.0
+    cap_esc_pct = capacity_escalation_rate / 100.0
+    retail_esc_pct = retail_escalation_rate / 100.0
+
+    dist_weights = pcaf_array if dist_weight_array is None else dist_weight_array
+
+    annual_energy_savings = np.zeros(asset_life, dtype=float)
+    annual_gen_cap_savings = np.zeros(asset_life, dtype=float)
+    annual_trans_savings = np.zeros(asset_life, dtype=float)
+    annual_dist_savings = np.zeros(asset_life, dtype=float)
+    annual_emissions_savings = np.zeros(asset_life, dtype=float)
+    annual_grid_savings = np.zeros(asset_life, dtype=float)
+    annual_lost_revenue = np.zeros(asset_life, dtype=float)
+
+    disc_factors = 1.0 / ((1.0 + discount_pct) ** years)
+    cust_disc_factors = 1.0 / ((1.0 + cust_discount_pct) ** years)
+
+    for idx, (yr_num, cal_yr) in enumerate(zip(years, calendar_years)):
+        deg_factor = (1.0 - degradation_pct) ** (yr_num - 1)
+        cap_esc_factor = (1.0 + cap_esc_pct) ** (yr_num - 1)
+        retail_esc_factor = (1.0 + retail_esc_pct) ** (yr_num - 1)
+
+        # Degraded load reductions (kW to MWh)
+        red_mwh = (load_reduction / 1000.0) * deg_factor
+        cap_red_mwh = red_mwh * dr_capacity_derate
+
+        # Hourly energy price for this calendar year
+        energy_price_h = interpolated_energy_prices.get(cal_yr)
+        if energy_price_h is None:
+            # Fall back to closest available year
+            avail_years = sorted(interpolated_energy_prices.keys())
+            closest_yr = min(avail_years, key=lambda y: abs(y - cal_yr))
+            energy_price_h = interpolated_energy_prices[closest_yr]
+
+        # Hourly carbon emissions
+        if interpolated_carbon_emissions and cal_yr in interpolated_carbon_emissions:
+            carbon_h = interpolated_carbon_emissions[cal_yr]
+        elif interpolated_carbon_emissions:
+            avail_c_years = sorted(interpolated_carbon_emissions.keys())
+            closest_c_yr = min(avail_c_years, key=lambda y: abs(y - cal_yr))
+            carbon_h = interpolated_carbon_emissions[closest_c_yr]
+        else:
+            carbon_h = np.zeros(len(load_reduction), dtype=float)
+
+        # 5 component avoided cost streams for operating year yr_num
+        energy_val = float(np.sum(red_mwh * energy_price_h))
+        gen_cap_val = float(np.sum(cap_red_mwh * (cap_value * cap_esc_factor * cwft_array * 1000.0)))
+        trans_val = float(np.sum(red_mwh * (trans_value * cap_esc_factor * pcaf_array * 1000.0)))
+        dist_val = float(np.sum(red_mwh * (dist_value * cap_esc_factor * dist_weights * 1000.0)))
+        emiss_val = float(np.sum(red_mwh * ((carbon_h / 1000.0) * (carbon_tax * cap_esc_factor))))
+
+        tot_grid = energy_val + gen_cap_val + trans_val + dist_val + emiss_val
+        tot_lost_rev = float(annual_lost_revenue_yr1 * retail_esc_factor * deg_factor)
+
+        annual_energy_savings[idx] = energy_val
+        annual_gen_cap_savings[idx] = gen_cap_val
+        annual_trans_savings[idx] = trans_val
+        annual_dist_savings[idx] = dist_val
+        annual_emissions_savings[idx] = emiss_val
+        annual_grid_savings[idx] = tot_grid
+        annual_lost_revenue[idx] = tot_lost_rev
+
+    # Discounted cash flow series
+    grid_savings_disc = annual_grid_savings * disc_factors
+    energy_savings_disc = annual_energy_savings * disc_factors
+    cap_emiss_savings = annual_gen_cap_savings + annual_trans_savings + annual_dist_savings + annual_emissions_savings
+    cap_emiss_savings_disc = cap_emiss_savings * disc_factors
+
+    retail_stream_disc_util = annual_lost_revenue * disc_factors
+    customer_stream_disc = annual_lost_revenue * cust_disc_factors
+
+    npv_grid_savings = float(np.sum(grid_savings_disc))
+    npv_energy_savings = float(np.sum(energy_savings_disc))
+    npv_capacity_savings = float(np.sum(cap_emiss_savings_disc))
+    npv_retail_lost_revenue = float(np.sum(retail_stream_disc_util))
+    npv_customer_bill_savings = float(np.sum(customer_stream_disc))
+
+    npv_program_cost = float(utility_incentive + utility_admin_cost)
+    npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_program_cost
+
+    # Cost-effectiveness tests
+    cost_tests = calculate_cost_effectiveness_tests(
+        npv_grid_savings=npv_grid_savings,
+        npv_lost_revenue=npv_retail_lost_revenue,
+        npv_customer_bill_savings=npv_customer_bill_savings,
+        gross_measure_cost=gross_measure_cost,
+        utility_incentive=utility_incentive,
+        utility_admin_cost=utility_admin_cost,
+        annual_customer_savings_stream=annual_lost_revenue,
+        pv_multipliers=cust_disc_factors,
+    )
+
+    # Build detailed cash flow DataFrame
+    cum_util_net_pv = np.cumsum(grid_savings_disc - retail_stream_disc_util) - npv_program_cost
+    cash_flow_df = pd.DataFrame({
+        "Operating_Year": years,
+        "Calendar_Year": calendar_years,
+        "Wholesale_Energy_Savings": annual_energy_savings,
+        "Capacity_Emissions_Savings": cap_emiss_savings,
+        "Total_Grid_Savings": annual_grid_savings,
+        "Lost_Retail_Revenue": annual_lost_revenue,
+        "Discount_Factor_Utility": disc_factors,
+        "Discount_Factor_Customer": cust_disc_factors,
+        "Discounted_Grid_Savings": grid_savings_disc,
+        "Discounted_Lost_Revenue": retail_stream_disc_util,
+        "Discounted_Customer_Savings": customer_stream_disc,
+        "Cumulative_Utility_Net_PV": cum_util_net_pv,
+    })
+
+    return {
+        "years": years,
+        "calendar_years": calendar_years,
+        "annual_energy_savings": annual_energy_savings,
+        "annual_gen_cap_savings": annual_gen_cap_savings,
+        "annual_trans_savings": annual_trans_savings,
+        "annual_dist_savings": annual_dist_savings,
+        "annual_emissions_savings": annual_emissions_savings,
+        "annual_grid_savings": annual_grid_savings,
+        "annual_lost_revenue": annual_lost_revenue,
+        "discount_factors": disc_factors,
+        "customer_discount_factors": cust_disc_factors,
+        "grid_savings_discounted": grid_savings_disc,
+        "retail_lost_revenue_discounted": retail_stream_disc_util,
+        "customer_bill_savings_discounted": customer_stream_disc,
+        "npv_grid_savings": npv_grid_savings,
+        "npv_energy_savings": npv_energy_savings,
+        "npv_capacity_savings": npv_capacity_savings,
+        "npv_retail_lost_revenue": npv_retail_lost_revenue,
+        "npv_customer_bill_savings": npv_customer_bill_savings,
+        "npv_program_cost": npv_program_cost,
+        "npv_net_savings": npv_net_savings,
+        "cash_flow_df": cash_flow_df,
+        "cost_tests": cost_tests,
+    }

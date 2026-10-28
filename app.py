@@ -28,6 +28,10 @@ from config import (
     CAP_VALUE_RANGE, TRANS_VALUE_RANGE, DIST_VALUE_RANGE, CARBON_TAX_RANGE,
     DEFAULT_ASSET_LIFE, DEFAULT_DISCOUNT_RATE, DEFAULT_ESCALATION_RATE,
     DEFAULT_RETAIL_ESCALATION, DEFAULT_DEGRADATION_RATE,
+    DEFAULT_CAPACITY_ESCALATION, DEFAULT_START_YEAR,
+    ESCALATION_MODES, DEFAULT_ESCALATION_MODE,
+    ESCALATION_MODE_CAMBIUM_TRAJECTORY, ESCALATION_MODE_FLAT_RATE,
+    DEFAULT_CAMBIUM_MILESTONES,
     DEFAULT_GROSS_MEASURE_COST, DEFAULT_UTILITY_INCENTIVE, DEFAULT_UTILITY_ADMIN_COST,
     DEFAULT_DR_HOURS_PER_YEAR, DEFAULT_DR_SEASON, DR_SEASON_OPTIONS,
     DEFAULT_DR_MAX_HOURS_PER_DAY, DEFAULT_DR_CAPACITY_KW,
@@ -81,6 +85,8 @@ from calculations import (
     calculate_upper_tail_stress_weights,
     combine_ba_weights_to_state_portfolio,
     calculate_system_stress_capacity_metrics,
+    interpolate_cambium_milestone_8760,
+    calculate_multi_year_avoided_costs_and_npv,
 )
 from system_stress_data import (
     evaluate_system_stress_capacity_proxy,
@@ -157,6 +163,8 @@ from data_loaders import (
     load_wmo_station_lookup,
     sanitize_filepath,
     load_cambium_net_demand_stress_weights,
+    check_missing_cambium_milestones,
+    load_cambium_milestones,
 )
 from cambium_downloader import (
     check_missing_cambium_data,
@@ -165,6 +173,7 @@ from cambium_downloader import (
     check_missing_cambium_gea_data_for_states,
     download_cambium_gea_data,
     download_missing_cambium_gea_data,
+    download_missing_cambium_milestones,
 )
 
 # ==============================================================================
@@ -957,12 +966,50 @@ with st.sidebar.expander("Retail Tariff Structure", expanded=True):
         custom_rate_kwh = st.number_input("Custom Energy ($/kWh)", min_value=0.0, value=0.12, step=0.01, format="%.3f")
         custom_demand_charge_kw = st.number_input("Custom Demand ($/kW-month)", min_value=0.0, value=0.00, step=1.00, format="%.2f")
 
-# 6. Financial Assumptions (Asset Lifetime, NPV & Measure/Program Costs)
-with st.sidebar.expander("Financial Assumptions", expanded=False):
+# 6. Financial Assumptions (Asset Lifetime, NPV, Escalation & Measure Costs)
+with st.sidebar.expander("Financial Assumptions & Multi-Year Trajectory", expanded=False):
     asset_life = st.number_input("Asset Lifetime (Years)", min_value=1, max_value=50, value=DEFAULT_ASSET_LIFE, step=1)
+    start_year = st.number_input(
+        "Valuation Start Year",
+        min_value=2024,
+        max_value=2050,
+        value=DEFAULT_START_YEAR,
+        step=1,
+        help="Base calendar year for multi-year cash flow evaluation (Years 1..N correspond to start_year..start_year+N-1)."
+    )
     discount_rate = st.number_input("Discount Rate / WACC (%)", min_value=0.0, max_value=25.0, value=DEFAULT_DISCOUNT_RATE, step=0.5, format="%.1f", help="The utility's cost of capital -- discounts the grid-side (utility) NPV streams.")
     customer_discount_rate = st.number_input("Customer Discount Rate (%)", min_value=0.0, max_value=25.0, value=discount_rate, step=0.5, format="%.1f", help="The homeowner's own discount rate for their bill-savings NPV and payback -- in practice often higher than a utility's WACC (personal opportunity cost of money, financing terms, risk tolerance). Defaults to match the WACC above; change it to model a more realistic customer perspective.")
-    escalation_rate = st.number_input("Grid Price Escalation (%)", min_value=-5.0, max_value=15.0, value=DEFAULT_ESCALATION_RATE, step=0.5, format="%.1f")
+
+    st.markdown("---")
+    st.markdown("**Grid Energy Price Escalation**")
+    escalation_mode = st.selectbox(
+        "Escalation Methodology",
+        options=ESCALATION_MODES,
+        index=0,
+        help="Choose between dynamic hourly Cambium milestone trajectories (capturing non-linear peak vs solar price divergence across future years) or traditional flat annual percentage escalation."
+    )
+
+    if escalation_mode == ESCALATION_MODE_CAMBIUM_TRAJECTORY:
+        cambium_milestones = st.multiselect(
+            "Cambium Milestone Years",
+            options=PLANNING_YEAR_OPTIONS,
+            default=[y for y in DEFAULT_CAMBIUM_MILESTONES if y in PLANNING_YEAR_OPTIONS],
+            help="Milestone years used to linearly interpolate hourly 8,760 grid prices across the asset lifetime."
+        )
+        if not cambium_milestones:
+            st.caption("⚠️ *Select at least one milestone year. Defaulting to planning year.*")
+            cambium_milestones = [planning_year]
+        capacity_escalation_rate = st.number_input(
+            "Capacity & T&D Cost Escalation (%)",
+            min_value=-5.0, max_value=15.0, value=DEFAULT_CAPACITY_ESCALATION, step=0.5, format="%.1f",
+            help="Annual inflation rate on generation capacity, transmission, and distribution avoided cost values ($/kW-yr)."
+        )
+        escalation_rate = DEFAULT_ESCALATION_RATE  # scalar fallback
+    else:
+        escalation_rate = st.number_input("Grid Price Escalation (%)", min_value=-5.0, max_value=15.0, value=DEFAULT_ESCALATION_RATE, step=0.5, format="%.1f")
+        capacity_escalation_rate = escalation_rate
+        cambium_milestones = [planning_year]
+
     degradation_rate = st.number_input("Annual Efficiency Decay (%)", min_value=0.0, max_value=10.0, value=DEFAULT_DEGRADATION_RATE, step=0.1, format="%.1f")
 
     st.markdown("---")
@@ -1122,15 +1169,29 @@ else:
         st.warning("**Selection Required:** Please choose at least one state in the sidebar multi-select.")
     else:
         # Pre-execution check: Verify Cambium hourly data is downloaded
-        missing_states = check_missing_cambium_data(
-            target_states=target_states,
-            selected_scenario=selected_scenario,
-            planning_year=planning_year
-        )
+        if escalation_mode == ESCALATION_MODE_CAMBIUM_TRAJECTORY:
+            missing_milestones = check_missing_cambium_milestones(
+                target_states=target_states,
+                selected_scenario=selected_scenario,
+                milestone_years=cambium_milestones,
+            )
+            missing_states_set = set()
+            for sts in missing_milestones.values():
+                missing_states_set.update(sts)
+            missing_states = sorted(list(missing_states_set))
+            missing_years_str = ", ".join(sorted(missing_milestones.keys())) if missing_milestones else ""
+        else:
+            missing_states = check_missing_cambium_data(
+                target_states=target_states,
+                selected_scenario=selected_scenario,
+                planning_year=planning_year
+            )
+            missing_years_str = planning_year
+
         if missing_states:
             st.warning(
                 f"⚠️ **Cambium Grid Data Missing:** Hourly grid data for state(s) **{', '.join(missing_states)}** "
-                f"({selected_scenario} | Planning Year {planning_year}) is not yet in local storage."
+                f"({selected_scenario} | Year(s): {missing_years_str}) is not yet in local storage."
             )
             col_dl_btn, col_dl_info = st.columns([1.6, 3.4])
             with col_dl_btn:
@@ -1143,12 +1204,20 @@ else:
                     try:
                         def _cb(msg, frac):
                             prog_bar.progress(int(frac * 100), text=msg)
-                        download_cambium_data(
-                            target_states=missing_states,
-                            selected_scenario=selected_scenario,
-                            planning_year=planning_year,
-                            progress_callback=_cb
-                        )
+                        if escalation_mode == ESCALATION_MODE_CAMBIUM_TRAJECTORY:
+                            download_missing_cambium_milestones(
+                                target_states=target_states,
+                                selected_scenario=selected_scenario,
+                                milestone_years=cambium_milestones,
+                                progress_callback=_cb
+                            )
+                        else:
+                            download_cambium_data(
+                                target_states=missing_states,
+                                selected_scenario=selected_scenario,
+                                planning_year=planning_year,
+                                progress_callback=_cb
+                            )
                         st.success(f"Downloaded and extracted grid data for {', '.join(missing_states)}!")
                         st.rerun()
                     except Exception as dl_err:
@@ -1221,6 +1290,24 @@ else:
             )
             for w in cambium_ingestion_warnings:
                 st.warning(f"Cambium data file skipped: {w}")
+
+            multi_year_active = (escalation_mode == ESCALATION_MODE_CAMBIUM_TRAJECTORY)
+            milestone_dfs = {}
+            if multi_year_active:
+                try:
+                    milestone_dfs, multi_warnings = load_cambium_milestones(
+                        target_states=target_states,
+                        selected_scenario=selected_scenario,
+                        milestone_years=cambium_milestones,
+                        weather_case=weather_case,
+                        target_year=meta_load_weather,
+                    )
+                    for w in multi_warnings:
+                        st.warning(f"Cambium multi-year milestone data: {w}")
+                except Exception as m_err:
+                    st.warning(f"Could not load all Cambium milestones ({m_err}). Falling back to planning year.")
+                    milestone_dfs = {}
+
             datetime_series = raw_df['Datetime']
             
             # Retrieve mapped variables for reporting
@@ -1454,7 +1541,7 @@ else:
             annual_emissions_savings = emissions_savings_h.sum()
             annual_grid_savings = total_savings_h.sum()
             
-            # 4. Multi-year NPV discounting
+            # 4. Multi-year NPV discounting & Dynamic Hourly Cambium Trajectory
             years = np.arange(1, asset_life + 1)
             discount_pct = discount_rate / 100.0
             customer_discount_pct = customer_discount_rate / 100.0
@@ -1462,48 +1549,87 @@ else:
             retail_escalation_pct = retail_escalation_rate / 100.0
             degradation_pct = degradation_rate / 100.0
 
-            grid_esc_factors = (1 + escalation_pct) ** (years - 1)
             retail_esc_factors = (1 + retail_escalation_pct) ** (years - 1)
             deg_factors = (1 - degradation_pct) ** (years - 1)
             disc_factors = 1 / ((1 + discount_pct) ** years)
             customer_disc_factors = 1 / ((1 + customer_discount_pct) ** years)
 
-            grid_pv_multipliers = (grid_esc_factors * deg_factors) * disc_factors
-            # Utility-side view of the same lost-revenue dollar stream, discounted at the
-            # utility's own WACC (feeds RIM, the Scorecard/Lifetime Cash Flow Utility view).
             retail_pv_multipliers = (retail_esc_factors * deg_factors) * disc_factors
-            # Customer-side view of that same stream, discounted at the customer's own
-            # rate (feeds PCT, discounted payback, and the Lifetime Cash Flow Customer
-            # view) -- a homeowner's appropriate discount rate is often higher than a
-            # utility's regulated WACC, so this defaults to match it but can be raised.
             customer_pv_multipliers = (retail_esc_factors * deg_factors) * customer_disc_factors
 
-            pv_grid_mult_sum = grid_pv_multipliers.sum()
-            npv_grid_savings = annual_grid_savings * pv_grid_mult_sum
-            npv_energy_savings = annual_energy_savings * pv_grid_mult_sum
-            npv_capacity_savings = (annual_gen_cap_savings + annual_trans_savings + annual_dist_savings + annual_emissions_savings) * pv_grid_mult_sum
-            npv_retail_lost_revenue = annual_lost_revenue * retail_pv_multipliers.sum()
-            npv_customer_bill_savings = annual_lost_revenue * customer_pv_multipliers.sum()
-            
-            # Includes the utility's one-time program cost (incentive + admin) so this
-            # headline NPV agrees with the Lifetime Cash Flow tab's Utility perspective
-            # total, rather than being a narrower "grid savings vs. lost revenue only"
-            # figure that silently excludes real utility cash outflows.
-            npv_program_cost = utility_incentive + utility_admin_cost
-            npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_program_cost
-            
-            # 4b. Cost-Effectiveness & Payback Tests (TRC, PCT, RIM, Payback)
-            annual_cust_savings_stream = (annual_lost_revenue * retail_esc_factors * deg_factors)
-            cost_tests = calculate_cost_effectiveness_tests(
-                npv_grid_savings=npv_grid_savings,
-                npv_lost_revenue=npv_retail_lost_revenue,
-                npv_customer_bill_savings=npv_customer_bill_savings,
-                gross_measure_cost=gross_measure_cost,
-                utility_incentive=utility_incentive,
-                utility_admin_cost=utility_admin_cost,
-                annual_customer_savings_stream=annual_cust_savings_stream,
-                pv_multipliers=customer_pv_multipliers
-            )
+            cash_flow_table_df = None
+
+            if multi_year_active and milestone_dfs:
+                milestone_energy_prices = {yr: mdf['Cambium_Energy_MWh'].to_numpy() for yr, mdf in milestone_dfs.items()}
+                milestone_carbon = {yr: mdf['Cambium_Carbon_kg_MWh'].to_numpy() for yr, mdf in milestone_dfs.items()}
+                target_years = [int(start_year) + t - 1 for t in range(1, asset_life + 1)]
+                interpolated_energy = interpolate_cambium_milestone_8760(milestone_energy_prices, target_years)
+                interpolated_carbon = interpolate_cambium_milestone_8760(milestone_carbon, target_years)
+
+                multi_res = calculate_multi_year_avoided_costs_and_npv(
+                    asset_life=asset_life,
+                    start_year=int(start_year),
+                    interpolated_energy_prices=interpolated_energy,
+                    load_reduction=load_reduction,
+                    cwft_array=cwft_array,
+                    pcaf_array=results_df['PCAF_Weight'].to_numpy(),
+                    cap_value=cap_value,
+                    trans_value=trans_value,
+                    dist_value=dist_value,
+                    carbon_tax=carbon_tax,
+                    discount_rate=discount_rate,
+                    customer_discount_rate=customer_discount_rate,
+                    degradation_rate=degradation_rate,
+                    annual_lost_revenue_yr1=annual_lost_revenue,
+                    retail_escalation_rate=retail_escalation_rate,
+                    gross_measure_cost=gross_measure_cost,
+                    utility_incentive=utility_incentive,
+                    utility_admin_cost=utility_admin_cost,
+                    dr_capacity_derate=dr_capacity_derate,
+                    capacity_escalation_rate=capacity_escalation_rate,
+                    interpolated_carbon_emissions=interpolated_carbon,
+                    dist_weight_array=dist_weight_array,
+                )
+
+                grid_savings_disc = multi_res["grid_savings_discounted"]
+                grid_pv_multipliers = disc_factors
+                npv_grid_savings = multi_res["npv_grid_savings"]
+                npv_energy_savings = multi_res["npv_energy_savings"]
+                npv_capacity_savings = multi_res["npv_capacity_savings"]
+                npv_retail_lost_revenue = multi_res["npv_retail_lost_revenue"]
+                npv_customer_bill_savings = multi_res["npv_customer_bill_savings"]
+                npv_program_cost = multi_res["npv_program_cost"]
+                npv_net_savings = multi_res["npv_net_savings"]
+
+                cost_tests = multi_res["cost_tests"]
+                cash_flow_table_df = multi_res["cash_flow_df"]
+                annual_cust_savings_stream = multi_res["annual_lost_revenue"]
+            else:
+                grid_esc_factors = (1 + escalation_pct) ** (years - 1)
+                grid_pv_multipliers = (grid_esc_factors * deg_factors) * disc_factors
+                pv_grid_mult_sum = grid_pv_multipliers.sum()
+
+                npv_grid_savings = annual_grid_savings * pv_grid_mult_sum
+                npv_energy_savings = annual_energy_savings * pv_grid_mult_sum
+                npv_capacity_savings = (annual_gen_cap_savings + annual_trans_savings + annual_dist_savings + annual_emissions_savings) * pv_grid_mult_sum
+                npv_retail_lost_revenue = annual_lost_revenue * retail_pv_multipliers.sum()
+                npv_customer_bill_savings = annual_lost_revenue * customer_pv_multipliers.sum()
+                npv_program_cost = utility_incentive + utility_admin_cost
+                npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_program_cost
+
+                grid_savings_disc = annual_grid_savings * grid_pv_multipliers
+                annual_cust_savings_stream = (annual_lost_revenue * retail_esc_factors * deg_factors)
+                cost_tests = calculate_cost_effectiveness_tests(
+                    npv_grid_savings=npv_grid_savings,
+                    npv_lost_revenue=npv_retail_lost_revenue,
+                    npv_customer_bill_savings=npv_customer_bill_savings,
+                    gross_measure_cost=gross_measure_cost,
+                    utility_incentive=utility_incentive,
+                    utility_admin_cost=utility_admin_cost,
+                    annual_customer_savings_stream=annual_cust_savings_stream,
+                    pv_multipliers=customer_pv_multipliers
+                )
+
             trc_ratio = cost_tests["trc_ratio"]
             pct_ratio = cost_tests["pct_ratio"]
             rim_ratio = cost_tests["rim_ratio"]
@@ -2591,7 +2717,6 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     )
                     col_chart, col_text = st.columns([3, 2])
                     with col_chart:
-                        grid_savings_disc = annual_grid_savings * grid_pv_multipliers
                         # Same underlying $ stream either way — one side's lost retail
                         # revenue is the other side's bill savings — but discounted at
                         # each party's own rate (utility WACC vs. the sidebar's Customer
@@ -2618,6 +2743,28 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 upfront_name="Upfront Cost (after rebate)"
                             )
                         st.plotly_chart(fig_lifetime, width="stretch")
+
+                    if cash_flow_table_df is not None:
+                        with st.expander("📊 Detailed Multi-Year Cash Flow Stream (Cambium Milestone Interpolated)", expanded=False):
+                            st.caption(
+                                f"Evaluated across {len(years)} operating years starting {start_year} using milestone interpolation. "
+                                "Wholesale energy prices account for hourly non-linear duck-curve suppression and peak growth."
+                            )
+                            st.dataframe(
+                                cash_flow_table_df.style.format({
+                                    "Wholesale_Energy_Savings": "${:,.2f}",
+                                    "Capacity_Emissions_Savings": "${:,.2f}",
+                                    "Total_Grid_Savings": "${:,.2f}",
+                                    "Lost_Retail_Revenue": "${:,.2f}",
+                                    "Discount_Factor_Utility": "{:.4f}",
+                                    "Discount_Factor_Customer": "{:.4f}",
+                                    "Discounted_Grid_Savings": "${:,.2f}",
+                                    "Discounted_Lost_Revenue": "${:,.2f}",
+                                    "Discounted_Customer_Savings": "${:,.2f}",
+                                    "Cumulative_Utility_Net_PV": "${:,.2f}",
+                                }),
+                                use_container_width=True
+                            )
                     with col_text:
                         if perspective == "Utility":
                             st.markdown(

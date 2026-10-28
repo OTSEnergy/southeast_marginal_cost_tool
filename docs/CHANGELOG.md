@@ -2,6 +2,39 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-10-28] — Multi-Year Cambium Milestone Ingestion & Hourly Dynamic Interpolation
+
+### Context
+Built out dynamic multi-year grid avoided cost valuation accounting for non-linear hourly energy price growth across asset lifetimes:
+- Traditional flat escalation (e.g. 2%/yr) wrongly applies uniform scalar to all 8,760 hours, ignoring midday solar duck curve price suppression and severe peak-hour price escalation.
+- Implemented **Multi-Year Milestone Ingestion & Interpolation**: ingests 3–4 Cambium milestone years (e.g. 2025, 2030, 2035, 2045) across asset lifetime and linearly interpolates each hour $h$ for intermediate years $t$:
+  $$P_{h, t} = P_{h, Y_1} + \frac{t - Y_1}{Y_2 - Y_1}(P_{h, Y_2} - P_{h, Y_1})$$
+- Evaluates year-specific 8,760 hourly avoided costs, equipment degradation, and customer/utility discount rates, generating exact annual cash flows and lifetime NPVs.
+
+### Changes Made
+- **`calculations.py`**:
+  - Added `interpolate_cambium_milestone_8760(milestone_data, target_years)`: vectorized linear interpolation across 8,760 hours with boundary clamping and dimension validation.
+  - Added `calculate_multi_year_avoided_costs_and_npv(...)`: computes year-by-year 5-component avoided costs with dynamic hourly wholesale prices, degraded load reductions, SPM tests (TRC, PCT, RIM), customer payback periods, and detailed cash flow DataFrame.
+- **`data_loaders.py`**:
+  - Added `check_missing_cambium_milestones(target_states, selected_scenario, milestone_years)`: checks missing CSV files across multiple milestone years.
+  - Added `load_cambium_milestones(target_states, selected_scenario, milestone_years, weather_case, ...)`: loads and aggregates 8,760 DataFrames for multiple Cambium milestone years.
+- **`cambium_downloader.py`**:
+  - Added `download_missing_cambium_milestones(target_states, selected_scenario, milestone_years, ...)`: iterates and downloads missing milestone years from NLR Scenario Viewer S3 storage with progress tracking.
+- **`config.py`**:
+  - Added `ESCALATION_MODES`, `DEFAULT_ESCALATION_MODE`, `ESCALATION_MODE_CAMBIUM_TRAJECTORY`, `ESCALATION_MODE_FLAT_RATE`, `DEFAULT_CAMBIUM_MILESTONES`, `DEFAULT_CAPACITY_ESCALATION`, and `DEFAULT_START_YEAR`.
+- **`app.py`**:
+  - Added "Grid Energy Price Escalation Mode" selector in sidebar under Financial Assumptions.
+  - Supported milestone year selection with automated multi-milestone data validation and download triggers.
+  - Connected multi-year calculation to dashboard NPVs, SPM cost-effectiveness tests, and Lifetime Cash Flow tab.
+  - Added expander in Lifetime Cash Flow tab displaying detailed multi-year cash flow table.
+  - `app.py` line count at sync: 3,400 lines (updated in `docs/app_annotated.py`).
+- **`tests/test_calculations.py` & `tests/test_cambium_downloader.py`**:
+  - Added `TestInterpolateCambiumMilestone8760` (exact milestones, linear midpoint, hourly divergence, boundary clamping, single year, validation errors).
+  - Added `TestMultiYearValuationAndNpv` (baseline scalar equivalence, dynamic growth NPV increase).
+  - Added `TestCambiumMilestonesDownloaderAndDetection` (milestone checking and download delegation).
+- **Tests**:
+  - All **252/252** tests passing (`python -m pytest`).
+
 ## [2026-10-28] — Resolved HTTP 403 Cambium Download & Updated NREL References to NLR
 
 ### Context

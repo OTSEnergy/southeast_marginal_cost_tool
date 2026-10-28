@@ -282,3 +282,35 @@ class TestBundledCambiumFallback:
             basenames = [os.path.basename(f) for f in files]
             assert 'Cambium24_MidCase_hourly_p89_2030.csv' in basenames
             assert 'Cambium24_MidCase_hourly_p90_2030.csv' in basenames
+
+
+class TestCambiumMilestonesDownloaderAndDetection:
+    """Verifies multi-year milestone check and download delegation."""
+
+    def test_check_missing_cambium_milestones_empty_dir(self):
+        import tempfile
+        from data_loaders import check_missing_cambium_milestones
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing = check_missing_cambium_milestones(["AL"], "MidCase", ["2025", "2030"], input_directory=tmpdir)
+            assert "2025" in missing
+            assert "2030" in missing
+            assert "AL" in missing["2025"]
+            assert "AL" in missing["2030"]
+
+    def test_download_missing_cambium_milestones_delegation(self):
+        import tempfile
+        from unittest.mock import patch
+        from cambium_downloader import download_missing_cambium_milestones
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("cambium_downloader.download_cambium_data") as mock_dl:
+                mock_dl.return_value = ["/mock/path/p89.csv"]
+                files = download_missing_cambium_milestones(
+                    target_states=["AL"],
+                    selected_scenario="MidCase",
+                    milestone_years=["2025", "2030"],
+                    output_directory=tmpdir,
+                )
+                assert mock_dl.call_count == 2
+                assert len(files) == 2

@@ -64,6 +64,17 @@ SCENARIO_DESCRIPTIONS = {
 PLANNING_YEAR_OPTIONS = ["2025", "2030", "2035", "2040", "2045", "2050"]
 DEFAULT_PLANNING_YEAR_INDEX = 1  # "2030"
 
+# Multi-Year Escalation Modes & Defaults
+ESCALATION_MODE_CAMBIUM_TRAJECTORY = "Cambium Milestone Trajectory (Hourly Dynamic)"
+ESCALATION_MODE_FLAT_RATE = "Flat Annual Escalation (%)"
+ESCALATION_MODES = [
+    ESCALATION_MODE_CAMBIUM_TRAJECTORY,
+    ESCALATION_MODE_FLAT_RATE,
+]
+DEFAULT_ESCALATION_MODE = ESCALATION_MODE_CAMBIUM_TRAJECTORY
+DEFAULT_CAMBIUM_MILESTONES = ["2025", "2030", "2035", "2045"]
+DEFAULT_CAPACITY_ESCALATION_RATE = 1.0  # % (annual inflation on gen, transmission & distribution replacement value)
+
 WEATHER_CASE_OPTIONS = [
     "2012 (Cambium-aligned baseline)",
     "Extreme Winter",
@@ -683,8 +694,10 @@ FEEDER_TYPE_OPTIONS = [
 # ==============================================================================
 
 DEFAULT_ASSET_LIFE = 15          # years
+DEFAULT_START_YEAR = 2026         # Base calendar year for multi-year cash flow evaluation
 DEFAULT_DISCOUNT_RATE = 7.0      # %  (WACC)
-DEFAULT_ESCALATION_RATE = 2.0    # %  (grid price escalation)
+DEFAULT_ESCALATION_RATE = 2.0    # %  (grid price escalation for legacy flat mode)
+DEFAULT_CAPACITY_ESCALATION = 1.0 # %  (annual replacement cost escalation for gen & T&D)
 DEFAULT_RETAIL_ESCALATION = 2.0  # %  (retail price escalation)
 DEFAULT_DEGRADATION_RATE = 1.0   # %  (annual efficiency decay)
 

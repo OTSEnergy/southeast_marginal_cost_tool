@@ -1261,3 +1261,99 @@ def load_cambium_net_demand_stress_weights(
             top_n_peak_hours=top_n_peak_hours,
         )
     return res
+
+
+# ==============================================================================
+# MULTI-YEAR CAMBIUM MILESTONE LOADER & VALIDATOR
+# ==============================================================================
+
+def check_missing_cambium_milestones(
+    target_states: List[str],
+    selected_scenario: str,
+    milestone_years: List[str],
+    input_directory: str = INPUT_DIRECTORY,
+) -> Dict[str, List[str]]:
+    """
+    Check which milestone years have missing state data files.
+
+    Parameters
+    ----------
+    target_states : List[str]
+        State codes (e.g. ["AL", "GA"]).
+    selected_scenario : str
+        NLR scenario name (e.g. "MidCase").
+    milestone_years : List[str]
+        List of milestone year strings (e.g. ["2025", "2030", "2035", "2045"]).
+    input_directory : str
+        Directory to scan.
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        Mapping of {milestone_year: [missing_states]}. Only includes years with missing states.
+    """
+    from cambium_downloader import check_missing_cambium_data
+    missing_by_year: Dict[str, List[str]] = {}
+    for yr in milestone_years:
+        missing = check_missing_cambium_data(
+            target_states=target_states,
+            selected_scenario=selected_scenario,
+            planning_year=str(yr),
+            input_directory=input_directory,
+        )
+        if missing:
+            missing_by_year[str(yr)] = missing
+    return missing_by_year
+
+
+def load_cambium_milestones(
+    target_states: List[str],
+    selected_scenario: str,
+    milestone_years: List[str],
+    weather_case: str,
+    target_year: str = "2026",
+    input_directory: str = INPUT_DIRECTORY,
+) -> Tuple[Dict[int, pd.DataFrame], List[str]]:
+    """
+    Load and aggregate 8,760 grid datasets for multiple Cambium milestone years.
+
+    Parameters
+    ----------
+    target_states : List[str]
+        State codes to include (e.g., ["AL", "GA"]).
+    selected_scenario : str
+        NLR scenario name (e.g., "MidCase").
+    milestone_years : List[str]
+        List of planning years to load (e.g., ["2025", "2030", "2035", "2045"]).
+    weather_case : str
+        Weather scenario for temperature and price adjustments.
+    target_year : str
+        Calendar year for 8760 datetime alignment.
+    input_directory : str
+        Directory containing Cambium CSVs.
+
+    Returns
+    -------
+    milestone_dfs : Dict[int, pd.DataFrame]
+        Mapping from integer milestone year to its 8,760 DataFrame.
+    all_warnings : List[str]
+        List of any ingestion warnings encountered across milestones.
+    """
+    milestone_dfs: Dict[int, pd.DataFrame] = {}
+    all_warnings: List[str] = []
+
+    for yr in milestone_years:
+        yr_int = int(yr)
+        df, warnings = load_and_aggregate_data(
+            target_states=target_states,
+            selected_scenario=selected_scenario,
+            weather_case=weather_case,
+            target_year=target_year,
+            planning_year=str(yr),
+            input_directory=input_directory,
+        )
+        milestone_dfs[yr_int] = df
+        if warnings:
+            all_warnings.extend([f"[{yr}] {w}" for w in warnings])
+
+    return milestone_dfs, all_warnings

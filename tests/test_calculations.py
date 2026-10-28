@@ -2649,3 +2649,172 @@ class TestKPIRatioCards:
         assert "kpi-tooltip-bubble" in html
         assert "Grid Avoided Costs minus Lost Revenue" in html
 
+
+class TestInterpolateCambiumMilestone8760:
+    """Unit tests for linear hourly 8,760 interpolation between Cambium milestone years."""
+
+    def test_exact_milestones_preserved(self):
+        from calculations import interpolate_cambium_milestone_8760
+        arr_2025 = np.full(8760, 25.0)
+        arr_2035 = np.full(8760, 45.0)
+        milestones = {2025: arr_2025, 2035: arr_2035}
+
+        res = interpolate_cambium_milestone_8760(milestones, [2025, 2035])
+        np.testing.assert_allclose(res[2025], arr_2025)
+        np.testing.assert_allclose(res[2035], arr_2035)
+
+    def test_linear_interpolation_midpoint(self):
+        from calculations import interpolate_cambium_milestone_8760
+        arr_2020 = np.full(8760, 20.0)
+        arr_2030 = np.full(8760, 40.0)
+        milestones = {2020: arr_2020, 2030: arr_2030}
+
+        res = interpolate_cambium_milestone_8760(milestones, [2025])
+        assert 2025 in res
+        # Exactly halfway between 20.0 and 40.0 is 30.0
+        np.testing.assert_allclose(res[2025], np.full(8760, 30.0))
+
+    def test_hourly_divergence_preserved(self):
+        from calculations import interpolate_cambium_milestone_8760
+        # Hour 0 doubles (peak), hour 1 stays flat (solar midday), hour 2 triples
+        arr_2024 = np.array([50.0, 20.0, 30.0] + [25.0] * 8757)
+        arr_2034 = np.array([100.0, 20.0, 90.0] + [25.0] * 8757)
+        milestones = {2024: arr_2024, 2034: arr_2034}
+
+        res = interpolate_cambium_milestone_8760(milestones, [2029])  # Halfway (5 yrs in 10 yr span)
+        expected = np.array([75.0, 20.0, 60.0] + [25.0] * 8757)
+        np.testing.assert_allclose(res[2029], expected)
+
+    def test_clamping_boundary_years(self):
+        from calculations import interpolate_cambium_milestone_8760
+        arr_2030 = np.full(8760, 30.0)
+        arr_2040 = np.full(8760, 50.0)
+        milestones = {2030: arr_2030, 2040: arr_2040}
+
+        res = interpolate_cambium_milestone_8760(milestones, [2025, 2050])
+        # 2025 is before 2030 -> clamped to 2030
+        np.testing.assert_allclose(res[2025], arr_2030)
+        # 2050 is after 2040 -> clamped to 2040
+        np.testing.assert_allclose(res[2050], arr_2040)
+
+    def test_single_milestone_year(self):
+        from calculations import interpolate_cambium_milestone_8760
+        arr_2030 = np.full(8760, 35.0)
+        milestones = {2030: arr_2030}
+
+        res = interpolate_cambium_milestone_8760(milestones, [2025, 2030, 2040])
+        for yr in [2025, 2030, 2040]:
+            np.testing.assert_allclose(res[yr], arr_2030)
+
+    def test_validation_errors(self):
+        from calculations import interpolate_cambium_milestone_8760
+        with pytest.raises(ValueError, match="cannot be empty"):
+            interpolate_cambium_milestone_8760({}, [2030])
+
+        with pytest.raises(ValueError, match="length.*does not match"):
+            interpolate_cambium_milestone_8760({2025: np.zeros(8760), 2030: np.zeros(8759)}, [2027])
+
+
+class TestMultiYearValuationAndNpv:
+    """Unit tests for calculate_multi_year_avoided_costs_and_npv."""
+
+    @pytest.fixture
+    def setup_data(self):
+        np.random.seed(42)
+        n = 8760
+        load_red = np.ones(n) * 2.0  # 2 kW constant reduction
+        cwft = np.ones(n) / n
+        pcaf = np.ones(n) / n
+        p_2025 = np.full(n, 30.0)
+        p_2035 = np.full(n, 50.0)
+        return {
+            "load_reduction": load_red,
+            "cwft": cwft,
+            "pcaf": pcaf,
+            "p_2025": p_2025,
+            "p_2035": p_2035,
+        }
+
+    def test_multi_year_npv_matches_legacy_scalar_when_prices_constant(self, setup_data):
+        from calculations import calculate_multi_year_avoided_costs_and_npv
+        # Milestone prices are flat constant $30/MWh
+        p_constant = {yr: setup_data["p_2025"] for yr in range(2025, 2040)}
+        res = calculate_multi_year_avoided_costs_and_npv(
+            asset_life=10,
+            start_year=2025,
+            interpolated_energy_prices=p_constant,
+            load_reduction=setup_data["load_reduction"],
+            cwft_array=setup_data["cwft"],
+            pcaf_array=setup_data["pcaf"],
+            cap_value=100.0,
+            trans_value=20.0,
+            dist_value=30.0,
+            carbon_tax=0.0,
+            discount_rate=7.0,
+            customer_discount_rate=7.0,
+            degradation_rate=1.0,
+            annual_lost_revenue_yr1=500.0,
+            retail_escalation_rate=2.0,
+            capacity_escalation_rate=0.0,
+        )
+
+        assert len(res["years"]) == 10
+        assert res["npv_grid_savings"] > 0
+        assert res["npv_energy_savings"] > 0
+        assert res["npv_capacity_savings"] > 0
+        assert "cash_flow_df" in res
+        assert len(res["cash_flow_df"]) == 10
+
+        # Annual energy savings in Year 1:
+        # 2 kW * 8760 hrs = 17.52 MWh * $30/MWh = $525.60
+        assert np.isclose(res["annual_energy_savings"][0], 525.60, rtol=1e-3)
+
+    def test_dynamic_hourly_growth_increases_npv(self, setup_data):
+        from calculations import interpolate_cambium_milestone_8760, calculate_multi_year_avoided_costs_and_npv
+        # 2025 is $30/MWh, 2035 is $60/MWh (growing)
+        milestones = {2025: setup_data["p_2025"], 2035: setup_data["p_35" if "p_35" in setup_data else "p_2035"]}
+        target_years = list(range(2025, 2036))
+        interpolated = interpolate_cambium_milestone_8760(milestones, target_years)
+
+        res_growing = calculate_multi_year_avoided_costs_and_npv(
+            asset_life=10,
+            start_year=2025,
+            interpolated_energy_prices=interpolated,
+            load_reduction=setup_data["load_reduction"],
+            cwft_array=setup_data["cwft"],
+            pcaf_array=setup_data["pcaf"],
+            cap_value=0.0,
+            trans_value=0.0,
+            dist_value=0.0,
+            carbon_tax=0.0,
+            discount_rate=7.0,
+            customer_discount_rate=7.0,
+            degradation_rate=0.0,
+            annual_lost_revenue_yr1=0.0,
+            retail_escalation_rate=0.0,
+        )
+
+        # Constant $30/MWh case
+        flat_p = {yr: setup_data["p_2025"] for yr in target_years}
+        res_flat = calculate_multi_year_avoided_costs_and_npv(
+            asset_life=10,
+            start_year=2025,
+            interpolated_energy_prices=flat_p,
+            load_reduction=setup_data["load_reduction"],
+            cwft_array=setup_data["cwft"],
+            pcaf_array=setup_data["pcaf"],
+            cap_value=0.0,
+            trans_value=0.0,
+            dist_value=0.0,
+            carbon_tax=0.0,
+            discount_rate=7.0,
+            customer_discount_rate=7.0,
+            degradation_rate=0.0,
+            annual_lost_revenue_yr1=0.0,
+            retail_escalation_rate=0.0,
+        )
+
+        # Growing Cambium prices should produce higher NPV and increasing annual energy savings
+        assert res_growing["npv_grid_savings"] > res_flat["npv_grid_savings"]
+        assert res_growing["annual_energy_savings"][-1] > res_growing["annual_energy_savings"][0]
+

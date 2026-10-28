@@ -1,5 +1,5 @@
 
-# Note: app.py synced at 3253 lines on 2026-10-28 (Manual Cambium fallback guide & NLR branding).
+# Note: app.py synced at 3400 lines on 2026-10-28 (Multi-Year Cambium Milestone Ingestion & Hourly Interpolation).
 """
 ================================================================================
 ⚡ ANNOTATED TOUR OF APP.PY: SOUTHEAST MARGINAL COST VALUATION ENGINE ⚡

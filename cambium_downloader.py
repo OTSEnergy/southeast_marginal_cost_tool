@@ -798,3 +798,67 @@ def download_missing_cambium_gea_data(
         target_bas_subset=specific_bas if specific_bas else None,
         only_missing=True,
     )
+
+
+def download_missing_cambium_milestones(
+    target_states: List[str],
+    selected_scenario: str,
+    milestone_years: List[str],
+    output_directory: str = "./Cambium_Hourly_Data_raw",
+    progress_callback: Optional[Callable[[str, float], None]] = None,
+    project_version: str = "Cambium 2024",
+) -> List[str]:
+    """
+    Downloads missing Cambium data across multiple milestone years.
+
+    Parameters
+    ----------
+    target_states : List[str]
+        State codes (e.g. ["AL", "GA"]).
+    selected_scenario : str
+        NLR scenario name (e.g. "MidCase").
+    milestone_years : List[str]
+        Milestone planning years (e.g. ["2025", "2030", "2035", "2045"]).
+    output_directory : str
+        Directory to extract CSVs into.
+    progress_callback : Optional[Callable[[str, float], None]]
+        Progress feedback hook.
+    project_version : str
+        Cambium release version.
+
+    Returns
+    -------
+    List[str]
+        List of all downloaded/extracted file paths across all milestone years.
+    """
+    all_downloaded: List[str] = []
+    n_years = len(milestone_years)
+
+    for idx, yr in enumerate(milestone_years):
+        missing = check_missing_cambium_data(
+            target_states=target_states,
+            selected_scenario=selected_scenario,
+            planning_year=str(yr),
+            input_directory=output_directory,
+        )
+        if not missing:
+            continue
+
+        def sub_progress(msg: str, frac: float):
+            if progress_callback:
+                overall_frac = (idx + frac) / max(n_years, 1)
+                progress_callback(f"[{yr}] {msg}", overall_frac)
+
+        files = download_cambium_data(
+            target_states=missing,
+            selected_scenario=selected_scenario,
+            planning_year=str(yr),
+            output_directory=output_directory,
+            progress_callback=sub_progress,
+        )
+        all_downloaded.extend(files)
+
+    if progress_callback:
+        progress_callback("All milestone data successfully verified/downloaded.", 1.0)
+
+    return all_downloaded

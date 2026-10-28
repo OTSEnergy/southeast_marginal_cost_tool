@@ -34,6 +34,8 @@
 | **Dual-Peaking System** | A grid region (like the Southeast US) where peak demand stress occurs in both **winter** (heating-driven morning peaks) and **summer** (cooling-driven afternoon peaks), unlike summer-only-peaking regions. |
 | **T&D (Transmission & Distribution)** | The infrastructure (wires, transformers, substations) that moves electricity from generators to end users. T&D deferral value = avoided investment in upgrading this infrastructure. |
 | **Demand Response (DR)** | A program where customers agree to reduce electricity consumption during grid stress events in exchange for incentive payments. The tool simulates DR by curtailing load during top CWFT hours. |
+| **Cambium Milestone Trajectory** | Multi-year hourly grid valuation methodology where 8,760 profiles from distinct Cambium modeled milestone years (e.g., 2025, 2030, 2035, 2045) are ingested and interpolated across operating years, accurately reflecting non-linear peak price escalation and mid-day solar duck curve price suppression instead of assuming a flat scalar escalator (e.g. 2%/yr). |
+| **Hourly Linear Interpolation** | Vectorized interpolation method calculating hourly prices for inter-milestone years $t$ between $Y_1$ and $Y_2$: $P_{h, t} = P_{h, Y_1} + \frac{t - Y_1}{Y_2 - Y_1}(P_{h, Y_2} - P_{h, Y_1})$. |
 
 ---
 

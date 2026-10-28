@@ -61,7 +61,11 @@ Before cataloguing gaps, here is what the tool **does** have working today:
 - **Five pre-packaged retail tariffs** (Georgia Power R-31, Alabama Power FD, Alabama Power FD-D, Alabama Power RTA Demand, Alabama Power RTA-E Energy Only)
 - **URDB API integration** (live tariff import from NREL OpenEI)
 - **Custom tariff input** (paste JSON or flat rate)
-- **Multi-year NPV discounting** with escalation, degradation, and WACC
+- **Multi-year NPV discounting & Dynamic Cambium Milestone Trajectory Engine**:
+  - Linear hourly interpolation between Cambium milestone years ($P_{h,t} = P_{h,Y_1} + \frac{t-Y_1}{Y_2-Y_1}(P_{h,Y_2}-P_{h,Y_1})$) across asset lifetime
+  - Accounts for non-linear grid price growth, midday solar duck-curve suppression, and peak-hour price escalation
+  - Evaluates year-specific 8,760 hourly avoided costs, equipment degradation, and customer/utility discount rates
+  - Detailed annual cash flow table and Lifetime Cash Flow visualization with dynamic hourly growth
 - **Full California SPM Cost-Effectiveness Suite**:
   - **TRC Test (Total Resource Cost)** = `NPV Grid Avoided Costs / (Gross Measure Cost + Utility Admin)`
   - **PCT Test (Participant Cost Test / Customer ROI)** = `(NPV Customer Bill Savings + Incentive) / Gross Measure Cost`
