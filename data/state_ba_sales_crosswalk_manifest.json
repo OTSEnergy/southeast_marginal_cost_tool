@@ -1,0 +1,94 @@
+{
+  "dataset": "EIA-861 State-to-Balancing-Authority Residential Sales Crosswalk",
+  "generated_at_utc": "2026-10-27T12:33:15.292858+00:00",
+  "methodology": "Derived from Form EIA-861 Sales to Ultimate Customers (States sheet). Sums Residential Megawatthours across Part A (Bundled), Part B (Energy-only Retail Power Marketers + EIA survey adjustments), and Part D (Bundled Texas REPs), excluding duplicate Part C (Delivery-only) records. Validated that Part A+B+D equals Part A+C+D to 0.0 MWh across all 48 contiguous states and vintages.",
+  "contiguous_states_count": 48,
+  "vintages_included": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "crosswalk_csv": "state_ba_sales_crosswalk.csv",
+  "crosswalk_csv_sha256": "c6baab4ebc97122eda95acc259a29844db5b899fb4bfbd52cc64feffbdab96e2",
+  "row_count": 1521,
+  "vintages": {
+    "2016": {
+      "source_url": "https://www.eia.gov/electricity/data/eia861/archive/zip/f8612016.zip",
+      "sales_member": "Sales_Ult_Cust_2016.xlsx",
+      "ba_member": "Balancing_Authority_2016.xlsx",
+      "zip_sha256": "8cbcd008780c2861ca10e4dfc3e44fddc4d3db3cb4cbd34f40eccbd673485515",
+      "states_covered": 48,
+      "max_abd_vs_acd_diff_mwh": 0.0
+    },
+    "2017": {
+      "source_url": "https://www.eia.gov/electricity/data/eia861/archive/zip/f8612017.zip",
+      "sales_member": "Sales_Ult_Cust_2017.xlsx",
+      "ba_member": "Balancing_Authority_2017.xlsx",
+      "zip_sha256": "474d391ce1814af24334aec2c94a6421295f00d262fb8cfc153a5dea197dcc14",
+      "states_covered": 48,
+      "max_abd_vs_acd_diff_mwh": 0.0
+    },
+    "2018": {
+      "source_url": "https://www.eia.gov/electricity/data/eia861/archive/zip/f8612018.zip",
+      "sales_member": "Sales_Ult_Cust_2018.xlsx",
+      "ba_member": "Balancing_Authority_2018.xlsx",
+      "zip_sha256": "90f1d9e34665d91347d476ade7ff88261896a158eda640b7ec7002b8027eb8f8",
+      "states_covered": 48,
+      "max_abd_vs_acd_diff_mwh": 0.0
+    },
+    "2019": {
+      "source_url": "https://www.eia.gov/electricity/data/eia861/archive/zip/f8612019.zip",
+      "sales_member": "Sales_Ult_Cust_2019.xlsx",
+      "ba_member": "Balancing_Authority_2019.xlsx",
+      "zip_sha256": "25043e6baa8f6bf28892b22b06877b9efef2a22b19dd32e0f3b0c9b720e222e9",
+      "states_covered": 48,
+      "max_abd_vs_acd_diff_mwh": 0.0
+    },
+    "2020": {
+      "source_url": "https://www.eia.gov/electricity/data/eia861/archive/zip/f8612020.zip",
+      "sales_member": "Sales_Ult_Cust_2020.xlsx",
+      "ba_member": "Balancing_Authority_2020.xlsx",
+      "zip_sha256": "abed9f678bd7f7d97dced210205eb9c894d0536ee5ec0041a45e3c329d41e616",
+      "states_covered": 48,
+      "max_abd_vs_acd_diff_mwh": 0.0
+    },
+    "2021": {
+      "source_url": "https://www.eia.gov/electricity/data/eia861/archive/zip/f8612021.zip",
+      "sales_member": "Sales_Ult_Cust_2021.xlsx",
+      "ba_member": "Balancing_Authority_2021.xlsx",
+      "zip_sha256": "6008618e91bc0e70d841ebbc19283b96b66d7ac95e20b3ad553bd31a20cd7bd4",
+      "states_covered": 48,
+      "max_abd_vs_acd_diff_mwh": 0.0
+    },
+    "2022": {
+      "source_url": "https://www.eia.gov/electricity/data/eia861/archive/zip/f8612022.zip",
+      "sales_member": "Sales_Ult_Cust_2022.xlsx",
+      "ba_member": "Balancing_Authority_2022.xlsx",
+      "zip_sha256": "fe2530295d931c3bc2340918a389745c378e0e6dc960db7c6269b52a616247e0",
+      "states_covered": 48,
+      "max_abd_vs_acd_diff_mwh": 0.0
+    },
+    "2023": {
+      "source_url": "https://www.eia.gov/electricity/data/eia861/archive/zip/f8612023.zip",
+      "sales_member": "Sales_Ult_Cust_2023.xlsx",
+      "ba_member": "Balancing_Authority_2023.xlsx",
+      "zip_sha256": "0acd67ab84cdaef09fd47b4449f2c944f8731c2b3c695ec3a97bb6c0690a4d61",
+      "states_covered": 48,
+      "max_abd_vs_acd_diff_mwh": 0.0
+    },
+    "2024": {
+      "source_url": "https://www.eia.gov/electricity/data/eia861/zip/f8612024.zip",
+      "sales_member": "Sales_Ult_Cust_2024.xlsx",
+      "ba_member": "Balancing_Authority_2024.xlsx",
+      "zip_sha256": "77ce49c60ac5a6bad50c442fc401aad5404a21da875dc5cbaba353af5ede54de",
+      "states_covered": 48,
+      "max_abd_vs_acd_diff_mwh": 0.0
+    }
+  }
+}

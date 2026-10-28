@@ -1,0 +1,2439 @@
+{
+  "release": "Cambium24",
+  "source_scenario_viewer_file_id": 69176,
+  "total_bas": 133,
+  "bas": [
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p106",
+      "state": "IN",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p100",
+      "state": "VA",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p105",
+      "state": "IN",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p110",
+      "state": "KY",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p111",
+      "state": "OH",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p104",
+      "state": "MI",
+      "gea": "PJM_West",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p1",
+      "state": "WA",
+      "gea": "NorthernGrid_West",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p10",
+      "state": "CA",
+      "gea": "CAISO",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p102",
+      "state": "FL",
+      "gea": "FRCC",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p109",
+      "state": "KY",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p11",
+      "state": "CA",
+      "gea": "CAISO",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p101",
+      "state": "FL",
+      "gea": "FRCC",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p108",
+      "state": "KY",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p103",
+      "state": "MI",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p107",
+      "state": "IN",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p120",
+      "state": "PA",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p114",
+      "state": "OH",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p12",
+      "state": "NV",
+      "gea": "NorthernGrid_South",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p126",
+      "state": "NJ",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p125",
+      "state": "DE",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p127",
+      "state": "NY",
+      "gea": "NYISO",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p124",
+      "state": "VA",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p112",
+      "state": "OH",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p117",
+      "state": "WV",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p113",
+      "state": "OH",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p121",
+      "state": "MD",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p116",
+      "state": "WV",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p118",
+      "state": "VA",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p123",
+      "state": "MD",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p115",
+      "state": "PA",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p132",
+      "state": "CT",
+      "gea": "ISONE",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p131",
+      "state": "MA",
+      "gea": "ISONE",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p134",
+      "state": "ME",
+      "gea": "ISONE",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p2",
+      "state": "WA",
+      "gea": "NorthernGrid_West",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p13",
+      "state": "NV",
+      "gea": "NorthernGrid_South",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p18",
+      "state": "MT",
+      "gea": "NorthernGrid_East",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p16",
+      "state": "ID",
+      "gea": "NorthernGrid_East",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p128",
+      "state": "NY",
+      "gea": "NYISO",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p15",
+      "state": "ID",
+      "gea": "NorthernGrid_East",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p14",
+      "state": "ID",
+      "gea": "NorthernGrid_East",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p129",
+      "state": "VT",
+      "gea": "ISONE",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p133",
+      "state": "RI",
+      "gea": "ISONE",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p19",
+      "state": "MT",
+      "gea": "NorthernGrid_East",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p17",
+      "state": "MT",
+      "gea": "NorthernGrid_East",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p130",
+      "state": "NH",
+      "gea": "ISONE",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p26",
+      "state": "UT",
+      "gea": "NorthernGrid_South",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p24",
+      "state": "WY",
+      "gea": "WestConnect_North",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p21",
+      "state": "WY",
+      "gea": "NorthernGrid_East",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p23",
+      "state": "WY",
+      "gea": "WestConnect_North",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p20",
+      "state": "MT",
+      "gea": "NorthernGrid_East",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p25",
+      "state": "UT",
+      "gea": "NorthernGrid_South",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p22",
+      "state": "WY",
+      "gea": "NorthernGrid_East",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p28",
+      "state": "AZ",
+      "gea": "WestConnect_South",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p32",
+      "state": "SD",
+      "gea": "WestConnect_North",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p3",
+      "state": "WA",
+      "gea": "NorthernGrid_West",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p29",
+      "state": "AZ",
+      "gea": "WestConnect_South",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p30",
+      "state": "AZ",
+      "gea": "WestConnect_South",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p33",
+      "state": "CO",
+      "gea": "WestConnect_North",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p27",
+      "state": "AZ",
+      "gea": "WestConnect_South",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p31",
+      "state": "NM",
+      "gea": "WestConnect_South",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p34",
+      "state": "CO",
+      "gea": "WestConnect_North",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p4",
+      "state": "WA",
+      "gea": "NorthernGrid_West",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p40",
+      "state": "NE",
+      "gea": "SPP_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p41",
+      "state": "NE",
+      "gea": "SPP_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p35",
+      "state": "MT",
+      "gea": "SPP_North",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p39",
+      "state": "NE",
+      "gea": "SPP_North",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p36",
+      "state": "ND",
+      "gea": "SPP_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p44",
+      "state": "MN",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p38",
+      "state": "SD",
+      "gea": "SPP_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p42",
+      "state": "MN",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p37",
+      "state": "ND",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p43",
+      "state": "MN",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p46",
+      "state": "WI",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p47",
+      "state": "NM",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p45",
+      "state": "IA",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p49",
+      "state": "OK",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p48",
+      "state": "TX",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p55",
+      "state": "MO",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p56",
+      "state": "AR",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p51",
+      "state": "OK",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p57",
+      "state": "TX",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p52",
+      "state": "KS",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p54",
+      "state": "MO",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p53",
+      "state": "KS",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p58",
+      "state": "LA",
+      "gea": "MISO_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p59",
+      "state": "TX",
+      "gea": "WestConnect_South",
+      "country": "usa",
+      "tz": "MT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p50",
+      "state": "OK",
+      "gea": "SPP_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p60",
+      "state": "TX",
+      "gea": "ERCOT",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p5",
+      "state": "OR",
+      "gea": "NorthernGrid_West",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p6",
+      "state": "OR",
+      "gea": "NorthernGrid_West",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p61",
+      "state": "TX",
+      "gea": "ERCOT",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p62",
+      "state": "TX",
+      "gea": "ERCOT",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p63",
+      "state": "TX",
+      "gea": "ERCOT",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p68",
+      "state": "MN",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p74",
+      "state": "MI",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p70",
+      "state": "IA",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p64",
+      "state": "TX",
+      "gea": "ERCOT",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p7",
+      "state": "OR",
+      "gea": "NorthernGrid_West",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p69",
+      "state": "IA",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p66",
+      "state": "TX",
+      "gea": "MISO_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p67",
+      "state": "TX",
+      "gea": "ERCOT",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p72",
+      "state": "MO",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p65",
+      "state": "TX",
+      "gea": "ERCOT",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p73",
+      "state": "MO",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p71",
+      "state": "MO",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p76",
+      "state": "WI",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p75",
+      "state": "WI",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p77",
+      "state": "WI",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p79",
+      "state": "WI",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p78",
+      "state": "WI",
+      "gea": "MISO_North",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p82",
+      "state": "IL",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p8",
+      "state": "CA",
+      "gea": "NorthernGrid_South",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p87",
+      "state": "MS",
+      "gea": "MISO_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p83",
+      "state": "IL",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p88",
+      "state": "MS",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p81",
+      "state": "IL",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p86",
+      "state": "LA",
+      "gea": "MISO_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p85",
+      "state": "AR",
+      "gea": "MISO_South",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p80",
+      "state": "IL",
+      "gea": "PJM_West",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p84",
+      "state": "MO",
+      "gea": "MISO_Central",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p89",
+      "state": "AL",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p95",
+      "state": "SC",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p93",
+      "state": "KY",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p94",
+      "state": "GA",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p9",
+      "state": "CA",
+      "gea": "CAISO",
+      "country": "usa",
+      "tz": "PT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p92",
+      "state": "TN",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p91",
+      "state": "FL",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p90",
+      "state": "AL",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "CT",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p96",
+      "state": "SC",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p97",
+      "state": "NC",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p99",
+      "state": "VA",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "p98",
+      "state": "NC",
+      "gea": "SERTP",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    },
+    {
+      "Project": "Cambium24",
+      "Scenario": "MidCase",
+      "Dollar_year": "2023$",
+      "Weather_year": "2012",
+      "Start_day": "Sunday",
+      "r": "z122",
+      "state": "PA",
+      "gea": "PJM_East",
+      "country": "usa",
+      "tz": "ET",
+      "t": "2030"
+    }
+  ],
+  "gea_to_bas": {
+    "MISO_Central": [
+      {
+        "ba": "p106",
+        "state": "IN",
+        "tz": "ET"
+      },
+      {
+        "ba": "p105",
+        "state": "IN",
+        "tz": "ET"
+      },
+      {
+        "ba": "p108",
+        "state": "KY",
+        "tz": "CT"
+      },
+      {
+        "ba": "p103",
+        "state": "MI",
+        "tz": "ET"
+      },
+      {
+        "ba": "p107",
+        "state": "IN",
+        "tz": "ET"
+      },
+      {
+        "ba": "p72",
+        "state": "MO",
+        "tz": "CT"
+      },
+      {
+        "ba": "p73",
+        "state": "MO",
+        "tz": "CT"
+      },
+      {
+        "ba": "p71",
+        "state": "MO",
+        "tz": "CT"
+      },
+      {
+        "ba": "p82",
+        "state": "IL",
+        "tz": "CT"
+      },
+      {
+        "ba": "p83",
+        "state": "IL",
+        "tz": "CT"
+      },
+      {
+        "ba": "p81",
+        "state": "IL",
+        "tz": "CT"
+      },
+      {
+        "ba": "p84",
+        "state": "MO",
+        "tz": "CT"
+      }
+    ],
+    "PJM_East": [
+      {
+        "ba": "p100",
+        "state": "VA",
+        "tz": "ET"
+      },
+      {
+        "ba": "p110",
+        "state": "KY",
+        "tz": "ET"
+      },
+      {
+        "ba": "p111",
+        "state": "OH",
+        "tz": "ET"
+      },
+      {
+        "ba": "p109",
+        "state": "KY",
+        "tz": "ET"
+      },
+      {
+        "ba": "p120",
+        "state": "PA",
+        "tz": "ET"
+      },
+      {
+        "ba": "p114",
+        "state": "OH",
+        "tz": "ET"
+      },
+      {
+        "ba": "p126",
+        "state": "NJ",
+        "tz": "ET"
+      },
+      {
+        "ba": "p125",
+        "state": "DE",
+        "tz": "ET"
+      },
+      {
+        "ba": "p124",
+        "state": "VA",
+        "tz": "ET"
+      },
+      {
+        "ba": "p112",
+        "state": "OH",
+        "tz": "ET"
+      },
+      {
+        "ba": "p117",
+        "state": "WV",
+        "tz": "ET"
+      },
+      {
+        "ba": "p113",
+        "state": "OH",
+        "tz": "ET"
+      },
+      {
+        "ba": "p121",
+        "state": "MD",
+        "tz": "ET"
+      },
+      {
+        "ba": "p116",
+        "state": "WV",
+        "tz": "ET"
+      },
+      {
+        "ba": "p118",
+        "state": "VA",
+        "tz": "ET"
+      },
+      {
+        "ba": "p123",
+        "state": "MD",
+        "tz": "ET"
+      },
+      {
+        "ba": "p115",
+        "state": "PA",
+        "tz": "ET"
+      },
+      {
+        "ba": "p99",
+        "state": "VA",
+        "tz": "ET"
+      },
+      {
+        "ba": "z122",
+        "state": "PA",
+        "tz": "ET"
+      }
+    ],
+    "PJM_West": [
+      {
+        "ba": "p104",
+        "state": "MI",
+        "tz": "ET"
+      },
+      {
+        "ba": "p80",
+        "state": "IL",
+        "tz": "CT"
+      }
+    ],
+    "NorthernGrid_West": [
+      {
+        "ba": "p1",
+        "state": "WA",
+        "tz": "PT"
+      },
+      {
+        "ba": "p2",
+        "state": "WA",
+        "tz": "PT"
+      },
+      {
+        "ba": "p3",
+        "state": "WA",
+        "tz": "PT"
+      },
+      {
+        "ba": "p4",
+        "state": "WA",
+        "tz": "PT"
+      },
+      {
+        "ba": "p5",
+        "state": "OR",
+        "tz": "PT"
+      },
+      {
+        "ba": "p6",
+        "state": "OR",
+        "tz": "PT"
+      },
+      {
+        "ba": "p7",
+        "state": "OR",
+        "tz": "PT"
+      }
+    ],
+    "CAISO": [
+      {
+        "ba": "p10",
+        "state": "CA",
+        "tz": "PT"
+      },
+      {
+        "ba": "p11",
+        "state": "CA",
+        "tz": "PT"
+      },
+      {
+        "ba": "p9",
+        "state": "CA",
+        "tz": "PT"
+      }
+    ],
+    "FRCC": [
+      {
+        "ba": "p102",
+        "state": "FL",
+        "tz": "ET"
+      },
+      {
+        "ba": "p101",
+        "state": "FL",
+        "tz": "ET"
+      }
+    ],
+    "NorthernGrid_South": [
+      {
+        "ba": "p12",
+        "state": "NV",
+        "tz": "PT"
+      },
+      {
+        "ba": "p13",
+        "state": "NV",
+        "tz": "PT"
+      },
+      {
+        "ba": "p26",
+        "state": "UT",
+        "tz": "MT"
+      },
+      {
+        "ba": "p25",
+        "state": "UT",
+        "tz": "MT"
+      },
+      {
+        "ba": "p8",
+        "state": "CA",
+        "tz": "PT"
+      }
+    ],
+    "NYISO": [
+      {
+        "ba": "p127",
+        "state": "NY",
+        "tz": "ET"
+      },
+      {
+        "ba": "p128",
+        "state": "NY",
+        "tz": "ET"
+      }
+    ],
+    "ISONE": [
+      {
+        "ba": "p132",
+        "state": "CT",
+        "tz": "ET"
+      },
+      {
+        "ba": "p131",
+        "state": "MA",
+        "tz": "ET"
+      },
+      {
+        "ba": "p134",
+        "state": "ME",
+        "tz": "ET"
+      },
+      {
+        "ba": "p129",
+        "state": "VT",
+        "tz": "ET"
+      },
+      {
+        "ba": "p133",
+        "state": "RI",
+        "tz": "ET"
+      },
+      {
+        "ba": "p130",
+        "state": "NH",
+        "tz": "ET"
+      }
+    ],
+    "NorthernGrid_East": [
+      {
+        "ba": "p18",
+        "state": "MT",
+        "tz": "MT"
+      },
+      {
+        "ba": "p16",
+        "state": "ID",
+        "tz": "MT"
+      },
+      {
+        "ba": "p15",
+        "state": "ID",
+        "tz": "MT"
+      },
+      {
+        "ba": "p14",
+        "state": "ID",
+        "tz": "PT"
+      },
+      {
+        "ba": "p19",
+        "state": "MT",
+        "tz": "MT"
+      },
+      {
+        "ba": "p17",
+        "state": "MT",
+        "tz": "MT"
+      },
+      {
+        "ba": "p21",
+        "state": "WY",
+        "tz": "MT"
+      },
+      {
+        "ba": "p20",
+        "state": "MT",
+        "tz": "MT"
+      },
+      {
+        "ba": "p22",
+        "state": "WY",
+        "tz": "MT"
+      }
+    ],
+    "WestConnect_North": [
+      {
+        "ba": "p24",
+        "state": "WY",
+        "tz": "MT"
+      },
+      {
+        "ba": "p23",
+        "state": "WY",
+        "tz": "MT"
+      },
+      {
+        "ba": "p32",
+        "state": "SD",
+        "tz": "MT"
+      },
+      {
+        "ba": "p33",
+        "state": "CO",
+        "tz": "MT"
+      },
+      {
+        "ba": "p34",
+        "state": "CO",
+        "tz": "MT"
+      }
+    ],
+    "WestConnect_South": [
+      {
+        "ba": "p28",
+        "state": "AZ",
+        "tz": "MT"
+      },
+      {
+        "ba": "p29",
+        "state": "AZ",
+        "tz": "MT"
+      },
+      {
+        "ba": "p30",
+        "state": "AZ",
+        "tz": "MT"
+      },
+      {
+        "ba": "p27",
+        "state": "AZ",
+        "tz": "MT"
+      },
+      {
+        "ba": "p31",
+        "state": "NM",
+        "tz": "MT"
+      },
+      {
+        "ba": "p59",
+        "state": "TX",
+        "tz": "MT"
+      }
+    ],
+    "SPP_North": [
+      {
+        "ba": "p40",
+        "state": "NE",
+        "tz": "CT"
+      },
+      {
+        "ba": "p41",
+        "state": "NE",
+        "tz": "CT"
+      },
+      {
+        "ba": "p35",
+        "state": "MT",
+        "tz": "MT"
+      },
+      {
+        "ba": "p39",
+        "state": "NE",
+        "tz": "MT"
+      },
+      {
+        "ba": "p36",
+        "state": "ND",
+        "tz": "CT"
+      },
+      {
+        "ba": "p38",
+        "state": "SD",
+        "tz": "CT"
+      }
+    ],
+    "MISO_North": [
+      {
+        "ba": "p44",
+        "state": "MN",
+        "tz": "CT"
+      },
+      {
+        "ba": "p42",
+        "state": "MN",
+        "tz": "CT"
+      },
+      {
+        "ba": "p37",
+        "state": "ND",
+        "tz": "CT"
+      },
+      {
+        "ba": "p43",
+        "state": "MN",
+        "tz": "CT"
+      },
+      {
+        "ba": "p46",
+        "state": "WI",
+        "tz": "CT"
+      },
+      {
+        "ba": "p45",
+        "state": "IA",
+        "tz": "CT"
+      },
+      {
+        "ba": "p68",
+        "state": "MN",
+        "tz": "CT"
+      },
+      {
+        "ba": "p74",
+        "state": "MI",
+        "tz": "ET"
+      },
+      {
+        "ba": "p70",
+        "state": "IA",
+        "tz": "CT"
+      },
+      {
+        "ba": "p69",
+        "state": "IA",
+        "tz": "CT"
+      },
+      {
+        "ba": "p76",
+        "state": "WI",
+        "tz": "CT"
+      },
+      {
+        "ba": "p75",
+        "state": "WI",
+        "tz": "CT"
+      },
+      {
+        "ba": "p77",
+        "state": "WI",
+        "tz": "CT"
+      },
+      {
+        "ba": "p79",
+        "state": "WI",
+        "tz": "CT"
+      },
+      {
+        "ba": "p78",
+        "state": "WI",
+        "tz": "CT"
+      }
+    ],
+    "SPP_South": [
+      {
+        "ba": "p47",
+        "state": "NM",
+        "tz": "MT"
+      },
+      {
+        "ba": "p49",
+        "state": "OK",
+        "tz": "CT"
+      },
+      {
+        "ba": "p48",
+        "state": "TX",
+        "tz": "CT"
+      },
+      {
+        "ba": "p55",
+        "state": "MO",
+        "tz": "CT"
+      },
+      {
+        "ba": "p56",
+        "state": "AR",
+        "tz": "CT"
+      },
+      {
+        "ba": "p51",
+        "state": "OK",
+        "tz": "CT"
+      },
+      {
+        "ba": "p57",
+        "state": "TX",
+        "tz": "CT"
+      },
+      {
+        "ba": "p52",
+        "state": "KS",
+        "tz": "CT"
+      },
+      {
+        "ba": "p54",
+        "state": "MO",
+        "tz": "CT"
+      },
+      {
+        "ba": "p53",
+        "state": "KS",
+        "tz": "CT"
+      },
+      {
+        "ba": "p50",
+        "state": "OK",
+        "tz": "CT"
+      }
+    ],
+    "MISO_South": [
+      {
+        "ba": "p58",
+        "state": "LA",
+        "tz": "CT"
+      },
+      {
+        "ba": "p66",
+        "state": "TX",
+        "tz": "CT"
+      },
+      {
+        "ba": "p87",
+        "state": "MS",
+        "tz": "CT"
+      },
+      {
+        "ba": "p86",
+        "state": "LA",
+        "tz": "CT"
+      },
+      {
+        "ba": "p85",
+        "state": "AR",
+        "tz": "CT"
+      }
+    ],
+    "ERCOT": [
+      {
+        "ba": "p60",
+        "state": "TX",
+        "tz": "CT"
+      },
+      {
+        "ba": "p61",
+        "state": "TX",
+        "tz": "CT"
+      },
+      {
+        "ba": "p62",
+        "state": "TX",
+        "tz": "CT"
+      },
+      {
+        "ba": "p63",
+        "state": "TX",
+        "tz": "CT"
+      },
+      {
+        "ba": "p64",
+        "state": "TX",
+        "tz": "CT"
+      },
+      {
+        "ba": "p67",
+        "state": "TX",
+        "tz": "CT"
+      },
+      {
+        "ba": "p65",
+        "state": "TX",
+        "tz": "CT"
+      }
+    ],
+    "SERTP": [
+      {
+        "ba": "p88",
+        "state": "MS",
+        "tz": "CT"
+      },
+      {
+        "ba": "p89",
+        "state": "AL",
+        "tz": "CT"
+      },
+      {
+        "ba": "p95",
+        "state": "SC",
+        "tz": "ET"
+      },
+      {
+        "ba": "p93",
+        "state": "KY",
+        "tz": "CT"
+      },
+      {
+        "ba": "p94",
+        "state": "GA",
+        "tz": "ET"
+      },
+      {
+        "ba": "p92",
+        "state": "TN",
+        "tz": "CT"
+      },
+      {
+        "ba": "p91",
+        "state": "FL",
+        "tz": "CT"
+      },
+      {
+        "ba": "p90",
+        "state": "AL",
+        "tz": "CT"
+      },
+      {
+        "ba": "p96",
+        "state": "SC",
+        "tz": "ET"
+      },
+      {
+        "ba": "p97",
+        "state": "NC",
+        "tz": "ET"
+      },
+      {
+        "ba": "p98",
+        "state": "NC",
+        "tz": "ET"
+      }
+    ]
+  }
+}

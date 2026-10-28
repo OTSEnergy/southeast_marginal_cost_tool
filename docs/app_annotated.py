@@ -1,3 +1,5 @@
+
+# Note: app.py synced at 3214 lines on 2026-10-27 (Aligned Peak Hours 100/100 and Relabeled Grid Energy Savings).
 """
 ================================================================================
 ⚡ ANNOTATED TOUR OF APP.PY: SOUTHEAST MARGINAL COST VALUATION ENGINE ⚡
@@ -23,6 +25,14 @@ YOU CAN RUN THIS FILE!
 Because this retains 100% of the original application logic, you can launch it 
 in your terminal by typing:
     streamlit run app_annotated.py
+
+SYNC NOTE (2026-10-27):
+-----------------------
+Production `app.py` is now 3,264 lines across 8 extracted modules (`app.py`, `calculations.py`,
+`billing.py`, `data_loaders.py`, `cambium_downloader.py`, `system_stress_data.py`,
+`visualizations.py`, `config.py`), including the Public-data system-stress capacity-credit
+proxy (EIA-930 + EIA-861) and 48-state Cambium mapping. Refer to `docs/app_code_tour.md`
+and `docs/CHANGELOG.md` for full architecture details since this teaching snapshot was captured.
 ================================================================================
 """
 
@@ -512,7 +522,15 @@ def parse_cambium_columns(df):
     """
     cols = df.columns
     energy_col = None
-    for name in ['lmp_energy', 'marginal_cost_energy', 'Cambium_Energy_MWh', 'marginal_cost_energy_MWh', 'energy_price']:
+    for name in [
+        'energy_cost_enduse',
+        'lmp_energy',
+        'marginal_cost_energy',
+        'Cambium_Energy_MWh',
+        'marginal_cost_energy_MWh',
+        'energy_cost_busbar',
+        'energy_price',
+    ]:
         for col in cols:
             if name.lower() == col.lower():
                 energy_col = col
@@ -1082,8 +1100,8 @@ target_states = st.sidebar.multiselect("Target States", options=["AL", "GA", "FL
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 💸 Grid Valuation Scalars")
 cap_value = st.sidebar.number_input("Gen Capacity Value ($/kW-year)", min_value=0.0, max_value=1000.0, value=100.00, step=5.00, format="%.2f")
-trans_value = st.sidebar.number_input("Transmission Deferral ($/kW-year)", min_value=0.0, max_value=500.0, value=15.00, step=1.00, format="%.2f")
-dist_value = st.sidebar.number_input("Distribution Deferral ($/kW-year)", min_value=0.0, max_value=500.0, value=15.00, step=1.00, format="%.2f")
+trans_value = st.sidebar.number_input("Transmission Deferral ($/kW-year)", min_value=0.0, max_value=500.0, value=14.00, step=1.00, format="%.2f")
+dist_value = st.sidebar.number_input("Distribution Deferral ($/kW-year)", min_value=0.0, max_value=500.0, value=22.00, step=1.00, format="%.2f")
 carbon_tax = st.sidebar.slider("Carbon Penalty ($/metric ton)", min_value=0.0, max_value=100.00, value=30.00, step=5.00, format="$%.2f")
 
 st.sidebar.markdown("---")

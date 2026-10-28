@@ -2,8 +2,8 @@
 
 > **Document Purpose:** Maps the current state of `app.py` against the project abstract and phased development plan to identify gaps, placeholders, hardcoded assumptions, and unresolved design decisions.
 >
-> **Last Updated:** 2026-10-02
-> **Assessed Against:** app.py (~2,880 lines) + calculations.py + billing.py + data_loaders.py + visualizations.py + config.py
+> **Last Updated:** 2026-10-27
+> **Assessed Against:** app.py + calculations.py + billing.py + data_loaders.py + cambium_downloader.py + system_stress_data.py + visualizations.py + config.py
 >
 > **[Assistant, 2026-09-25]:** Updated after a substantial round of Charts-tab work (see
 > `CHANGELOG.md` [2026-09-25] entry for full detail — Cost Duration Curve and Cumulative
@@ -81,7 +81,7 @@ Before cataloguing gaps, here is what the tool **does** have working today:
 - **AMY weather generator** (`diyepw` integration for NOAA-sourced EPW files; 2012 EPWs generated for Atlanta & Birmingham)
 - **8-tab dashboard** (scorecard, RIM/TRC/PCT tables, grid charts, weather diagnostics, NPV/scenarios, debugger, calibration guide, weather generator)
 - **Scenario save/compare** (in-session side-by-side run comparison)
-- **Automated Pytest Suite** (52 unit & integration tests covering all math, billing, config, viz, pipeline, BEopt, load profile ingestion, and dual weekly charts)
+- **Automated Pytest Suite** (209 unit & integration tests covering all math, billing, config, viz, pipeline, BEopt, load profile ingestion, Cambium 48-state mapping, and EIA-930/861 public-data system-stress capacity-credit proxy)
 - **CSV export** of top stress hours
 
 ### ⚠️ Partially Implemented
@@ -102,6 +102,7 @@ The tool now supports six robust allocation methodologies alongside custom file 
 4. **Top-N System Peak Hours** with uniform or exceedance weighting.
 5. **Wholesale Peaker Rent** spark spread proxy.
 6. **Direct CSV Upload** for utility-supplied proprietary shapes.
+7. **Public-data system-stress proxy (EIA)** (`system_stress_data.py` + `calculations.py`) using observed Form EIA-930 hourly Balancing Authority demand and wind/solar generation (upper-tail net-demand exceedance, with explicit whole-year gross-demand fallback when wind/solar are unavailable) aggregated to state portfolios via Form EIA-861 residential sales shares (`data/state_ba_sales_crosswalk.csv`, 2016–2024 vintages across all 48 contiguous U.S. states). Enforces weather-year alignment, UTC-to-LST conversion with local Feb 29 removal, >=99.5% data completeness, and >=95% state residential sales coverage, with side-by-side weather comparator reporting.
 
 **Remaining Gap:** Awaiting proprietary 8,760 LOLP/CWFT matrices from Southern Company (Georgia Power / Alabama Power) 2024/2025 IRP dockets to provide calibrated utility baselines.
 
@@ -133,10 +134,10 @@ The underlying **default** (`load_profiles.csv`, used only when no example is se
 
 ---
 
-### 3.3 🔴 Grid Data Coverage Is Limited
+### 3.3 🟢 Grid Data Coverage Expanded to All 48 Contiguous States (On-Demand Cambium + EIA-861/930)
 **Lines:** app.py 428–507, README lines 48–52
 
-Only Alabama and Georgia are currently supported with real Cambium data. The tool handles 7 states in the UI (`AL, GA, FL, TN, MS, NC, SC`) but will fail with `FileNotFoundError` for any state without downloaded data.
+**Updated 2026-10-27:** `cambium_downloader.py` now maps all **48 contiguous U.S. states** (`CONTIGUOUS_48_STATES`, `p1..p134` pinned to NREL/ReEDS-2.0 commit `b9fbed8759767c8efb9e26492a5bdc8ec903f969` with Cambium 2024 `p119/p122 -> z122` compatibility) and downloads state datasets on demand via S3 HTTP range requests. Retail tariff presets and T&D benchmarks explicitly disclose their Southeast regional scope when non-Southeast states are selected.
 
 **Gap:** No bundled data for FL, TN, MS, NC, SC. No automated download or data management workflow.
 
@@ -502,7 +503,7 @@ All default values (capacity scalar $100/kW-yr, T&D $15/kW-yr, carbon $30/ton, e
 ### 🟢 Priority 3 — Quality & Sustainability
 
 11. **Modularize codebase** — ✅ **Resolved** — all five modules extracted (`calculations.py`, `billing.py`, `data_loaders.py`, `visualizations.py`, `config.py`); `app.py` is UI orchestration only.
-12. **Add unit test suite** — ✅ Done, actively maintained (113 tests passing as of 2026-09-25, up from 24 at 2026-08-06). Standing instruction for ongoing test maintenance in place.
+12. **Add unit test suite** — ✅ Done, actively maintained (209 tests passing as of 2026-10-27, up from 24 at 2026-08-06). Standing instruction for ongoing test maintenance in place.
 13. **Create configuration file** for default parameters — ✅ **Resolved** (`config.py`)
 14. **Resolve `app_annotated.py` sync strategy** — still open; drift has grown across at least four sessions (2026-08-18, 2026-08-21, 2026-08-26, and the 2026-09-25 Charts-tab expansion) since the file was last resynced. Re-flagged 2026-09-25 during the QA review, intentionally not resolved this pass. A dedicated resync session is recommended before it's used for onboarding.
 15. **Improve error handling** in data ingestion pipeline — ✅ **Resolved 2026-09-25** (see §6.3)

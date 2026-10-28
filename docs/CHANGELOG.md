@@ -2,6 +2,274 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-10-27] — Reconciled Peak Hours (100 vs 100) & Relabeled "Grid Energy Savings"
+
+### Context
+1. Reconciled discrepancy where slider said "Peak Hours: 100" but main info banner showed "Active stress hours: 200" (which occurred because 100 peak hours were previously evaluated in winter + 100 in summer). Updated slider and math so total annual peak hours (100) are allocated proportionally by seasonal risk shares (e.g. 80 Winter hours + 20 Summer hours at 80/20 split), bringing total active stress hours to exactly 100, matching the slider.
+2. Relabeled the green energy avoided cost bar on the Lifetime Economic Balance waterfall chart from "Fuel & Energy Savings" to **"Grid Energy Savings"**.
+
+### Changes Made
+- **`calculations.py`**:
+  - In `calculate_cambium_seasonal_net_demand_weights()`, allocated `top_n_peak_hours` proportionally between winter and summer (`w_peak_hrs = round(top_n_peak_hours * w_norm)`, `s_peak_hrs = top_n_peak_hours - w_peak_hrs`), ensuring annual active stress hours equals `top_n_peak_hours`.
+- **`app.py`**:
+  - Updated slider label to `Peak Hours (Annual)` and caption to display explicit winter/summer hourly allocation (e.g., `80% Winter (80 hrs) / 20% Summer (20 hrs) across 100 total peak hours`).
+  - Updated banner text to show: `Active stress hours: 100 (80 Winter / 20 Summer)`.
+  - `app.py` line count at sync: 3,214 lines (updated in `docs/app_annotated.py`).
+- **`visualizations.py`**:
+  - Relabeled waterfall step from `"Fuel & Energy Savings"` to `"Grid Energy Savings"`.
+- **`tests/test_calculations.py`**:
+  - Updated unit test asserting `"Grid Energy Savings"` label and position.
+- **Tests**:
+  - Full pytest suite passing at **240/240**.
+
+
+## [2026-10-27] — Simplified Seasonal Split Net-Demand Table & Economic Balance 2-Green-Bar Breakout
+
+### Context
+1. Simplified the expander capacity valuation table to eliminate the retired weather dual-peak comparator and difference columns, displaying a clean single-method SPM cost-effectiveness and capacity summary for **Seasonal Split Net-Demand** (including the explicit Winter 80% vs Summer 20% peak cuts).
+2. On the Overview Scorecard's **Lifetime Economic Balance (NPV Valuation)** waterfall chart, broke out the single "Grid Avoided Costs" bar into two distinct positive green bars: **Fuel & Energy Savings** and **Capacity Savings** (generation + T&D capacity deferral), satisfying the financial balance with the utility lost revenue and program cost steps.
+
+### Changes Made
+- **`app.py`**:
+  - Replaced the 3-column `comp_df` comparator table with a simplified 2-column valuation summary (`summary_df`) matching the active Seasonal Split Net-Demand selection.
+  - Calculated `npv_energy_savings` and `npv_capacity_savings` discounted over the asset horizon and passed them into `build_economic_balance_chart()`.
+  - `app.py` line count at sync: 3,206 lines (updated in `docs/app_annotated.py`).
+- **`visualizations.py`**:
+  - Updated `build_economic_balance_chart()` to support optional `npv_energy_savings` and `npv_capacity_savings` parameters. When provided, renders two green waterfall bars (`Fuel & Energy Savings` and `Capacity Savings`).
+- **`tests/test_calculations.py`**:
+  - Added unit test `test_economic_balance_chart_breakout_fuel_and_capacity_two_green_bars` verifying the 2-green-bar waterfall positions, measures, and formatted text labels.
+- **Tests**:
+  - Full test suite passing at **240/240**.
+
+
+## [2026-10-27] — Default T&D Section to LBNL Southeast Regional Average Benchmark
+
+### Context
+Defaulted the sidebar Transmission & Distribution (T&D) section to the empirical "LBNL Southeast Regional Average" benchmark ($36.00/kW-yr combined: $14.00/kW-yr transmission + $22.00/kW-yr distribution). Updated global configuration defaults and resolved Markdown KaTeX math delimiter rendering in the combined T&D rate caption.
+
+### Changes Made
+- **`config.py`**:
+  - Added `DEFAULT_TD_PRESET = "LBNL Southeast Regional Average"`.
+  - Updated `DEFAULT_TRANS_VALUE` to `$14.00/kW-yr` and `DEFAULT_DIST_VALUE` to `$22.00/kW-yr` matching the LBNL benchmark.
+- **`app.py`**:
+  - Sourced `DEFAULT_TD_PRESET` from `config.py` and set selectbox index to dynamically default to "LBNL Southeast Regional Average".
+  - Escaped currency symbols in `st.caption` (`\$`) to prevent KaTeX markdown math rendering distortion of combined rate string.
+  - `app.py` line count at sync: 3,247 lines.
+- **`docs/app_annotated.py`**:
+  - Updated header line count note and synced transmission and distribution defaults ($14.00 / $22.00).
+- **`tests/test_calculations.py`**:
+  - Added unit test `test_default_td_preset_lbnl_regional_average` validating default preset existence and scalar alignment.
+- **Tests**:
+  - Full pytest suite passing at **239/239**.
+
+## [2026-10-27] — Switch Marginal Energy Price to Cambium End-Use Delivered Cost
+
+### Context
+Switched the hourly grid energy price mapping in Cambium from generator busbar (`energy_cost_busbar`) to customer meter end-use (`energy_cost_enduse`). Captures electrical transmission and distribution delivery line losses (~5.6% loss factor in the Southeast), properly crediting customer efficiency and demand flexibility at the meter level.
+
+### Changes Made
+- **`data_loaders.py`**:
+  - In `parse_cambium_columns(df)`, prioritized `'energy_cost_enduse'` as #1 in candidate list ahead of `'energy_cost_busbar'`.
+  - Added intelligent fallback prioritizing `enduse` matches before generic `energy` substrings.
+- **`tests/test_cambium_downloader.py`**:
+  - Added `TestParseCambiumColumns` validating that `energy_cost_enduse` takes precedence over `energy_cost_busbar` and cleanly falls back if `enduse` is absent.
+- **Tests**:
+  - Full pytest suite passing at **238/238**.
+
+
+## [2026-10-27] — Streamlined CWF Selector: State Net-Demand Primary & Custom 8,760 Upload
+
+### Context
+Streamlined the sidebar Capacity Risk Allocation radio selector from three options to two clear choices: "Seasonal Split Net-Demand (Cambium)" as the primary standard method and "Custom 8,760 File (CSV / Excel)" for user-supplied hourly CWF profiles. Retired the redundant Southeast Dual-Peak (Weather-Driven) and EIA system-stress radio branches from the UI while preserving the weather dual-peak engine under the hood as an automatic fallback comparator.
+
+### Changes Made
+- **`app.py`**:
+  - Streamlined `cwf_source_mode` radio selector to 2 options: `CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL` and `"Custom 8,760 File (CSV / Excel)"`.
+  - Cleaned up ~190 lines of redundant sidebar UI branch code.
+  - Retained weather dual-peak comparator calculation under the hood for reference benchmarking and fallback safety.
+  - `app.py` line count at sync: 3,245 lines (updated in `docs/app_annotated.py`).
+- **Tests**:
+  - Full test suite passing at **236/236**.
+
+## [2026-10-27] — 80% Winter Default & Seasonal Capacity Breakdown Reporting
+
+### Context
+User confirmed the primary physical capacity value is in winter cold-snap reliability (saving ~2.3 kW on resistance-to-heat-pump measures). Defaulted Winter Capacity Risk Share slider to 80% and implemented Approach 2 + 3 combined: headline metric displays the binding **Winter Peak Capacity (2.31 kW)** alongside summer cooling relief (0.19 kW) and annual blended credit (1.89 kW), eliminating mathematical dilution confusion.
+
+### Changes Made
+- **`app.py`**:
+  - Set default `winter_split_pct = 80.0` in session state initialization and the interactive sidebar slider.
+  - Added seasonal decomposition calculating independent `winter_coincident_kw` (Dec–Feb) and `summer_coincident_kw` (Jun–Sep).
+  - Updated primary Overview Scorecard KPI card (`kpi_col4`) to display **Winter Peak Capacity** as the headline metric (e.g., `2.31 kW`) with delta showing `Summer: 0.19 kW | Blended: 1.89 kW`.
+  - Updated technical audit metrics in the progressive disclosure expander to explicitly show Winter Peak Reduction vs Summer.
+  - `app.py` line count at sync: 3,434 lines (updated in `docs/app_annotated.py`).
+- **Tests**:
+  - Full test suite passing at **236/236**.
+
+## [2026-10-27] — Option B: Configurable Peak Hours per Season Slider
+
+### Context
+User requested Option B to allow broadening the seasonal upper-tail net-demand evaluation window beyond the fixed 100 hours. Adding an interactive `Peak Hours per Season` slider allows analysts to evaluate broader reserve-margin reliability periods (e.g., 250, 500, or 1,000 peak hours per season) rather than just the top 100 freeze/heat spikes.
+
+### Changes Made
+- **`calculations.py`**:
+  - Added `top_n_peak_hours: int = 100` parameter to `calculate_cambium_seasonal_net_demand_weights`.
+  - Replaces hardcoded 100-rank cutoff with `min(top_n_peak_hours, len(sub) - 1)` for both winter and summer exceedance thresholds.
+- **`system_stress_data.py` & `data_loaders.py`**:
+  - Added `top_n_peak_hours: int = 100` to `load_cambium_net_demand_proxy_for_portfolio` and `load_cambium_net_demand_stress_weights`.
+- **`app.py`**:
+  - Added "Peak Hours per Season" slider (range 50 to 1,000, default 100, step 50) directly beneath the Winter Risk Share slider.
+  - Forwarded selection to `load_cambium_net_demand_stress_weights`.
+  - `app.py` line count at sync: 3,409 lines (updated in `docs/app_annotated.py`).
+- **Tests**:
+  - Full test suite passing at **236/236**.
+
+## [2026-10-27] — State-Level Cambium Net-Demand Capacity Proxy Implementation
+
+### Context
+Switched Cambium Net-Demand capacity risk proxy from multi-state regional GEA aggregation (SERTP with FL/TN/MS/NC/SC) to direct state-level ReEDS Balancing Area aggregation (e.g. Georgia = `p94`, Alabama = `p89 + p90`). Eliminates the need to download 9–11 out-of-state balancing areas to evaluate a single state while directly isolating in-state utility physical peak net loads.
+
+### Changes Made
+- **`system_stress_data.py`**:
+  - Implemented `aggregate_state_busbar_net_load(state, ba_data_map)` to sum constituent state ReEDS balancing area physical net loads along an EST clock.
+  - Added `aggregation_level: str = "state"` (default) to `load_cambium_net_demand_proxy_for_portfolio`.
+  - Maps state to constituent ReEDS BAs via `STATE_TO_BALANCING_AREAS` (and `REEDS_CAMBIUM24_AGGREG_MAP`), parses state CSVs, computes state-level exceedance weights, and aligns to local standard time. Preserves `aggregation_level="gea"` for backwards compatibility.
+- **`data_loaders.py`**:
+  - Added `aggregation_level="state"` default forwarding to `load_cambium_net_demand_stress_weights`.
+  - Added state-level missing file auto-download dispatching via `download_cambium_data(target_states=[st])`.
+- **`app.py`**:
+  - Updated Cambium Seasonal Net-Demand evaluation to pass `aggregation_level="state"`.
+  - Updated status alerts and info banners to display State-Level Net-Demand Proxy details with active state constituent BAs.
+  - Removed superfluous GEA-level pre-execution block since standard state-level check natively covers in-state BAs.
+  - `app.py` line count at sync: 3,400 lines (updated in `docs/app_annotated.py`).
+- **`tests/test_cambium_net_demand_stress.py`**:
+  - Added `TestCambiumStateLevelAggregation` verifying state-level portfolio resolution for single-state (`GA` $\to$ `p94`) and multi-state (`GA + AL` $\to$ `p94 + p89 + p90`).
+  - Full test suite passing at **236/236**.
+
+## [2026-10-27] — Seasonal Split Net-Demand: Implementation & Default Selection
+
+### Context
+Implemented the Seasonal Split Net-Demand dual-peak capacity weighting method to bridge the gap between fixed-weather overestimation (~1.4 kW) and annual top-100 summer dilution (~0.21 kW), targeting real Southeast dual-peaking utility benchmarks (~0.75 kW). Made it the default allocation method and hid the annual Cambium proxy and EIA proxy from UI selectors per user direction.
+
+### Changes Made
+- **`config.py`**:
+  - Added `CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL = "Seasonal Split Net-Demand (Cambium)"`.
+  - Positioned as first option in `CWF_METHOD_OPTIONS`.
+  - Hid `"Cambium regional net-demand capacity proxy"` and `"Public-data system-stress proxy (EIA)"` from user-facing dropdown/radio lists.
+- **`calculations.py`**:
+  - Implemented `calculate_cambium_seasonal_net_demand_weights(net_load_array, datetime_series, winter_weight=0.60, summer_weight=0.40)`. Applies Cambium S1 exceedance (`min(N_101, 0.95*max)`) independently within Winter (Dec–Feb) and Summer (Jun–Sep) regional net-load hours, then scales by seasonal shares.
+- **`system_stress_data.py` & `data_loaders.py`**:
+  - Added `seasonal_split`, `winter_weight`, and `summer_weight` parameters to `load_cambium_net_demand_proxy_for_portfolio` and `load_cambium_net_demand_stress_weights`.
+- **`app.py`**:
+  - Made `"Seasonal Split Net-Demand (Cambium)"` the default radio selection (`index=0`).
+  - Added interactive "Winter Capacity Risk Share (%)" slider (default 60% winter / 40% summer $\to$ ~0.75 kW benchmark).
+  - Wired into pre-execution check and valuation calculation blocks with full auto-download integration.
+  - `app.py` line count at sync: 3,479 lines (updated in `docs/app_annotated.py`).
+- **`tests/test_cambium_net_demand_stress.py`**:
+  - Added `TestCambiumSeasonalNetDemandMath` testing sum-to-1 normalization, parameter share alignment, and credit bounding.
+  - Full test suite passing at **234/234**.
+
+## [2026-10-27] — Cambium Regional Net-Demand: Automated Missing GEA Data Retrieval
+
+### Context
+Resolved the missing constituent Cambium balancing area dataset blocker when evaluating the Cambium Regional Net-Demand capacity-credit proxy. Added automated missing GEA data detection, cache-skipping HTTP range streaming, and 1-click in-app auto-download buttons matching the main Cambium dataset workflow.
+
+### Changes Made
+- **`cambium_downloader.py`**:
+  - Added `check_missing_cambium_gea_data_for_states` to scan local storage for constituent balancing area CSVs across all Generation Expansion Areas (GEAs) intersecting target states.
+  - Added `download_missing_cambium_gea_data` targeting only missing balancing areas identified in `missing_bas_by_gea`.
+  - Optimized `download_cambium_data` and `download_cambium_gea_data` with `only_missing=True` and cache checking (`os.path.exists` + size check) to skip re-downloading existing constituent files.
+- **`data_loaders.py`**:
+  - Enhanced `load_cambium_net_demand_stress_weights` with `auto_download_missing` and `progress_callback` options.
+- **`app.py`**:
+  - Added pre-execution check verifying constituent GEA data is present when Cambium Regional Net-Demand proxy is selected, stopping execution and displaying a prominent `📥 Auto-Download Regional GEA Data` button with live progress tracking before fallback.
+  - Added in-place `📥 Auto-Download Missing Regional Data` button directly beneath the Cambium Net-Demand Notice in the valuation dashboard if fallback is triggered.
+  - Added live sidebar status caption indicating missing constituent GEA BAs and auto-download readiness on run.
+  - `app.py` line count at sync: 3,445 lines (noted for `docs/app_annotated.py` tracking).
+- **`tests/test_cambium_downloader.py`**:
+  - Added `TestGeaConstituentDownloader` covering full/partial GEA detection, subset download delegation, and data loaders integration.
+  - Full test suite passing at **231/231**.
+
+## [2026-10-27] — Cambium Regional Net-Demand Capacity Proxy: UI, Dispatch & Exports (Phases 3 & 4)
+
+### Context
+Completed Phases 3 and 4 of the Cambium net-demand capacity-credit proxy implementation plan. Fully integrated the Streamlit UI, DR redispatch evaluation, comparative same-dispatch weather analytics, Plotly monthly/diurnal risk diagnostics, and hourly export pipeline in `app.py`.
+
+### Changes Made
+- **`app.py`**:
+  - Added `CAMBIUM_NET_DEMAND_CWF_LABEL` ("Cambium regional net-demand capacity proxy") to the sidebar Allocation Method radio selector, maintaining Southeast Dual-Peak Weather as the default option.
+  - Added physical net-demand capacity evaluation block with complete GEA aggregation and automatic warning-backed fallback to the weather comparator if constituent BA data are missing.
+  - Integrated DR redispatching notice disclosing operating outcome impacts on energy, bills, and T&D deferral, and providing the Same-Dispatch Weather Comparator to isolate pure capacity valuation differences.
+  - Updated proxy coincidence ratio captions, replacing ELCC claims with transparent screening proxy metrics.
+  - Added Overview Tab diagnostics card displaying GEA coverage, modeled grid year, 2012 weather basis, peak net load, N_101, active hours, and effective hours.
+  - Included Cambium net-demand regional stress MWh and method provenance in the hourly CSV export.
+- **`visualizations.py`**:
+  - Leveraged `plot_system_stress_vs_weather_cwf_comparison` to render side-by-side monthly capacity risk shares and diurnal hour-of-day shapes against the reference weather dual-peak method.
+- **Integration Tests & Verification (`tests/test_cambium_net_demand_stress.py`)**:
+  - Added integration tests for fixed-profile non-capacity invariance (energy, emissions, bills, customer NPV, and T&D remain 100% identical across methods; only generation capacity changes).
+  - Added tests for signed rebound preservation, constant 1.0 kW credit scaling, and DR same-dispatch comparison.
+  - Full test suite passing at **227/227**.
+- **Living Documentation Synced (`docs/glossary.md`, `docs/roadmap.md`, `docs/app_annotated.py`, `docs/CHANGELOG.md`)**:
+  - Added definitions for Cambium Net-Demand Capacity Proxy, GEA, and N_101. Updated roadmap and annotated app metadata.
+
+## [2026-10-27] — Cambium Regional Net-Demand Capacity Proxy: Public Geography & Data Layer (Phase 2)
+
+### Context
+Implemented Phase 2 of the Cambium net-demand capacity-credit proxy implementation plan. Supersedes the prior EIA-930/FERC-714 dependence for 2012 weather evaluation by routing and extracting public Cambium modeled physical net load (`net_load_busbar`) at the complete Generation Expansion Area (GEA) level across the contiguous 48 states, using the same 2012 meteorological basis and planning year as the energy valuation.
+
+### Changes Made
+- **Pinned Cambium 2024 ReEDS-GEA Manifest (`data/cambium24_reeds_gea_manifest.json`)**:
+  - Maps all 133 ReEDS balancing areas (`p1..p134`, with `p119/p122 -> z122`) across 48 contiguous states to 18 complete GEA regional reliability partitions.
+- **`config.py`**:
+  - Added `CAMBIUM_NET_DEMAND_CWF_LABEL = "Cambium regional net-demand capacity proxy"` to `CWF_METHOD_OPTIONS`.
+  - Added constants: `CAMBIUM_GEA_MANIFEST_PATH`, `CAMBIUM_STRESS_CACHE_DIR`, `CAMBIUM_EXCEEDANCE_RULE`, and `CAMBIUM_WEATHER_YEAR_DEFAULT`.
+- **`cambium_downloader.py`**:
+  - Added `load_reeds_gea_manifest`, `get_geas_for_states`, `get_required_bas_for_geas`, `check_missing_cambium_gea_data`, and `download_cambium_gea_data` using existing S3 HTTP Range request streaming patterns.
+- **`calculations.py`**:
+  - Added pure S1 exceedance weighting function: `calculate_cambium_net_demand_exceedance_weights` (`threshold = min(N_101, 0.95 * max(N))`, `excess = max(N - threshold, 0)`).
+  - Added `combine_gea_weights_to_state_portfolio` for multi-state representative-building portfolio aggregation.
+- **`system_stress_data.py`**:
+  - Added Streamlit-free physical data loader: `validate_cambium_ba_csv`, `aggregate_gea_busbar_net_load` (synchronous EST regional sum), `align_est_weights_to_local_tz` (LST building projection), and `load_cambium_net_demand_proxy_for_portfolio`.
+- **`data_loaders.py`**:
+  - Added `load_cambium_net_demand_stress_weights` at the integration boundary without altering existing wholesale energy or emissions price aggregation.
+- **Unit Tests (`tests/test_cambium_net_demand_stress.py`)**:
+  - Added 13 targeted unit tests verifying exceedance math, positive scale invariance, signal quality gates, EST-to-LST time shifts, year-boundary wrap, 48-state manifest routing, and offline fixture ground truths.
+  - Full test suite passing at **223/223**.
+
+## [2026-10-27] — Public-Data System-Stress Capacity-Credit Proxy (EIA-930 & EIA-861) & Contiguous 48-State Mapping
+
+### Context
+Implemented an independently derived, public-data capacity weighting method (`Public-data system-stress proxy (EIA)`) in the Streamlit valuation engine alongside the existing weather-based `Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)` method. Replaces prescribed seasonal clock-hour risk windows only when selected, using observed Form EIA-930 Balancing Authority (BA) hourly system demand (`D`) and reported wind/solar generation (`WND`, `SUN`) to identify upper-tail net-demand exceedance hours (`q = 0.95` default, `90%–99%` sensitivity), aggregated to state portfolios via Form EIA-861 residential retail sales shares across all 48 contiguous U.S. states. Strictly framed as a capacity-credit screening proxy rather than measured LOLP or probabilistic ELCC, with zero PRICEM dependencies or arbitrary realization factors.
+
+### Changes Made
+- **Generated & Verified Public Crosswalks (`data/`)**:
+  - `data/state_ba_sales_crosswalk.csv` (`1,521` rows) & `data/state_ba_sales_crosswalk_manifest.json`: Form EIA-861 residential sales shares across all 9 survey vintages (`2016–2024`) and all 48 contiguous U.S. states, verified to reconcile bundled + delivery sales (`Part A + B + D == Part A + C + D`) to `0.0 MWh` without double-counting power marketers.
+  - `data/reeds_state_ba_hierarchy.csv` (`134` rows): Pinned NREL/ReEDS-2.0 (`b9fbed8759767c8efb9e26492a5bdc8ec903f969`) balancing-area (`p1..p134`) to state (`st`) hierarchy kept in a strictly separate namespace from EIA-930 respondent BA codes.
+- **`config.py`**:
+  - Expanded `STATE_OPTIONS` to all 48 contiguous U.S. states (`CONTIGUOUS_48_STATES`), explicitly deferring `AK`, `HI`, and territories (`PR`, `VI`, `GU`, `AS`, `MP`, `DC`).
+  - Added single-timezone vs. multi-timezone state metadata (`SINGLE_TZ_STATE_UTC_OFFSETS`, `MULTI_TZ_STATES_OPTIONS`), regional preset scope disclosures, `SYSTEM_STRESS_CWF_LABEL`, and EIA-930/861 quality-gate constants (`>=95%` state sales coverage, `>=99.5%` hourly completeness, `<=2h` max interior gap).
+- **`cambium_downloader.py`**:
+  - Expanded `STATE_TO_REEDS_BA` from 8 states to all 48 contiguous U.S. states (`p1..p134`), added Cambium 2024 `REEDS_CAMBIUM24_AGGREG_MAP` (`p119/p122 -> z122`) compatibility, and added `validate_cambium_state_mapping()`.
+- **`data_loaders.py`**:
+  - Added building load profile imputation tracking (`column_imputed_counts`, `total_imputed_values` in `load_df.attrs`) and weather provenance tagging (`Weather_Source` = `"measured_file"` vs. `"synthetic_southeast"`).
+- **`calculations.py`**:
+  - Added pure upper-tail exceedance weighting (`calculate_upper_tail_stress_weights`), multi-BA / multi-state portfolio aggregation with shared-BA deduplication (`combine_ba_weights_to_state_portfolio`), and system-stress capacity credit / coincidence metrics (`calculate_system_stress_capacity_metrics`).
+- **`system_stress_data.py` (new Streamlit-free module)**:
+  - Implemented EIA API v2 deterministic pagination (`length=5000`, `sort[0][column]=period&sort[0][direction]=asc`), six-month bulk CSV parser (`parse_eia_930_six_month_csv`), and API key redaction (`redact_api_key`).
+  - Implemented atomic raw vs. aligned cache separation with SHA-256 tamper verification (`save_cache_bundle`, `load_cache_bundle`).
+  - Implemented UTC hour-ending to fixed Local Standard Time alignment (`utc_hour_ending - 1h + utc_offset`), `"hour_start"` vs. `"hour_end"` interval matching, UTC boundary padding (`Dec 31` of `year-1` through `Jan 2` of `year+1`), and deliberate local `Feb 29` removal in leap years without truncating `Dec 31`.
+  - Implemented data quality gates (`>=99.5%` valid original observations, interior linear interpolation `<=2h` with positive-weight stress flagging, no boundary extrapolation, duplicate conflict detection, and data-corruption spike screening without winsorizing real peaks) and whole-year gross-demand fallback when wind/solar are unavailable or pre-2019.
+  - Implemented `evaluate_system_stress_capacity_proxy()` with weather-year eligibility checks (rejecting `2012` pre-EIA-930, `TMY`/`Composite`/`Unknown`, and synthetic `"Extreme Winter"` / `"Extreme Summer"` with warning-backed weather fallback).
+- **`visualizations.py` & `app.py`**:
+  - Added `plot_system_stress_vs_weather_cwf_comparison()` (monthly risk shares, diurnal shapes, and top-100 hour overlap).
+  - Added `EIA-930 Historical Grid Stress Year` selector (`AVAILABLE_EIA_STRESS_YEARS` 2016–2024, default 2023) to allow evaluating system stress when building or Cambium data use 2012 weather, replacing an unconditional 2012 fallback with an explicit weather-misalignment disclosure while executing the full EIA-930 pipeline.
+  - Updated `app.py` sidebar, Overview Scorecard, Capacity Risk & Feeder Stress chart tab, Weather & Peak Diagnostics tab, Scenario Manager, and Hourly CSV Export with provenance badges, same-profile weather comparator table, DR dispatch rescheduling warning, and EIA BA diagnostics.
+  - Moved the EIA API registration link out of the non-clickable `st.text_input` tooltip popup and into a prominent clickable `st.caption` markdown link directly under the EIA API v2 Key input (`https://www.eia.gov/opendata/`).
+- **`tests/test_cambium_downloader.py` & `tests/test_system_stress_data.py` (new)**:
+  - Added comprehensive unit & integration test suites; full suite now at **209/209 passing**.
+- **Living Documentation (`AI_INSTRUCTIONS.md`, `docs/glossary.md`, `docs/needs_and_gaps.md`, `docs/roadmap.md`, `docs/app_code_tour.md`, `docs/app_annotated.py`, `docs/CHANGELOG.md`)**:
+  - Updated all living documents to reflect the new 8-module architecture, public-data system-stress proxy, 48-state coverage, and 209 passing tests.
+
 ## [2026-10-12] — ETS Fixed-Schedule vs. Real-Time-Price Example Pair
 
 ### Context

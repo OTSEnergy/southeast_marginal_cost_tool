@@ -38,6 +38,7 @@ TESTED BY:
 
 import numpy as np
 import pandas as pd
+from typing import Tuple, Dict, Any, Optional, List
 
 
 def calculate_avoided_costs(df, cap_value, trans_value, dist_value, carbon_tax, cwft_array, dist_weight_array=None):
@@ -936,3 +937,606 @@ def find_peak_week(datetime_series, stress_signal, month_filter, mode="max", win
     if best_start is None:
         return None
     return best_start, best_start + window_hours
+
+
+# ==============================================================================
+# PUBLIC-DATA SYSTEM-STRESS CAPACITY-CREDIT PROXY (EIA-930 / EIA-861)
+# ==============================================================================
+
+def _extract_months_and_hours(n_hours: int, datetime_series=None):
+    """Extract 1-based month (1..12) and 0-based hour-of-day (0..23) arrays."""
+    if datetime_series is not None:
+        dts = pd.to_datetime(pd.Series(np.asarray(datetime_series)).reset_index(drop=True))
+        if len(dts) == n_hours and not dts.isna().any():
+            return dts.dt.month.to_numpy(dtype=int), dts.dt.hour.to_numpy(dtype=int)
+
+    h_idx = np.arange(n_hours, dtype=int)
+    days = h_idx // 24
+    hours = h_idx % 24
+    month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    cum_days = np.cumsum([0] + month_days)
+    months = np.zeros(n_hours, dtype=int)
+    for m in range(12):
+        months[(days >= cum_days[m]) & (days < cum_days[m + 1])] = m + 1
+    # If n_hours > 8760, assign remaining days to month 12
+    months[months == 0] = 12
+    return months, hours
+
+
+def _compute_weight_diagnostics(weights: np.ndarray, datetime_series=None) -> dict:
+    """Compute concentration, monthly, and seasonal diagnostics for an 8,760 weight vector."""
+    w = np.asarray(weights, dtype=float)
+    n_hours = len(w)
+    months, _ = _extract_months_and_hours(n_hours, datetime_series=datetime_series)
+
+    nonzero_hours = int(np.sum(w > 0.0))
+    max_hour_share = float(np.max(w)) if n_hours > 0 else 0.0
+    sum_sq = float(np.sum(w ** 2))
+    effective_hours = float(1.0 / sum_sq) if sum_sq > 0.0 else 0.0
+
+    monthly_shares = {int(m): float(np.sum(w[months == m])) for m in range(1, 13)}
+    seasonal_shares = {
+        "Winter (Dec-Feb)": float(np.sum(w[np.isin(months, [12, 1, 2])])),
+        "Spring (Mar-May)": float(np.sum(w[np.isin(months, [3, 4, 5])])),
+        "Summer (Jun-Sep)": float(np.sum(w[np.isin(months, [6, 7, 8, 9])])),
+        "Fall (Oct-Nov)": float(np.sum(w[np.isin(months, [10, 11])])),
+    }
+    top_k = min(20, n_hours)
+    top_indices = [int(i) for i in np.argsort(w)[::-1][:top_k] if w[i] > 0.0]
+
+    return {
+        "nonzero_hours": nonzero_hours,
+        "max_hour_share": max_hour_share,
+        "effective_hours": effective_hours,
+        "monthly_shares": monthly_shares,
+        "seasonal_shares": seasonal_shares,
+        "top_hours_indices": top_indices,
+    }
+
+
+def calculate_upper_tail_stress_weights(
+    signal_array,
+    percentile: float = 95.0,
+    datetime_series=None,
+):
+    """
+    Compute upper-tail exceedance capacity weights for a single Balancing Authority (BA)
+    or system stress signal (net demand or gross demand in MW).
+
+    Mathematical definition:
+        threshold = quantile(signal, q)
+        exceedance[h] = max(signal[h] - threshold, 0)
+        BA_weight[h] = exceedance[h] / sum(exceedance)
+
+    Parameters
+    ----------
+    signal_array : array-like
+        1D hourly stress signal (typically 8,760 hours of net demand or gross demand in MW).
+    percentile : float, default 95.0
+        Upper-tail threshold percentile in [90.0, 99.0] (or quantile in [0.90, 0.99]).
+    datetime_series : array-like, optional
+        Optional timestamps corresponding to signal_array for monthly/seasonal diagnostics.
+
+    Returns
+    -------
+    tuple of (np.ndarray, dict)
+        (weights, diagnostics) where `weights` is a 1D float array summing to 1.0.
+    """
+    arr = np.asarray(signal_array, dtype=float)
+    if arr.ndim != 1 or len(arr) == 0:
+        raise ValueError("signal_array must be a non-empty 1D array.")
+    if not np.isfinite(arr).all():
+        raise ValueError("signal_array contains NaN or infinite values.")
+
+    pct = float(percentile)
+    if 0.90 <= pct <= 0.99:
+        pct = pct * 100.0
+    if pct < 90.0 or pct > 99.0:
+        raise ValueError(
+            f"System-stress threshold percentile must be between 90.0 and 99.0 (got {percentile})."
+        )
+
+    sig_range = float(np.max(arr) - np.min(arr))
+    sig_std = float(np.std(arr))
+    if sig_range <= 1e-9 or sig_std <= 1e-9:
+        raise ValueError(
+            "Signal has no meaningful variation (flat or constant series); fails system-stress qualification."
+        )
+
+    q = pct / 100.0
+    threshold = float(np.quantile(arr, q))
+    exceedance = np.maximum(arr - threshold, 0.0)
+    exc_sum = float(np.sum(exceedance))
+
+    if exc_sum > 0.0:
+        weights = exceedance / exc_sum
+        tie_fallback_used = False
+    else:
+        # Upper-tail tie: multiple hours equal the maximum so quantile(signal, q) == max(signal),
+        # while overall signal has verified variation. Allocate uniformly across tied maximum hours.
+        max_val = float(np.max(arr))
+        tied_mask = np.isclose(arr, max_val, rtol=1e-12, atol=1e-9)
+        n_tied = int(np.sum(tied_mask))
+        if n_tied <= 0:
+            raise ValueError("Unable to identify upper-tail stress hours.")
+        weights = np.where(tied_mask, 1.0 / n_tied, 0.0)
+        tie_fallback_used = True
+
+    # Enforce exact normalization
+    weights = np.maximum(weights, 0.0)
+    w_sum = float(np.sum(weights))
+    weights = weights / w_sum
+
+    diag = _compute_weight_diagnostics(weights, datetime_series=datetime_series)
+    diag.update({
+        "threshold_mw": threshold,
+        "percentile": pct,
+        "quantile": q,
+        "signal_max_mw": float(np.max(arr)),
+        "signal_min_mw": float(np.min(arr)),
+        "signal_mean_mw": float(np.mean(arr)),
+        "tie_fallback_used": tie_fallback_used,
+    })
+    return weights, diag
+
+
+def combine_ba_weights_to_state_portfolio(
+    ba_weights_map: dict,
+    state_ba_shares_map: dict,
+    selected_states: list,
+    fallback_state_weights: dict = None,
+    datetime_series=None,
+):
+    """
+    Combine BA-level 8,760 stress weight vectors into a state or multi-state portfolio
+    capacity weight vector using EIA-861 residential sales shares.
+
+    Follows Section A & C of the specification:
+    1. Within each state s, retained BA shares are normalized to sum to 1.0.
+    2. Across multiple selected states, each state receives equal portfolio weight (1 / N_states).
+    3. Repeated BA shares across states are summed before multiplying by the BA's hourly weight
+       vector so that no BA is fetched or counted twice on an unnormalized basis.
+    4. If a subset of states falls back to weather-based weights (`fallback_state_weights`),
+       those states contribute their equal state share via their fallback vector while
+       retained states use their BA-weighted stress vectors.
+
+    Parameters
+    ----------
+    ba_weights_map : dict[str, np.ndarray]
+        Mapping of `{ba_code: 8760_weight_array}` for all qualified BAs.
+    state_ba_shares_map : dict[str, dict[str, float]]
+        Mapping of `{state_code: {ba_code: residential_sales_share}}` for states using EIA stress data.
+    selected_states : list[str]
+        Ordered list of selected state codes (e.g. `["GA", "NC"]`).
+    fallback_state_weights : dict[str, np.ndarray], optional
+        Optional mapping `{state_code: 8760_weight_array}` for states that fell back to weather CWF.
+    datetime_series : array-like, optional
+        Optional timestamps for monthly/seasonal diagnostics.
+
+    Returns
+    -------
+    tuple of (np.ndarray, dict)
+        (portfolio_weights, portfolio_diagnostics)
+    """
+    if not selected_states:
+        raise ValueError("selected_states must not be empty.")
+
+    fallback_state_weights = fallback_state_weights or {}
+    clean_states = [str(s).strip().upper() for s in selected_states if str(s).strip()]
+    if not clean_states:
+        raise ValueError("selected_states must contain at least one valid state code.")
+
+    # Determine vector length from available BA or fallback weight arrays
+    n_hours = None
+    for arr in list(ba_weights_map.values()) + list(fallback_state_weights.values()):
+        arr_np = np.asarray(arr, dtype=float)
+        if n_hours is None:
+            n_hours = len(arr_np)
+        elif len(arr_np) != n_hours:
+            raise ValueError(f"Inconsistent weight vector lengths: expected {n_hours}, got {len(arr_np)}.")
+
+    if n_hours is None or n_hours == 0:
+        raise ValueError("No valid BA or fallback weight vectors provided.")
+
+    n_states = len(clean_states)
+    state_portfolio_weights = {s: 1.0 / n_states for s in clean_states}
+
+    # Sum repeated BA shares across states BEFORE multiplying by BA hourly weights
+    combined_ba_shares: dict = {}
+    normalized_state_ba_shares: dict = {}
+    stress_states = []
+    fallback_states = []
+
+    for s in clean_states:
+        s_w = state_portfolio_weights[s]
+        raw_ba_map = state_ba_shares_map.get(s, {})
+        # Keep only BAs present in ba_weights_map with positive share
+        usable_ba_map = {
+            str(ba).strip().upper(): float(sh)
+            for ba, sh in raw_ba_map.items()
+            if str(ba).strip().upper() in ba_weights_map and float(sh) > 0.0
+        }
+        retained_sum = sum(usable_ba_map.values())
+
+        if retained_sum > 0.0:
+            norm_ba_map = {ba: sh / retained_sum for ba, sh in usable_ba_map.items()}
+            normalized_state_ba_shares[s] = norm_ba_map
+            stress_states.append(s)
+            for ba, norm_sh in norm_ba_map.items():
+                combined_ba_shares[ba] = combined_ba_shares.get(ba, 0.0) + s_w * norm_sh
+        elif s in fallback_state_weights:
+            fallback_states.append(s)
+            normalized_state_ba_shares[s] = {}
+        else:
+            raise ValueError(
+                f"State '{s}' has no qualified BA stress weights and no fallback weight vector."
+            )
+
+    portfolio_weights = np.zeros(n_hours, dtype=float)
+
+    # 1. Add deduplicated BA stress contributions
+    for ba, portfolio_ba_share in combined_ba_shares.items():
+        ba_w = np.asarray(ba_weights_map[ba], dtype=float)
+        ba_w_sum = float(np.sum(ba_w))
+        if ba_w_sum <= 0.0:
+            raise ValueError(f"BA '{ba}' weight vector has non-positive sum.")
+        portfolio_weights += portfolio_ba_share * (ba_w / ba_w_sum)
+
+    # 2. Add fallback state contributions (if mixed portfolio)
+    for s in fallback_states:
+        s_w = state_portfolio_weights[s]
+        fb_w = np.asarray(fallback_state_weights[s], dtype=float)
+        fb_sum = float(np.sum(fb_w))
+        if fb_sum <= 0.0:
+            raise ValueError(f"Fallback weight vector for state '{s}' has non-positive sum.")
+        portfolio_weights += s_w * (fb_w / fb_sum)
+
+    portfolio_weights = np.maximum(portfolio_weights, 0.0)
+    total_w = float(np.sum(portfolio_weights))
+    if total_w <= 0.0:
+        raise ValueError("Combined portfolio weight vector summed to zero.")
+    portfolio_weights = portfolio_weights / total_w
+
+    diag = _compute_weight_diagnostics(portfolio_weights, datetime_series=datetime_series)
+    diag.update({
+        "selected_states": clean_states,
+        "state_portfolio_weights": state_portfolio_weights,
+        "normalized_state_ba_shares": normalized_state_ba_shares,
+        "combined_ba_shares": combined_ba_shares,
+        "stress_states": stress_states,
+        "fallback_states": fallback_states,
+        "is_mixed_portfolio": bool(len(stress_states) > 0 and len(fallback_states) > 0),
+    })
+    return portfolio_weights, diag
+
+
+def calculate_system_stress_capacity_metrics(
+    baseline_kw,
+    proposed_kw,
+    portfolio_weights,
+    cap_value_kw_yr: float,
+    dr_mode: bool = False,
+    dr_capacity_kw: float = None,
+    dr_performance_factor: float = 1.0,
+) -> dict:
+    """
+    Compute generation-capacity valuation metrics under a given 8,760 capacity-weight vector.
+
+    Preserves existing hourly valuation mechanics:
+      - Fixed building profiles: hourly capacity benefit = (baseline_kW - proposed_kW) * weight[h] * cap_value_kw_yr
+      - DR mode: when `dr_mode=True` and `dr_capacity_kw` is provided, accredited capacity is
+        `dr_capacity_kw * dr_performance_factor` allocated across positive-weight hours.
+      - Proxy coincidence ratio (`capacity_credit_kw / max_positive_reduction_kw`) is reported
+        strictly for display/screening and NEVER applied as an additional derate.
+      - Handles zero or all-negative load reductions cleanly without divide-by-zero or misleading percentages.
+    """
+    base_arr = np.asarray(baseline_kw, dtype=float)
+    prop_arr = np.asarray(proposed_kw, dtype=float)
+    w_arr = np.asarray(portfolio_weights, dtype=float)
+
+    if base_arr.shape != prop_arr.shape or base_arr.shape != w_arr.shape:
+        raise ValueError(
+            f"Shape mismatch in capacity metric calculation: baseline={base_arr.shape}, "
+            f"proposed={prop_arr.shape}, weights={w_arr.shape}."
+        )
+    if np.any(w_arr < 0.0):
+        raise ValueError("portfolio_weights cannot contain negative values.")
+    w_sum = float(np.sum(w_arr))
+    if w_sum <= 0.0:
+        raise ValueError("portfolio_weights must have a strictly positive sum.")
+    if not np.isclose(w_sum, 1.0, atol=1e-6):
+        w_arr = w_arr / w_sum
+
+    hourly_load_reduction_kw = base_arr - prop_arr
+    hourly_cap_rates_kw_hr = w_arr * float(cap_value_kw_yr)
+
+    # Effective Peak Coincidence (weighted kW reduction during capacity-risk hours)
+    capacity_credit_kw = float(np.sum(hourly_load_reduction_kw * w_arr))
+
+    if dr_mode and dr_capacity_kw is not None:
+        accredited_capacity_kw = float(dr_capacity_kw) * float(dr_performance_factor)
+        hourly_cap_benefit_dollars = np.where(
+            w_arr > 0.0,
+            accredited_capacity_kw * hourly_cap_rates_kw_hr,
+            0.0,
+        )
+    else:
+        accredited_capacity_kw = capacity_credit_kw
+        hourly_cap_benefit_dollars = hourly_load_reduction_kw * hourly_cap_rates_kw_hr
+
+    generation_capacity_annual_dollars = float(np.sum(hourly_cap_benefit_dollars))
+    max_positive_reduction_kw = float(np.max(hourly_load_reduction_kw)) if len(hourly_load_reduction_kw) > 0 else 0.0
+
+    if max_positive_reduction_kw > 1e-6:
+        proxy_coincidence_ratio = float(capacity_credit_kw / max_positive_reduction_kw)
+        proxy_coincidence_pct = float(proxy_coincidence_ratio * 100.0)
+        proxy_ratio_valid = True
+        proxy_ratio_status = "valid"
+    else:
+        proxy_coincidence_ratio = None
+        proxy_coincidence_pct = None
+        proxy_ratio_valid = False
+        if np.allclose(hourly_load_reduction_kw, 0.0, atol=1e-9):
+            proxy_ratio_status = "no_positive_load_reduction"
+        else:
+            proxy_ratio_status = "negative_or_zero_peak_reduction"
+
+    return {
+        "capacity_credit_kw": capacity_credit_kw,
+        "accredited_capacity_kw": accredited_capacity_kw,
+        "generation_capacity_annual_dollars": generation_capacity_annual_dollars,
+        "max_positive_reduction_kw": max_positive_reduction_kw,
+        "proxy_coincidence_ratio": proxy_coincidence_ratio,
+        "proxy_coincidence_pct": proxy_coincidence_pct,
+        "proxy_ratio_valid": proxy_ratio_valid,
+        "proxy_ratio_status": proxy_ratio_status,
+        "hourly_load_reduction_kw": hourly_load_reduction_kw,
+        "hourly_cap_rates_kw_hr": hourly_cap_rates_kw_hr,
+        "hourly_cap_benefit_dollars": hourly_cap_benefit_dollars,
+    }
+
+
+
+# ==============================================================================
+# CAMBIUM REGIONAL NET-DEMAND EXCEEDANCE WEIGHTING & GEA PORTFOLIO MATH
+# ==============================================================================
+
+def calculate_cambium_net_demand_exceedance_weights(
+    net_load_array,
+    datetime_series=None,
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """
+    Compute Cambium regional net-demand exceedance capacity weights per Cambium 2024
+    documentation (S1, PDF p.70):
+        threshold = min(N_101, 0.95 * max(N))
+        excess[h] = max(N[h] - threshold, 0)
+        weight[h] = excess[h] / sum(excess)
+
+    where N_101 is the 101st-highest hour value among the 8,760 net load observations.
+    (Note: 95% of peak net load, NOT the 95th percentile).
+
+    Parameters
+    ----------
+    net_load_array : array-like
+        1D array of 8,760 regional net load values (MWh).
+    datetime_series : array-like, optional
+        Optional 8,760-element datetime series for monthly/seasonal diagnostics.
+
+    Returns
+    -------
+    tuple of (np.ndarray, dict)
+        (weights, diagnostics) where weights is a 1D float array summing to 1.0.
+    """
+    arr = np.asarray(net_load_array, dtype=float)
+    if arr.ndim != 1 or len(arr) == 0:
+        raise ValueError("net_load_array must be a non-empty 1D array.")
+    if len(arr) != 8760:
+        raise ValueError(f"net_load_array must contain exactly 8,760 hours (got {len(arr)}).")
+    if not np.isfinite(arr).all():
+        raise ValueError("net_load_array contains NaN or infinite values.")
+
+    max_n = float(np.max(arr))
+    if max_n <= 0.0:
+        raise ValueError(f"Peak regional net load is non-positive ({max_n:.2f}); cannot compute exceedance.")
+
+    sig_range = float(max_n - np.min(arr))
+    sig_std = float(np.std(arr))
+    if sig_range <= 1e-9 or sig_std <= 1e-9:
+        raise ValueError("Signal has no meaningful variation (flat/constant); fails exceedance qualification.")
+
+    sorted_desc = np.sort(arr)[::-1]
+    # 101st-highest value (0-indexed: index 100)
+    n_101 = float(sorted_desc[100])
+    threshold = float(min(n_101, 0.95 * max_n))
+
+    excess = np.maximum(arr - threshold, 0.0)
+    total_excess = float(np.sum(excess))
+    if total_excess <= 0.0:
+        raise ValueError(f"Sum of excess above threshold {threshold:.2f} is non-positive; cannot normalize.")
+
+    weights = excess / total_excess
+    diag = _compute_weight_diagnostics(weights, datetime_series=datetime_series)
+    diag.update({
+        "peak_net_load": max_n,
+        "n_101": n_101,
+        "threshold": threshold,
+        "total_excess_mwh": total_excess,
+        "active_hours": int(np.sum(weights > 0.0)),
+        "top_hour_share": float(np.max(weights)),
+        "formula": "min(N_101, 0.95 * max(N))",
+    })
+
+    return weights, diag
+
+
+def calculate_cambium_seasonal_net_demand_weights(
+    net_load_array,
+    datetime_series=None,
+    winter_weight: float = 0.60,
+    summer_weight: Optional[float] = None,
+    winter_months: tuple = (12, 1, 2),
+    summer_months: tuple = (6, 7, 8, 9),
+    top_n_peak_hours: int = 100,
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """
+    Computes Cambium regional net-demand capacity weights with explicit dual-peak
+    seasonal allocation (Winter + Summer).
+
+    Applies Cambium S1 exceedance (threshold = min(N_101, 0.95 * max(N)))
+    separately within Winter (Dec–Feb) and Summer (Jun–Sep) regional net load hours,
+    then combines them using winter_weight and summer_weight (default 60% winter / 40% summer).
+
+    Avoids single-season regional dilution (e.g. peninsular Florida cooling load
+    overwhelming winter heating peaks) while remaining 100% grounded in modeled
+    physical net-demand stress (MWh).
+
+    Parameters
+    ----------
+    net_load_array : array-like
+        8,760 hourly regional net load values (MWh).
+    datetime_series : array-like, optional
+        8,760 hourly timestamps.
+    winter_weight : float
+        Fraction of capacity value allocated to winter net-demand peak hours (default 0.60).
+    summer_weight : float, optional
+        Fraction of capacity value allocated to summer net-demand peak hours.
+        Defaults to (1.0 - winter_weight).
+    winter_months : tuple of int
+        Months considered winter (default 12, 1, 2).
+    summer_months : tuple of int
+        Months considered summer (default 6, 7, 8, 9).
+
+    Returns
+    -------
+    tuple of (np.ndarray, dict)
+        (weights, diagnostics) where weights is an 8,760-element array summing to 1.0.
+    """
+    arr = np.asarray(net_load_array, dtype=float)
+    if arr.ndim != 1 or len(arr) != 8760:
+        raise ValueError(f"net_load_array must contain exactly 8,760 hours (got {len(arr)}).")
+    if not np.isfinite(arr).all():
+        raise ValueError("net_load_array contains NaN or infinite values.")
+
+    if summer_weight is None:
+        summer_weight = max(0.0, 1.0 - float(winter_weight))
+
+    tot_weight = float(winter_weight + summer_weight)
+    if tot_weight <= 0.0:
+        raise ValueError("Sum of winter_weight and summer_weight must be positive.")
+    w_norm = float(winter_weight) / tot_weight
+    s_norm = float(summer_weight) / tot_weight
+
+    n_hours = len(arr)
+    months, _ = _extract_months_and_hours(n_hours, datetime_series=datetime_series)
+    weights = np.zeros(n_hours, dtype=float)
+
+    winter_mask = np.isin(months, winter_months)
+    summer_mask = np.isin(months, summer_months)
+
+    diag_extra: Dict[str, Any] = {
+        "winter_weight": w_norm,
+        "summer_weight": s_norm,
+    }
+
+    # Allocate total top_n_peak_hours across seasons proportionally to seasonal risk weights
+    # so that total active stress hours across both seasons exactly matches top_n_peak_hours.
+    if w_norm > 0.0 and s_norm > 0.0:
+        w_peak_hrs = max(1, int(round(top_n_peak_hours * w_norm)))
+        s_peak_hrs = max(1, top_n_peak_hours - w_peak_hrs)
+    elif w_norm > 0.0:
+        w_peak_hrs = top_n_peak_hours
+        s_peak_hrs = 0
+    else:
+        w_peak_hrs = 0
+        s_peak_hrs = top_n_peak_hours
+
+    # Evaluate winter if weight > 0
+    if w_norm > 0.0 and np.any(winter_mask):
+        w_sub = arr[winter_mask]
+        w_max = float(np.max(w_sub))
+        if w_max > 0.0:
+            w_sorted = np.sort(w_sub)[::-1]
+            n_rank = min(w_peak_hrs, len(w_sub) - 1)
+            w_n101 = float(w_sorted[n_rank])
+            w_thresh = float(min(w_n101, 0.95 * w_max))
+            w_excess = np.maximum(w_sub - w_thresh, 0.0)
+            tot_w_excess = float(np.sum(w_excess))
+            if tot_w_excess > 0.0:
+                weights[winter_mask] += w_norm * (w_excess / tot_w_excess)
+                diag_extra["winter_peak_net_load"] = w_max
+                diag_extra["winter_threshold"] = w_thresh
+                diag_extra["active_winter_hours"] = int(np.sum(w_excess > 0.0))
+
+    # Evaluate summer if weight > 0
+    if s_norm > 0.0 and np.any(summer_mask):
+        s_sub = arr[summer_mask]
+        s_max = float(np.max(s_sub))
+        if s_max > 0.0:
+            s_sorted = np.sort(s_sub)[::-1]
+            n_rank = min(s_peak_hrs, len(s_sub) - 1)
+            s_n101 = float(s_sorted[n_rank])
+            s_thresh = float(min(s_n101, 0.95 * s_max))
+            s_excess = np.maximum(s_sub - s_thresh, 0.0)
+            tot_s_excess = float(np.sum(s_excess))
+            if tot_s_excess > 0.0:
+                weights[summer_mask] += s_norm * (s_excess / tot_s_excess)
+                diag_extra["summer_peak_net_load"] = s_max
+                diag_extra["summer_threshold"] = s_thresh
+                diag_extra["active_summer_hours"] = int(np.sum(s_excess > 0.0))
+
+    # Normalize final weights
+    w_sum = float(np.sum(weights))
+    if w_sum > 0.0:
+        weights = weights / w_sum
+    else:
+        raise ValueError("Computed seasonal net-demand weights sum to 0.")
+
+    diag = _compute_weight_diagnostics(weights, datetime_series=datetime_series)
+    diag.update(diag_extra)
+    diag.update({
+        "active_hours": int(np.sum(weights > 0.0)),
+        "top_hour_share": float(np.max(weights)),
+        "method": "Seasonal Split Net-Demand (Cambium)",
+    })
+    return weights, diag
+
+
+def combine_gea_weights_to_state_portfolio(
+    gea_weights_by_state: Dict[str, np.ndarray],
+    state_shares: Optional[Dict[str, float]] = None,
+) -> np.ndarray:
+    """
+    Combines normalized state-level stress weight curves into a multi-state
+    representative-building portfolio curve.
+
+    Defaults to equal-state weighting across selected states, explicitly
+    representing an unweighted portfolio of identical local buildings across states.
+    """
+    if not gea_weights_by_state:
+        raise ValueError("No state weights provided for portfolio combination.")
+
+    states = list(gea_weights_by_state.keys())
+    n_states = len(states)
+    sample_w = next(iter(gea_weights_by_state.values()))
+    n_hours = len(sample_w)
+
+    if state_shares is None:
+        # Equal state weighting
+        shares = {st: 1.0 / n_states for st in states}
+    else:
+        tot_share = sum(state_shares.values())
+        if tot_share <= 0:
+            raise ValueError(f"State shares must sum to > 0 (got {tot_share}).")
+        shares = {st: state_shares.get(st, 0.0) / tot_share for st in states}
+
+    combined = np.zeros(n_hours, dtype=float)
+    for st, w in gea_weights_by_state.items():
+        w_arr = np.asarray(w, dtype=float)
+        if len(w_arr) != n_hours:
+            raise ValueError(f"Length mismatch for state {st}: {len(w_arr)} != {n_hours}")
+        combined += shares.get(st, 0.0) * w_arr
+
+    comb_sum = float(np.sum(combined))
+    if comb_sum > 0.0:
+        combined = combined / comb_sum
+    return combined

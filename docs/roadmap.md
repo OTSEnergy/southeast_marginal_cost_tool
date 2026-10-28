@@ -2,7 +2,7 @@
 
 > **Living Document** — Update as milestones are completed, priorities shift, or new requirements emerge.
 >
-> **Last Updated:** 2026-09-25
+> **Last Updated:** 2026-10-27
 > **Cross-references:** [needs_and_gaps.md](./needs_and_gaps.md) · [glossary.md](./glossary.md) · [CHANGELOG.md](./CHANGELOG.md) · Project Abstract & Phased Plan
 >
 > **[Assistant, 2026-09-25]:** Charts tab expanded to 9 sub-tabs (incl. two new ones —
@@ -175,6 +175,7 @@ Phase 2 (Additional Budget / Future Year)
   - **Cambium Price-Exceedance LOLP Proxy** (renamed 2026-09-11 from "EIA-930 Demand LOLP Proxy" — it was mislabeled and never actually used EIA-930 data): Exponential risk curve `exp(α · (P_h / P_peak - 1.0))` on Cambium's hourly wholesale energy price.
   - **Top-N System Peak**: Exceedance and uniform weighting.
   - **Wholesale Peaker Rent**: Spark spread above peaker operating costs.
+  - **Public-data system-stress proxy (EIA)** *(Implemented 2026-10-27)*: Independently derived, public-data 8,760 capacity-weighting proxy (`system_stress_data.py` + `calculations.py`) using real Form EIA-930 hourly Balancing Authority demand and wind/solar generation (upper-tail net-demand exceedance, with explicit whole-year gross-demand fallback) aggregated to state portfolios via Form EIA-861 residential retail sales shares across all 48 contiguous U.S. states, with strict weather-year alignment, UTC-to-LST timestamp conversion, and side-by-side weather comparator reporting.
 - [x] Document the methodology, assumptions, and limitations in in-app expanders and living docs
 - [x] Retain current CSV upload as fallback option
 
@@ -665,11 +666,11 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | Milestone | Decision | Status | Owner / Source | Notes & Comments |
 |-----------|----------|--------|----------------|------------------|
 | **M1: Harden Foundation** | | | | |
-| ↳ 1.1 CWFT replacement | 📦 EXTERNAL | ⬜ Not Started | Justin (JH) | JH to provide; team proceeds on other items in parallel. Awaiting DD-2. |
+| ↳ 1.1 CWFT replacement | 📦 EXTERNAL / 🔨 BUILD | 🟢 **Public Proxy Done (2026-10-27)** | Justin (JH) / JB + AI | Public-data system-stress proxy (`system_stress_data.py` using EIA-930 + EIA-861) implemented alongside weather-based Southeast Dual-Peak CWF. Proprietary utility IRP CWFT still awaiting JH (DD-2). |
 | ↳ 1.2 Real load profiles | 📦 EXTERNAL | 🟡 In Progress | John (JB) | Real BEopt models added (`ERHeatBeOptModel_Birmingham2012.csv` and `HeatPumpBeOptModel_Birmingham2012.csv`). 2012 AMY EPWs ready. |
 | ↳ 1.2a Flexible load ingestion | 🔨 BUILD | 🟢 **v2 Done** | JB + AI | Smart CSV loader in `data_loaders.py`: auto-detects BEopt/EnergyPlus `ELECTRICITY:UNIT_1` / `Electricity:Facility` headers, converts Joules `[J]` → kW, and scans folders (`Load_Profiles_raw/`). **2026-08-26:** extended `_read_profile_file()` to also parse BEopt's *native* hourly export format (`wxDVFileHeaderVer.1` version line + 2 index rows + a units row before the 8760 data rows) — needed for the new battery example files, which come straight from BEopt rather than the EnergyPlus-style exports used previously. |
 | ↳ 1.2b Explicit column selector UX | 🔀 MODIFY | 🟢 **v1 Done** | JB + AI | Single File Mode explicitly prompts "Which column in [file] is Baseline/Proposed?" without keyword guessing. Folder mode retains smart defaults. |
-| ↳ 1.3 State coverage | 🔀 MODIFY | ⬜ Not Started | JB + AI | **Reduced scope:** GA & AL only (maybe TN). Keep extensible for future states. Not adding others during prototype stage. |
+| ↳ 1.3 State coverage | 🔀 MODIFY | 🟢 **Contiguous 48 Done (2026-10-27)** | JB + AI | All 48 contiguous U.S. states mapped to Cambium ReEDS regions (`cambium_downloader.py`) and EIA-861 residential sales BAs (`data/state_ba_sales_crosswalk.csv`, 2016–2024). Retail/T&D presets explicitly disclose Southeast scope. |
 | ↳ 1.4 Weather file | 🔨 BUILD | 🟢 **v1 Done** | AI | 2012 AMY EPW files generated via `diyepw` for Atlanta (WMO 722190) and Birmingham (WMO 722280). Saved to `Weather_Data_raw/Baseline/`. App weather generator tab also functional. |
 | ↳ 1.5 File upload UX | 🔨 BUILD | ⬜ Not Started | AI | "Straightforward request to the AI" |
 | ↳ 1.6 Code modularization | 🔨 BUILD | ✅ **Phase 3 Done** | JB + AI | Phase 1: `calculations.py` + `billing.py`. Phase 2: `data_loaders.py`. Phase 3: `visualizations.py` + `config.py` + `dispatch_dr_program` → `calculations.py`. app.py now ~1,210 lines. All modules are Streamlit-free and independently testable. |
@@ -698,7 +699,7 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 5.1 Utility validation | | ⬜ Not Started | | |
 | ↳ 5.2 Technology developer tests | | ⬜ Not Started | | |
 | ↳ 5.3 Usability feedback | | ⬜ Not Started | | |
-| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v3 Done** | AI | 57 tests passing (2026-08-26). Load profile ingestion suite now covers the native BEopt hourly export format and the battery-example charge/discharge shift, in addition to the existing avoided costs, URDB billing, NPV, EPC/ELCC, DR dispatch, config, visualizations, and integration pipeline coverage. Pytest infra + standing instruction in place. |
+| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v4 Done (2026-10-27)** | AI | 209 tests passing (2026-10-27) across `test_calculations.py`, `test_cambium_downloader.py`, and `test_system_stress_data.py`. Covers avoided costs, URDB billing, NPV, EPC/ELCC, DR dispatch, config, visualizations, Cambium 48-state mapping, and EIA-930/861 system-stress proxy qualification & valuation invariance. Pytest infra + standing instruction in place. |
 | **M6: Handoff & Expansion** | | | | |
 | ↳ 6.1 Multi-region expansion | | ⬜ Not Started | | |
 | ↳ 6.2 Institutional home transition | | ⬜ Not Started | | |

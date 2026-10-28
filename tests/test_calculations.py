@@ -833,6 +833,14 @@ class TestConfig:
         assert config.DEFAULT_ASSET_LIFE > 0
         assert config.DEFAULT_DISCOUNT_RATE > 0
 
+    def test_default_td_preset_lbnl_regional_average(self):
+        assert hasattr(config, "DEFAULT_TD_PRESET")
+        assert config.DEFAULT_TD_PRESET == "LBNL Southeast Regional Average"
+        assert config.DEFAULT_TD_PRESET in config.SOUTHEAST_TD_PRESETS
+        preset = config.SOUTHEAST_TD_PRESETS[config.DEFAULT_TD_PRESET]
+        assert config.DEFAULT_TRANS_VALUE == preset["trans_value"]
+        assert config.DEFAULT_DIST_VALUE == preset["dist_value"]
+
     def test_grid_components_has_5(self):
         assert len(config.GRID_COMPONENTS) == 5
         for col, label, color in config.GRID_COMPONENTS:
@@ -1508,6 +1516,29 @@ class TestVisualizations:
         assert texts["Utility Lost Revenue"] == "+$1,590"
         assert texts["Utility Program Cost"] == "-$200"
         assert texts["Net Valuation NPV"] == "-$1,264"
+
+    def test_economic_balance_chart_breakout_fuel_and_capacity_two_green_bars(self):
+        from visualizations import build_economic_balance_chart
+        fig = build_economic_balance_chart(
+            npv_grid_savings=3374.0,
+            npv_retail_lost_revenue=6021.0,
+            npv_net_savings=-3247.0,
+            npv_program_cost=600.0,
+            npv_energy_savings=1368.0,
+            npv_capacity_savings=2006.0,
+        )
+        wf = fig.data[0]
+        assert list(wf.y) == [
+            "Grid Energy Savings", "Capacity Savings", "Utility Lost Revenue", "Utility Program Cost", "Net Valuation NPV"
+        ]
+        assert list(wf.x) == [1368.0, 2006.0, -6021.0, -600.0, 0]
+        assert list(wf.measure) == ["relative", "relative", "relative", "relative", "total"]
+        texts = dict(zip(wf.y, wf.text))
+        assert texts["Grid Energy Savings"] == "+$1,368"
+        assert texts["Capacity Savings"] == "+$2,006"
+        assert texts["Utility Lost Revenue"] == "-$6,021"
+        assert texts["Utility Program Cost"] == "-$600"
+        assert texts["Net Valuation NPV"] == "-$3,247"
 
     def test_two_sided_cost_effectiveness_chart_returns_figure(self):
         from visualizations import build_two_sided_cost_effectiveness_chart

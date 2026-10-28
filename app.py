@@ -36,9 +36,15 @@ from config import (
     WEATHER_SENSITIVITY_STRONG, WEATHER_SENSITIVITY_MODERATE,
     get_weather_sensitivity_style,
     EXAMPLE_BUILDINGS, ratio_card_html, financial_metric_card_html,
-    SOUTHEAST_PEAKER_PRESETS, SOUTHEAST_TD_PRESETS,
+    SOUTHEAST_PEAKER_PRESETS, SOUTHEAST_TD_PRESETS, DEFAULT_TD_PRESET,
     CWF_METHOD_OPTIONS, FEEDER_TYPE_OPTIONS,
     TOOL_DISCLAIMER_TEXT, TOOL_DISCLAIMER_HTML,
+    SOUTHEAST_STATES, REGIONAL_PRESET_DISCLOSURE,
+    AVAILABLE_EIA_STRESS_YEARS, DEFAULT_EIA_STRESS_YEAR,
+    SYSTEM_STRESS_CWF_LABEL, CAMBIUM_NET_DEMAND_CWF_LABEL, CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL, DEFAULT_SYSTEM_STRESS_PERCENTILE,
+    SYSTEM_STRESS_PERCENTILE_RANGE, PROFILE_YEAR_BASIS_OPTIONS,
+    PROFILE_INTERVAL_CONVENTION_OPTIONS, DEFAULT_PROFILE_INTERVAL_CONVENTION,
+    STANDARD_UTC_OFFSET_OPTIONS, STATE_TIMEZONE_METADATA,
 )
 from visualizations import (
     build_weekly_overlay_chart,
@@ -57,6 +63,7 @@ from visualizations import (
     plot_feeder_vs_system_load,
     build_economic_balance_chart,
     build_two_sided_cost_effectiveness_chart,
+    plot_system_stress_vs_weather_cwf_comparison,
 )
 from calculations import (
     calculate_avoided_costs,
@@ -71,6 +78,14 @@ from calculations import (
     calculate_cwf_peaker_rent,
     calculate_feeder_pcaf_weights,
     find_peak_week,
+    calculate_upper_tail_stress_weights,
+    combine_ba_weights_to_state_portfolio,
+    calculate_system_stress_capacity_metrics,
+)
+from system_stress_data import (
+    evaluate_system_stress_capacity_proxy,
+    resolve_profile_time_basis,
+    parse_weather_year_from_case,
 )
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
@@ -141,11 +156,15 @@ from data_loaders import (
     fetch_urdb_rate,
     load_wmo_station_lookup,
     sanitize_filepath,
+    load_cambium_net_demand_stress_weights,
 )
 from cambium_downloader import (
     check_missing_cambium_data,
     download_cambium_data,
     STATE_TO_BALANCING_AREAS,
+    check_missing_cambium_gea_data_for_states,
+    download_cambium_gea_data,
+    download_missing_cambium_gea_data,
 )
 
 # ==============================================================================
@@ -354,6 +373,9 @@ with st.sidebar.expander("Grid Scenario & Region", expanded=True):
     )
     if len(target_states) > 1:
         st.caption(f"Averaging grid prices across {len(target_states)} states: {', '.join(target_states)}.")
+    non_se_selected = [s for s in target_states if s not in SOUTHEAST_STATES]
+    if non_se_selected:
+        st.caption(f"ℹ️ {REGIONAL_PRESET_DISCLOSURE}")
 
     selected_scenario = st.selectbox(
         "NREL Future Scenario",
@@ -698,13 +720,19 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
 with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation", expanded=False):
     cwf_source_mode = st.radio(
         "Allocation Method",
-        options=["Southeast Dual-Peak (Weather-Driven)", "Custom 8,760 File (CSV / Excel)"],
+        options=[
+            CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL,
+            "Custom 8,760 File (CSV / Excel)",
+        ],
         index=0,
-        help="Select 'Southeast Dual-Peak' to allocate capacity risk across Southeast utility winter/summer reliability windows, or 'Custom 8,760 File' to upload/specify your own 8,760 hourly CWF profile."
+        help=(
+            "Select 'Seasonal Split Net-Demand (Cambium)' (default) to allocate capacity risk across state-level "
+            "modeled net-demand peaks in winter and summer, or 'Custom 8,760 File' to upload your own 8,760 hourly CWF profile."
+        ),
     )
 
     # Core background defaults
-    selected_cwf_method = "Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)"
+    selected_cwf_method = CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL
     cwft_filepath = "CWFT.csv"
     cwft_uploaded_file = None
     winter_split_pct = 80.0
@@ -716,74 +744,51 @@ with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"
     top_n_peak_hours = 100
     peaker_heat_rate = 10500.0
     peaker_gas_price = 3.50
+    stress_percentile = DEFAULT_SYSTEM_STRESS_PERCENTILE
+    profile_year_basis = "AMY"
+    profile_interval_convention = DEFAULT_PROFILE_INTERVAL_CONVENTION
+    profile_utc_offset = -5
+    user_confirmed_utc_offset = False
+    eia_api_key_session = st.session_state.get("eia_api_key_session", "")
+    force_eia_cache_refresh = False
 
-    if cwf_source_mode == "Southeast Dual-Peak (Weather-Driven)":
+    if cwf_source_mode == CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL:
+        selected_cwf_method = CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL
         st.caption(
-            "Allocates annual capacity risk across Southeast utility reliability windows "
-            "(Winter 6–9 AM Dec–Feb and Summer 2–6 PM Jun–Sep), weighted by ambient temperature severity "
-            "and multi-day thermal buildup."
+            "**Seasonal Split Net-Demand (Cambium 2024 / 2023):** "
+            "Evaluates state-level net-load (`busbar_load − variable_generation`) peak hours separately across "
+            "Winter (Dec–Feb) and Summer (Jun–Sep), allocating capacity value between seasonal peaks. "
+            "Prevents single-season dilution while grounding reliability in state-level modeled physical grid stress."
         )
         winter_split_pct = st.slider(
-            "Winter Morning Risk Share (%)",
+            "Winter Capacity Risk Share (%)",
             min_value=0.0,
             max_value=100.0,
             value=80.0,
             step=5.0,
-            help="Percent of annual capacity value assigned to winter morning freeze hours (remainder goes to summer afternoon). Defaults to 80% winter to reflect Southeast winter heating peak risk. Regional utility benchmarks: TVA ~85%, Southern Co (GA/AL/MS) ~80%, Duke Energy Carolinas ~70%, Entergy ~65%."
+            help="Percent of annual capacity value assigned to winter net-demand peak hours (remainder goes to summer net-demand peaks). Defaults to 80% to reflect Southeast winter heating peak risk."
         )
-        st.caption(f"Seasonal split: **{winter_split_pct:.0f}% Winter Morning** / **{100.0 - winter_split_pct:.0f}% Summer Afternoon** | *Utility benchmarks: TVA 85%, Southern Co 80%, Duke Carolinas 70%, Entergy 65%*")
-
-        with st.expander("Advanced Calibration Settings", expanded=False):
-            st.caption("Background engineering parameters. Defaults reflect Southeast utility reliability standards.")
-            col_t1, col_t2 = st.columns(2)
-            with col_t1:
-                freeze_threshold_f = st.number_input(
-                    "Freeze Threshold (°F)", min_value=10.0, max_value=45.0, value=32.0, step=1.0,
-                    help="Hours below this temperature in winter mornings accrue heating capacity risk."
-                )
-            with col_t2:
-                heat_threshold_f = st.number_input(
-                    "Heat Threshold (°F)", min_value=75.0, max_value=110.0, value=90.0, step=1.0,
-                    help="Hours above this temperature in summer afternoons accrue cooling capacity risk."
-                )
-            thermal_memory_enabled = st.checkbox(
-                "Account for Multi-Day Thermal Buildup / Cold Penetration (3-Day Memory)",
-                value=True,
-                help="Blends instantaneous hour temperature with the preceding 3-day (72-hour) rolling average to capture building thermal mass saturation and equipment heat/cold stress."
-            )
-            if thermal_memory_enabled:
-                lag_weight_pct = st.slider(
-                    "Thermal Memory Weight (%)", min_value=0.0, max_value=100.0, value=30.0, step=5.0,
-                    help="Percentage weight given to the preceding 3-day mean temperature vs instantaneous hour (default 30% multi-day memory / 70% current hour)."
-                )
-            else:
-                lag_weight_pct = 0.0
-
-            use_alt_method = st.checkbox("Use Alternative Academic Methodology", value=False)
-            if use_alt_method:
-                alt_options = [
-                    "Ambient Temperature Severity (Weather-Triggered)",
-                    "Cambium Price-Exceedance LOLP Proxy (Exponential)",
-                    "Top-N Peak Hours Exceedance",
-                    "Wholesale Peaker Rent (Spark Spread)",
-                ]
-                selected_alt = st.selectbox("Alternative Methodology", options=alt_options)
-                selected_cwf_method = selected_alt
-                if "Cambium Price-Exceedance LOLP" in selected_alt:
-                    st.caption(
-                        "Calculates exponential Loss-of-Load Probability risk weights from Cambium's own hourly wholesale "
-                        "energy price series (the same Cambium_Energy_MWh column used for the Wholesale Energy avoided-cost "
-                        "component) — not real-world EIA-930 demand data."
-                    )
-                    lolp_alpha = st.slider("Risk Concentration (α)", min_value=1.0, max_value=30.0, value=4.0, step=1.0)
-                elif "Top-N Peak Hours" in selected_alt:
-                    top_n_peak_hours = st.slider("Top Peak Hours (N)", min_value=10, max_value=500, value=100, step=10)
-                elif "Wholesale Peaker Rent" in selected_alt:
-                    col_pk1, col_pk2 = st.columns(2)
-                    with col_pk1:
-                        peaker_heat_rate = st.number_input("Peaker Heat Rate (Btu/kWh)", min_value=8000.0, max_value=15000.0, value=10500.0, step=250.0)
-                    with col_pk2:
-                        peaker_gas_price = st.number_input("Gas Price ($/MMBtu)", min_value=1.0, max_value=20.0, value=3.50, step=0.25)
+        top_n_peak_hours = st.slider(
+            "Peak Hours (Annual)",
+            min_value=50,
+            max_value=1000,
+            value=100,
+            step=25,
+            help="Total number of upper-tail net-demand peak hours evaluated across the year (default 100). Allocated between winter and summer according to seasonal capacity risk shares."
+        )
+        w_hrs_label = int(round(top_n_peak_hours * (winter_split_pct / 100.0)))
+        s_hrs_label = top_n_peak_hours - w_hrs_label
+        st.caption(
+            f"Seasonal split: **{winter_split_pct:.0f}% Winter ({w_hrs_label} hrs)** / **{100.0 - winter_split_pct:.0f}% Summer ({s_hrs_label} hrs)** "
+            f"across **{top_n_peak_hours} total peak hours**."
+        )
+        if target_states:
+            try:
+                from cambium_downloader import STATE_TO_BALANCING_AREAS
+                state_bas_list = [f"{st}: {', '.join(STATE_TO_BALANCING_AREAS.get(st.upper(), []))}" for st in target_states]
+                st.caption(f"📍 *Constituent Balancing Areas: {'; '.join(state_bas_list)}*")
+            except Exception:
+                pass
     else:
         selected_cwf_method = "Uploaded / Default CWFT CSV"
         st.caption("Upload or specify an 8,760-hour Capacity Worth Factor table (`.csv` or `.xlsx`). Values are auto-normalized to sum to 1.0.")
@@ -801,10 +806,12 @@ with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"
 
 # 6. Transmission & Distribution Deferral & Feeder
 with st.sidebar.expander("T&D Deferral & Local Feeder Profile", expanded=False):
+    td_options = list(SOUTHEAST_TD_PRESETS.keys()) + ["Custom T&D Values"]
+    default_td_index = td_options.index(DEFAULT_TD_PRESET) if DEFAULT_TD_PRESET in td_options else 0
     selected_td_preset = st.selectbox(
         "Southeast T&D Benchmark Preset",
-        options=list(SOUTHEAST_TD_PRESETS.keys()) + ["Custom T&D Values"],
-        index=0,
+        options=td_options,
+        index=default_td_index,
         help="Select empirical T&D deferral benchmarks from Southeast utility rate cases, exclude T&D, or enter custom values."
     )
 
@@ -845,7 +852,7 @@ with st.sidebar.expander("T&D Deferral & Local Feeder Profile", expanded=False):
     if combined_td == 0.0:
         st.info("ℹ️ **T&D Deferral Excluded** ($0.00/kW-yr). Results reflect generation capacity & wholesale energy savings only.")
     else:
-        st.caption(f"⚡ **Combined T&D Rate:** **${combined_td:,.2f}/kW-yr** (${trans_value:,.2f} Trans + ${dist_value:,.2f} Dist)")
+        st.caption(f"⚡ **Combined T&D Rate:** **\\${combined_td:,.2f}/kW-yr** (\\${trans_value:,.2f} Trans + \\${dist_value:,.2f} Dist)")
 
     st.markdown("---")
     st.markdown("**Distribution Peak Alignment**")
@@ -1153,6 +1160,9 @@ else:
                 )
             st.stop()
 
+        # Pre-execution check: If Cambium Net-Demand proxy is selected with GEA mode, verify GEA data
+        # Note: Default aggregation_level is "state", which is already checked and handled by check_missing_cambium_data above.
+
         try:
             # 1. Load profiles and grid aggregated data
             if load_profiles_filepath == "load_profiles.csv":
@@ -1183,19 +1193,98 @@ else:
 
             # Extract hourly temperature array (if present from EPW weather)
             temp_arr = raw_df['Temperature_F'].to_numpy() if 'Temperature_F' in raw_df.columns else None
+            weather_source_attr = raw_df.attrs.get(
+                "weather_source",
+                str(raw_df["Weather_Source"].iloc[0]) if "Weather_Source" in raw_df.columns else "measured_file",
+            )
+
+            # Reference Weather-Based Dual-Peak CWF (always computed for comparator & fallback)
+            weather_comparator_cwft = calculate_southeast_dual_peak_cwf(
+                datetime_series=datetime_series,
+                winter_weight=winter_split_pct / 100.0,
+                summer_weight=(100.0 - winter_split_pct) / 100.0,
+                temperature_array=temp_arr,
+                freeze_threshold_f=freeze_threshold_f,
+                heat_threshold_f=heat_threshold_f,
+                lag_days=lag_days,
+                lag_weight=lag_weight_pct / 100.0,
+            )
+
+            system_stress_eval = None
+            cambium_stress_eval = None
+            effective_cwf_method = selected_cwf_method
 
             # Capacity Risk Allocation (CWF Array)
-            if "Southeast Dual-Peak" in selected_cwf_method:
-                cwft_array = calculate_southeast_dual_peak_cwf(
-                    datetime_series=datetime_series,
-                    winter_weight=winter_split_pct / 100.0,
-                    summer_weight=(100.0 - winter_split_pct) / 100.0,
-                    temperature_array=temp_arr,
-                    freeze_threshold_f=freeze_threshold_f,
-                    heat_threshold_f=heat_threshold_f,
-                    lag_days=lag_days,
-                    lag_weight=lag_weight_pct / 100.0
+            if selected_cwf_method in [CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL, CAMBIUM_NET_DEMAND_CWF_LABEL]:
+                is_seasonal = (selected_cwf_method == CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL)
+                cambium_stress_eval = load_cambium_net_demand_stress_weights(
+                    target_states=target_states,
+                    selected_scenario=selected_scenario,
+                    planning_year=planning_year,
+                    raw_directory="./Cambium_Hourly_Data_raw",
+                    custom_tz=profile_utc_offset,
+                    seasonal_split=is_seasonal,
+                    winter_weight=winter_split_pct / 100.0 if is_seasonal else 0.60,
+                    summer_weight=(100.0 - winter_split_pct) / 100.0 if is_seasonal else 0.40,
+                    aggregation_level="state",
+                    top_n_peak_hours=top_n_peak_hours,
                 )
+                if cambium_stress_eval.get("is_qualified"):
+                    cwft_array = cambium_stress_eval["cwft_array"]
+                    effective_cwf_method = selected_cwf_method
+                    w_diag = cambium_stress_eval['diagnostics'].get('active_winter_hours', int(round(top_n_peak_hours * (winter_split_pct / 100.0))))
+                    s_diag = cambium_stress_eval['diagnostics'].get('active_summer_hours', top_n_peak_hours - w_diag)
+                    tot_diag = cambium_stress_eval['diagnostics'].get('active_hours', top_n_peak_hours)
+                    split_desc = (
+                        f"Seasonal split ({winter_split_pct:.0f}% Winter [{w_diag} hrs] / {100.0 - winter_split_pct:.0f}% Summer [{s_diag} hrs])"
+                        if is_seasonal else "Annual exceedance"
+                    )
+                    st.info(
+                        f"ℹ️ **Cambium State-Level Net-Demand Proxy Active:** {split_desc} "
+                        f"evaluated for {', '.join(target_states)} (BAs: {', '.join(cambium_stress_eval.get('needed_bas', []))}), "
+                        f"modeled year {planning_year}, 2012 weather basis. Active stress hours: {tot_diag}."
+                    )
+                else:
+                    cwft_array = weather_comparator_cwft
+                    effective_cwf_method = f"Southeast Dual-Peak (Weather Fallback: {cambium_stress_eval.get('status', 'missing data')})"
+                    st.warning(
+                        f"⚠️ **Cambium Net-Demand Notice:** {cambium_stress_eval.get('warning', 'Missing constituent BA files')}. "
+                        "Using Southeast Dual-Peak weather capacity weights as fallback."
+                    )
+            elif selected_cwf_method in [SYSTEM_STRESS_CWF_LABEL, CAMBIUM_NET_DEMAND_CWF_LABEL]:
+                effective_stress_weather_case = (
+                    meta_load_weather if weather_case == "Baseline" else weather_case
+                )
+                system_stress_eval = evaluate_system_stress_capacity_proxy(
+                    selected_states=target_states,
+                    weather_case=effective_stress_weather_case,
+                    weather_fallback_cwft=weather_comparator_cwft,
+                    profile_year_basis=profile_year_basis,
+                    weather_source=weather_source_attr,
+                    utc_offset_hours=profile_utc_offset,
+                    user_confirmed_offset=user_confirmed_utc_offset,
+                    interval_convention=profile_interval_convention,
+                    percentile=stress_percentile,
+                    api_key=eia_api_key_session,
+                    force_refresh=force_eia_cache_refresh,
+                    load_df=load_profiles_df,
+                    active_profile_cols=active_cols,
+                    datetime_series=datetime_series,
+                    cambium_planning_year=planning_year,
+                    stress_year=selected_stress_year,
+                )
+                cwft_array = system_stress_eval["cwft_array"]
+                effective_cwf_method = system_stress_eval["effective_method"]
+                for sw in system_stress_eval.get("warnings", []):
+                    if system_stress_eval.get("fallback_triggered"):
+                        st.warning(f"⚠️ **System-Stress Proxy Notice:** {sw}")
+                    else:
+                        st.info(f"ℹ️ **System-Stress Proxy Notice:** {sw}", icon="ℹ️")
+                if cwft_array is None:
+                    st.error("System-stress capacity weights and weather fallback are both unavailable.")
+                    st.stop()
+            elif "Southeast Dual-Peak" in selected_cwf_method:
+                cwft_array = weather_comparator_cwft
             elif "Ambient Temperature Severity" in selected_cwf_method:
                 weather_arr = temp_arr if temp_arr is not None else np.full(len(datetime_series), 65.0)
                 cwft_array = calculate_cwf_temperature_exceedance(
@@ -1240,6 +1329,15 @@ else:
                 proposed_load = baseline_load - dr_reduction
                 load_reduction = dr_reduction
                 st.sidebar.info(f"DR Mode Active: {len(dr_indices)} hours dispatched. Proposed load is Baseline − DR.")
+                if selected_cwf_method == SYSTEM_STRESS_CWF_LABEL:
+                    st.warning(
+                        "⚠️ **DR Dispatch Rescheduling Notice:** In Demand Response mode, selecting the "
+                        "**Public-data system-stress proxy (EIA)** reschedules DR curtailment into the highest "
+                        "observed BA net-demand hours. Because the dispatched hours change, **Wholesale Energy "
+                        "savings, Customer Retail Bills, and T&D deferral can also change** alongside Generation "
+                        "Capacity. See the **Same-Dispatch Weather Comparator** table below to isolate pure "
+                        "capacity valuation differences on the identical dispatch schedule."
+                    )
             else:
                 proposed_load = load_profiles_df[proposed_col].to_numpy()
                 load_reduction = baseline_load - proposed_load
@@ -1341,7 +1439,10 @@ else:
             # utility's regulated WACC, so this defaults to match it but can be raised.
             customer_pv_multipliers = (retail_esc_factors * deg_factors) * customer_disc_factors
 
-            npv_grid_savings = annual_grid_savings * grid_pv_multipliers.sum()
+            pv_grid_mult_sum = grid_pv_multipliers.sum()
+            npv_grid_savings = annual_grid_savings * pv_grid_mult_sum
+            npv_energy_savings = annual_energy_savings * pv_grid_mult_sum
+            npv_capacity_savings = (annual_gen_cap_savings + annual_trans_savings + annual_dist_savings + annual_emissions_savings) * pv_grid_mult_sum
             npv_retail_lost_revenue = annual_lost_revenue * retail_pv_multipliers.sum()
             npv_customer_bill_savings = annual_lost_revenue * customer_pv_multipliers.sum()
             
@@ -1371,27 +1472,104 @@ else:
             discounted_payback = cost_tests["discounted_payback"]
             net_customer_cost = cost_tests["net_customer_cost"]
             
-            # 5. Peak Coincidence, EPC & Capacity Accreditation (ELCC/UCAP) Math
+            # 5. Peak Coincidence, EPC & Capacity Credit Proxy Math
             epc_baseline = (baseline_load * cwft_array).sum()
             epc_proposed = (proposed_load * cwft_array).sum()
             epc_reduction = (load_reduction * cwft_array).sum()  # technical/undiminished coincident reduction
 
-            # Peak Coincidence Factor: share of a load shape's OWN peak that shows up
-            # during system capacity-risk hours. Self-referential by design (useful for
-            # describing a load shape's peakiness), but NOT a measure of accredited
-            # capacity value -- see elcc_reduction below for that.
+            # Seasonal decomposition: compute independent Winter and Summer coincident capacity reductions
+            dts_months = pd.to_datetime(datetime_series).dt.month.to_numpy()
+            is_w_mo = np.isin(dts_months, [12, 1, 2])
+            is_s_mo = np.isin(dts_months, [6, 7, 8, 9])
+            cwft_w_sum = cwft_array[is_w_mo].sum()
+            cwft_s_sum = cwft_array[is_s_mo].sum()
+            winter_coincident_kw = float(np.sum(load_reduction[is_w_mo] * (cwft_array[is_w_mo] / cwft_w_sum))) if cwft_w_sum > 0 else 0.0
+            summer_coincident_kw = float(np.sum(load_reduction[is_s_mo] * (cwft_array[is_s_mo] / cwft_s_sum))) if cwft_s_sum > 0 else 0.0
+            binding_seasonal_kw = winter_coincident_kw if winter_split_pct >= 50.0 else summer_coincident_kw
+
             coincidence_baseline = epc_baseline / baseline_load.max() if baseline_load.max() > 0 else 0.0
             coincidence_proposed = epc_proposed / proposed_load.max() if proposed_load.max() > 0 else 0.0
 
-            # Capacity Accreditation % (ELCC/UCAP-style): the coincident reduction, net of
-            # the performance derate, as a share of the resource's OWN nameplate capacity
-            # (the enrolled DR capacity in DR mode, or the largest hourly reduction actually
-            # achieved otherwise) -- not its own peak. This matches the industry meaning of
-            # an ELCC/UCAP % ("this resource is accredited at X% of nameplate") and is
-            # comparable across resources of different sizes, unlike a self-peak ratio.
             accredited_capacity_kw = epc_reduction * dr_capacity_derate
             nameplate_reduction_kw = dr_capacity_kw if dr_mode else load_reduction.max()
-            elcc_reduction = accredited_capacity_kw / nameplate_reduction_kw if nameplate_reduction_kw > 0 else 0.0
+            if nameplate_reduction_kw > 1e-6:
+                elcc_reduction = accredited_capacity_kw / nameplate_reduction_kw
+                elcc_ratio_valid = True
+            else:
+                elcc_reduction = 0.0
+                elcc_ratio_valid = False
+
+            is_system_stress_selected = (selected_cwf_method in [SYSTEM_STRESS_CWF_LABEL, CAMBIUM_NET_DEMAND_CWF_LABEL, CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL])
+            if is_system_stress_selected:
+                coincidence_ratio_label = "Proxy Coincidence Ratio (Not Accredited ELCC)"
+                coincidence_delta_str = (
+                    f"{elcc_reduction * 100:.1f}% Proxy Coincidence (Screening Only)"
+                    if elcc_ratio_valid
+                    else "N/A (No Positive Peak Reduction)"
+                )
+            else:
+                coincidence_ratio_label = "Capacity Accreditation (ELCC/UCAP-Style Proxy %)"
+                coincidence_delta_str = (
+                    f"{elcc_reduction * 100:.1f}% ELCC Accreditation"
+                    if elcc_ratio_valid
+                    else "N/A (No Positive Peak Reduction)"
+                )
+
+            # Weather-Based Comparator evaluated on the EXACT SAME realized baseline & proposed profiles
+            # (Isolates pure capacity-weighting valuation differences without altering energy, bills, emissions, or T&D)
+            comp_epc_reduction = float((load_reduction * weather_comparator_cwft).sum())
+            comp_accredited_kw = comp_epc_reduction * dr_capacity_derate
+            comp_annual_gen_cap_savings = float(comp_accredited_kw * cap_value)
+            comp_annual_grid_savings = (
+                comp_annual_gen_cap_savings
+                + annual_trans_savings
+                + annual_dist_savings
+                + annual_energy_savings
+                + annual_emissions_savings
+            )
+            comp_npv_grid_savings = float(comp_annual_grid_savings * grid_pv_multipliers.sum())
+            comp_npv_net_savings = comp_npv_grid_savings - npv_retail_lost_revenue - npv_program_cost
+            comp_cost_tests = calculate_cost_effectiveness_tests(
+                npv_grid_savings=comp_npv_grid_savings,
+                npv_lost_revenue=npv_retail_lost_revenue,
+                npv_customer_bill_savings=npv_customer_bill_savings,
+                gross_measure_cost=gross_measure_cost,
+                utility_incentive=utility_incentive,
+                utility_admin_cost=utility_admin_cost,
+                annual_customer_savings_stream=annual_cust_savings_stream,
+                pv_multipliers=customer_pv_multipliers,
+            )
+            comp_trc_ratio = comp_cost_tests["trc_ratio"]
+            comp_rim_ratio = comp_cost_tests["rim_ratio"]
+
+            # Optional DR Weather-Dispatched comparator (shows impact when DR dispatch itself follows weather CWF)
+            dr_weather_dispatched_summary = None
+            if dr_mode and is_system_stress_selected:
+                w_dr_red, w_dr_idx = dispatch_dr_program(
+                    datetime_series,
+                    weather_comparator_cwft,
+                    dr_hours_per_year,
+                    dr_season,
+                    dr_max_hours_per_day,
+                    dr_capacity_kw,
+                    baseline_load,
+                )
+                w_dr_mwh = w_dr_red / 1000.0
+                w_epc_red = float((w_dr_red * weather_comparator_cwft).sum())
+                w_acc_kw = w_epc_red * dr_capacity_derate
+                w_gen_cap_sav = float(w_acc_kw * cap_value)
+                w_ene_sav = float((w_dr_mwh * results_df["Cambium_Energy_MWh"].to_numpy()).sum())
+                w_trans_sav = float((w_dr_mwh * results_df["Trans_Value_MWh"].to_numpy()).sum())
+                w_dist_sav = float((w_dr_mwh * results_df["Dist_Value_MWh"].to_numpy()).sum())
+                w_emi_sav = float((w_dr_mwh * results_df["Emissions_Value_MWh"].to_numpy()).sum())
+                dr_weather_dispatched_summary = {
+                    "dispatched_hours": int(len(w_dr_idx)),
+                    "accredited_capacity_kw": w_acc_kw,
+                    "annual_gen_cap_savings": w_gen_cap_sav,
+                    "annual_energy_savings": w_ene_sav,
+                    "annual_td_savings": w_trans_sav + w_dist_sav,
+                    "annual_emissions_savings": w_emi_sav,
+                }
             
             # Peak-to-average coincidence ratios: average demand during the highest-stress
             # hours, divided by the average demand across the full year. A ratio of 2.0
@@ -1526,7 +1704,9 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             npv_grid_savings=npv_grid_savings,
                             npv_retail_lost_revenue=npv_retail_lost_revenue,
                             npv_net_savings=npv_net_savings,
-                            npv_program_cost=npv_program_cost
+                            npv_program_cost=npv_program_cost,
+                            npv_energy_savings=npv_energy_savings,
+                            npv_capacity_savings=npv_capacity_savings,
                         )
                         st.plotly_chart(fig_balance, width="stretch", config={"displayModeBar": False})
                     with col_bal_net:
@@ -1603,13 +1783,30 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         help="Net Measure Cost divided by Year 1 Customer Bill Savings."
                     )
                 with kpi_col4:
-                    st.metric(
-                        label="Coincident Capacity",
-                        value=f"{accredited_capacity_kw:,.2f} kW",
-                        delta=f"{elcc_reduction * 100:.1f}% ELCC Accreditation",
-                        delta_color="off",
-                        help="Accredited coincident capacity reduction driving Generation Capacity avoided costs."
-                    )
+                    if is_system_stress_selected or "Dual-Peak" in selected_cwf_method:
+                        st.metric(
+                            label="Winter Peak Capacity",
+                            value=f"{winter_coincident_kw:,.2f} kW",
+                            delta=f"Summer: {summer_coincident_kw:,.2f} kW | Blended: {accredited_capacity_kw:,.2f} kW",
+                            delta_color="normal" if winter_coincident_kw >= summer_coincident_kw else "off",
+                            help=(
+                                "Peak physical demand reduction during winter freeze net-demand hours (Dec–Feb). "
+                                f"Delta shows summer cooling relief ({summer_coincident_kw:,.2f} kW) and "
+                                f"annual blended capacity ({accredited_capacity_kw:,.2f} kW) weighted at {winter_split_pct:.0f}% Winter / {100-winter_split_pct:.0f}% Summer."
+                            )
+                        )
+                    else:
+                        st.metric(
+                            label="Coincident Capacity",
+                            value=f"{accredited_capacity_kw:,.2f} kW",
+                            delta=coincidence_delta_str,
+                            delta_color="off",
+                            help=(
+                                "Coincident capacity reduction driving Generation Capacity avoided costs. "
+                                "When the public-data system-stress proxy is active, the displayed ratio is a "
+                                "screening proxy coincidence ratio relative to peak load reduction — not measured LOLP or accredited ELCC."
+                            )
+                        )
 
                 st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
@@ -1625,9 +1822,11 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         help="(Bill Savings + Rebate) ÷ Measure Cost"
                     )
                     audit_m2.metric(
-                        label="Technical EPC Reduction",
-                        value=f"{epc_reduction:,.2f} kW",
-                        help="Undiminished coincident physical demand reduction before accreditation derate."
+                        label="Winter Peak Reduction",
+                        value=f"{winter_coincident_kw:,.2f} kW",
+                        delta=f"Summer: {summer_coincident_kw:,.2f} kW",
+                        delta_color="off",
+                        help="Coincident demand reduction during winter reliability hours (Dec–Feb) vs summer (Jun–Sep)."
                     )
                     audit_m3.metric(
                         label="Peak Coincidence Factor",
@@ -1659,15 +1858,112 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
 - **Analysis Asset Horizon:** `{asset_life} years` (utility WACC: {discount_rate}%, customer discount rate: {customer_discount_rate}%)"""
                         )
                     with col_info2:
+                        elcc_audit_str = f"{elcc_reduction * 100:.1f}%" if elcc_ratio_valid else "N/A (no positive peak reduction)"
                         st.markdown("###### Capacity & Profile Breakdown")
                         st.markdown(
                             f"""- **Baseline Profile:** `{baseline_col}` (EPC: **{epc_baseline:.2f} kW**, Coincidence: **{coincidence_baseline * 100:.1f}%**)
 - **Proposed Profile:** `{"DR Optimised Schedule" if dr_mode else proposed_col}` (EPC: **{epc_proposed:.2f} kW**, Coincidence: **{coincidence_proposed * 100:.1f}%**)
 - **Technical EPC Reduction:** `**{epc_reduction:.2f} kW**` *(undiminished physical coincident cut)*
-- **Accredited Capacity:** `**{accredited_capacity_kw:.2f} kW**` *(drives Gen Capacity avoided costs)*
-- **Capacity Accreditation (ELCC/UCAP %):** `**{elcc_reduction * 100:.1f}%**`
-- **Gross Measure Cost / Utility Incentive:** `\\${gross_measure_cost:,.2f} / \\${utility_incentive:,.2f}`"""
+- **Accredited / Valued Capacity:** `**{accredited_capacity_kw:.2f} kW**` *(drives Gen Capacity avoided costs)*
+- **{coincidence_ratio_label}:** `**{elcc_audit_str}**`
+- **Gross Measure Cost / Utility Incentive:** `\${gross_measure_cost:,.2f} / \${utility_incentive:,.2f}`"""
                         )
+
+                # 4. Capacity Method Summary & Cambium Net-Demand Diagnostics Expander
+                with st.expander(
+                    "▸ Capacity Valuation Breakdown & Cambium Net-Demand Diagnostics",
+                    expanded=is_system_stress_selected,
+                ):
+                    st.markdown("##### Capacity Valuation & SPM Cost-Effectiveness Summary")
+                    st.caption(
+                        "Summary of seasonal coincident capacity reduction, annual avoided grid costs, and standard California Standard Practice Manual (SPM) "
+                        "cost-effectiveness tests (TRC, RIM, Utility NPV) under the **Seasonal Split Net-Demand** framework."
+                    )
+                    if is_seasonal:
+                        summary_metrics = [
+                            f"Winter Peak Capacity Reduction ({winter_split_pct:.0f}% Risk Weight)",
+                            f"Summer Peak Capacity Reduction ({100.0 - winter_split_pct:.0f}% Risk Weight)",
+                            "Annual Blended Capacity Credit / EPC Reduction (kW)",
+                            "Valued Generation Capacity (kW)",
+                            "Annual Generation Capacity Avoided Cost ($/yr)",
+                            "Annual Wholesale Delivered Energy Savings ($/yr)",
+                            "Annual Transmission & Distribution Deferral ($/yr)",
+                            "Annual Emissions Avoided Cost ($/yr)",
+                            "Total Annual Grid Avoided Cost ($/yr)",
+                            "Annual Customer Bill Savings / Lost Revenue ($/yr)",
+                            "Utility Net Valuation NPV ($)",
+                            "Total Resource Cost (TRC) Ratio",
+                            "Rate Impact Measure (RIM) Ratio",
+                        ]
+                        summary_values = [
+                            f"{winter_coincident_kw:,.3f} kW",
+                            f"{summer_coincident_kw:,.3f} kW",
+                            f"{epc_reduction:,.3f} kW",
+                            f"{accredited_capacity_kw:,.3f} kW",
+                            f"${annual_gen_cap_savings:,.2f}",
+                            f"${annual_energy_savings:,.2f}",
+                            f"${(annual_trans_savings + annual_dist_savings):,.2f}",
+                            f"${annual_emissions_savings:,.2f}",
+                            f"${annual_grid_savings:,.2f}",
+                            f"${annual_lost_revenue:,.2f}",
+                            f"${npv_net_savings:,.2f}",
+                            "N/A" if np.isnan(trc_ratio) else f"{trc_ratio:.3f}",
+                            "N/A" if np.isnan(rim_ratio) else f"{rim_ratio:.3f}",
+                        ]
+                    else:
+                        summary_metrics = [
+                            "Capacity Credit / EPC Reduction (kW)",
+                            "Valued Generation Capacity (kW)",
+                            "Annual Generation Capacity Avoided Cost ($/yr)",
+                            "Annual Wholesale Delivered Energy Savings ($/yr)",
+                            "Annual Transmission & Distribution Deferral ($/yr)",
+                            "Annual Emissions Avoided Cost ($/yr)",
+                            "Total Annual Grid Avoided Cost ($/yr)",
+                            "Annual Customer Bill Savings / Lost Revenue ($/yr)",
+                            "Utility Net Valuation NPV ($)",
+                            "Total Resource Cost (TRC) Ratio",
+                            "Rate Impact Measure (RIM) Ratio",
+                        ]
+                        summary_values = [
+                            f"{epc_reduction:,.3f} kW",
+                            f"{accredited_capacity_kw:,.3f} kW",
+                            f"${annual_gen_cap_savings:,.2f}",
+                            f"${annual_energy_savings:,.2f}",
+                            f"${(annual_trans_savings + annual_dist_savings):,.2f}",
+                            f"${annual_emissions_savings:,.2f}",
+                            f"${annual_grid_savings:,.2f}",
+                            f"${annual_lost_revenue:,.2f}",
+                            f"${npv_net_savings:,.2f}",
+                            "N/A" if np.isnan(trc_ratio) else f"{trc_ratio:.3f}",
+                            "N/A" if np.isnan(rim_ratio) else f"{rim_ratio:.3f}",
+                        ]
+                    val_col = f"Seasonal Split Net-Demand ({winter_split_pct:.0f}% Winter / {100.0 - winter_split_pct:.0f}% Summer)" if is_seasonal else f"Value ({effective_cwf_method})"
+                    summary_df = pd.DataFrame({
+                        "Metric": summary_metrics,
+                        val_col: summary_values,
+                    })
+                    st.dataframe(summary_df, width="stretch", hide_index=True)
+
+                    if cambium_stress_eval is not None and cambium_stress_eval.get("is_qualified"):
+                        c_diag = cambium_stress_eval.get("diagnostics", {})
+                        bas = cambium_stress_eval.get('needed_bas', []) or cambium_stress_eval.get('needed_geas', [])
+                        st.markdown("---")
+                        st.markdown("##### Cambium Net-Demand Proxy Provenance & Diagnostics")
+                        st.caption(
+                            "Evaluated using Cambium regional net-demand exceedance "
+                            "on modeled year " + str(planning_year) + " under 2012 weather basis."
+                        )
+                        c_col1, c_col2, c_col3, c_col4 = st.columns(4)
+                        c_col1.metric("Requested Method", selected_cwf_method)
+                        c_col2.metric("Region Coverage", f"{len(bas)} Area(s) Active")
+                        c_col3.metric("Modeled Year / Weather", f"{planning_year} / 2012 Basis")
+                        c_col4.metric("Active Stress Hours", f"{c_diag.get('active_hours', 0)} hrs")
+
+                        c_sub1, c_sub2, c_sub3, c_sub4 = st.columns(4)
+                        c_sub1.metric("Max Single-Hour Weight", f"{c_diag.get('top_hour_weight', 0.0) * 100:.2f}%")
+                        c_sub2.metric("Effective Hours (1 / Σw²)", f"{c_diag.get('effective_hours', 0.0):.1f} hrs")
+                        c_sub3.metric("State Routing", f"{', '.join(target_states)}")
+                        c_sub4.metric("Constituent Regions", f"{', '.join(bas)}")
                     
             # ------------------------------------------------------------------
             # TAB 3: COST-EFFECTIVENESS TABLE
@@ -2215,6 +2511,17 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         _cwf_methodology_caveat()
 
                     st.markdown("---")
+                    st.markdown("#### Capacity Weighting Method Comparison (Monthly & Diurnal Risk Shape)")
+                    fig_method_comp = plot_system_stress_vs_weather_cwf_comparison(
+                        stress_cwft=cwft_array,
+                        weather_cwft=weather_comparator_cwft,
+                        datetime_series=datetime_series,
+                        stress_label=effective_cwf_method,
+                        weather_label="Southeast Dual-Peak Weather Reference",
+                    )
+                    st.plotly_chart(fig_method_comp, width="stretch")
+
+                    st.markdown("---")
                     st.markdown("#### Top 100 Capacity-Risk Hours — Did Load Go Up, Down, or Flat?")
                     col_risk_chart, col_risk_text = st.columns([3, 2])
                     with col_risk_chart:
@@ -2607,15 +2914,22 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 with col_save2:
                     st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
                     if st.button("Save Current Run", type="secondary", width="stretch"):
+                        prov_info = system_stress_eval.get("provenance", {}) if system_stress_eval else {}
                         new_run = {
                             "Name": scenario_run_name,
-                            "Grid Scenario": selected_scenario,
-                            "Weather Case": weather_case,
+                            "States": ", ".join(target_states),
+                            "Grid Scenario": f"{selected_scenario} ({planning_year})",
+                            "Weather Case": f"{weather_case} ({meta_load_weather})",
+                            "Requested CWF": selected_cwf_method,
+                            "Effective CWF": effective_cwf_method,
+                            "EIA-861 Vintage": str(prov_info.get("crosswalk_vintage", "N/A")),
                             "Retail Tariff": tariff_name_label,
                             "Alignment": alignment_status,
                             "Net NPV ($)": npv_net_savings,
                             "RIM Ratio": rim_ratio,
-                            "Capacity Accreditation (ELCC/UCAP %)": f"{elcc_reduction * 100:.1f}%",
+                            "Capacity Credit / Proxy Ratio": (
+                                f"{elcc_reduction * 100:.1f}%" if elcc_ratio_valid else "N/A"
+                            ),
                             "Gen Capacity savings ($)": annual_gen_cap_savings,
                             "T&D Deferral savings ($)": annual_trans_savings + annual_dist_savings,
                             "Lost Revenue ($)": annual_lost_revenue
@@ -2716,6 +3030,30 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     "Emissions Value ($/MWh)": results_df['Emissions_Value_MWh'],
                     "Total Grid Avoided Cost ($/MWh)": results_df['Total_Avoided_Cost_MWh'],
                     "CWFT Weight": results_df['CWFT'],
+                    "Weather Comparator CWFT Weight": weather_comparator_cwft,
+                    "CWF Requested Method": selected_cwf_method,
+                    "CWF Effective Method": effective_cwf_method,
+                    "EIA Portfolio Stress Signal (MW)": (
+                        system_stress_eval["portfolio_stress_signal_mw"]
+                        if system_stress_eval is not None
+                        else np.full(len(results_df), np.nan)
+                    ),
+                    "EIA Portfolio Gross Demand (MW)": (
+                        system_stress_eval["portfolio_demand_mw"]
+                        if system_stress_eval is not None
+                        else np.full(len(results_df), np.nan)
+                    ),
+                    "EIA Portfolio Wind Generation (MW)": (
+                        system_stress_eval["portfolio_wind_mw"]
+                        if system_stress_eval is not None
+                        else np.full(len(results_df), np.nan)
+                    ),
+                    "EIA Portfolio Solar Generation (MW)": (
+                        system_stress_eval["portfolio_solar_mw"]
+                        if system_stress_eval is not None
+                        else np.full(len(results_df), np.nan)
+                    ),
+                    "Hourly Generation Capacity Savings ($/hr)": gen_cap_savings_h,
                     "Retail Energy Rate ($/kWh)": hourly_retail_rate,
                     "Baseline Customer Bill Cost ($/hr)": baseline_cost_hr,
                     "Proposed Customer Bill Cost ($/hr)": proposed_cost_hr,

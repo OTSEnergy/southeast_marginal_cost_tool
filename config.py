@@ -70,8 +70,87 @@ WEATHER_CASE_OPTIONS = [
     "Extreme Summer",
 ]
 
-STATE_OPTIONS = ["AL", "GA", "FL", "TN", "MS", "NC", "SC"]
+SOUTHEAST_STATES = ["AL", "GA", "FL", "TN", "MS", "NC", "SC"]
+
+CONTIGUOUS_48_STATES = [
+    "AL", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "ID", "IL", "IN",
+    "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT",
+    "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA",
+    "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+]
+
+# Keep Southeast states at the front for quick access, followed by all other contiguous states
+STATE_OPTIONS = SOUTHEAST_STATES + [s for s in CONTIGUOUS_48_STATES if s not in SOUTHEAST_STATES]
 DEFAULT_STATES = ["AL"]
+
+# Explicitly deferred non-contiguous states and territories
+DEFERRED_GEOGRAPHIES = ["AK", "HI", "PR", "VI", "GU", "AS", "MP", "DC"]
+
+# Standard (non-DST) UTC offsets by contiguous state.
+# Multi-time-zone states require explicit user confirmation of the building profile's
+# fixed Local Standard Time offset before system-stress alignment.
+STATE_TIMEZONE_METADATA = {
+    "AL": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "AZ": {"default_utc_offset": -7, "tz_label": "MST (UTC-7)", "multi_tz": False, "zones": [-7]},
+    "AR": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "CA": {"default_utc_offset": -8, "tz_label": "PST (UTC-8)", "multi_tz": False, "zones": [-8]},
+    "CO": {"default_utc_offset": -7, "tz_label": "MST (UTC-7)", "multi_tz": False, "zones": [-7]},
+    "CT": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "DE": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "FL": {"default_utc_offset": -5, "tz_label": "EST/CST (UTC-5 / UTC-6)", "multi_tz": True, "zones": [-5, -6]},
+    "GA": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "ID": {"default_utc_offset": -7, "tz_label": "MST/PST (UTC-7 / UTC-8)", "multi_tz": True, "zones": [-7, -8]},
+    "IL": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "IN": {"default_utc_offset": -5, "tz_label": "EST/CST (UTC-5 / UTC-6)", "multi_tz": True, "zones": [-5, -6]},
+    "IA": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "KS": {"default_utc_offset": -6, "tz_label": "CST/MST (UTC-6 / UTC-7)", "multi_tz": True, "zones": [-6, -7]},
+    "KY": {"default_utc_offset": -5, "tz_label": "EST/CST (UTC-5 / UTC-6)", "multi_tz": True, "zones": [-5, -6]},
+    "LA": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "ME": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "MD": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "MA": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "MI": {"default_utc_offset": -5, "tz_label": "EST/CST (UTC-5 / UTC-6)", "multi_tz": True, "zones": [-5, -6]},
+    "MN": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "MS": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "MO": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "MT": {"default_utc_offset": -7, "tz_label": "MST (UTC-7)", "multi_tz": False, "zones": [-7]},
+    "NE": {"default_utc_offset": -6, "tz_label": "CST/MST (UTC-6 / UTC-7)", "multi_tz": True, "zones": [-6, -7]},
+    "NV": {"default_utc_offset": -8, "tz_label": "PST (UTC-8)", "multi_tz": False, "zones": [-8]},
+    "NH": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "NJ": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "NM": {"default_utc_offset": -7, "tz_label": "MST (UTC-7)", "multi_tz": False, "zones": [-7]},
+    "NY": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "NC": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "ND": {"default_utc_offset": -6, "tz_label": "CST/MST (UTC-6 / UTC-7)", "multi_tz": True, "zones": [-6, -7]},
+    "OH": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "OK": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "OR": {"default_utc_offset": -8, "tz_label": "PST/MST (UTC-8 / UTC-7)", "multi_tz": True, "zones": [-8, -7]},
+    "PA": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "RI": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "SC": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "SD": {"default_utc_offset": -6, "tz_label": "CST/MST (UTC-6 / UTC-7)", "multi_tz": True, "zones": [-6, -7]},
+    "TN": {"default_utc_offset": -6, "tz_label": "CST/EST (UTC-6 / UTC-5)", "multi_tz": True, "zones": [-6, -5]},
+    "TX": {"default_utc_offset": -6, "tz_label": "CST/MST (UTC-6 / UTC-7)", "multi_tz": True, "zones": [-6, -7]},
+    "UT": {"default_utc_offset": -7, "tz_label": "MST (UTC-7)", "multi_tz": False, "zones": [-7]},
+    "VT": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "VA": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "WA": {"default_utc_offset": -8, "tz_label": "PST (UTC-8)", "multi_tz": False, "zones": [-8]},
+    "WV": {"default_utc_offset": -5, "tz_label": "EST (UTC-5)", "multi_tz": False, "zones": [-5]},
+    "WI": {"default_utc_offset": -6, "tz_label": "CST (UTC-6)", "multi_tz": False, "zones": [-6]},
+    "WY": {"default_utc_offset": -7, "tz_label": "MST (UTC-7)", "multi_tz": False, "zones": [-7]},
+}
+
+STANDARD_UTC_OFFSET_OPTIONS = {
+    -5: "EST — Eastern Standard Time (UTC-5)",
+    -6: "CST — Central Standard Time (UTC-6)",
+    -7: "MST — Mountain Standard Time (UTC-7)",
+    -8: "PST — Pacific Standard Time (UTC-8)",
+}
+
+REGIONAL_PRESET_DISCLOSURE = (
+    "Pre-packaged retail tariffs, T&D deferral rates, Southeast Dual-Peak weather windows, "
+    "and bundled building examples are regional Southeast presets (not calibrated nationwide benchmarks)."
+)
 
 # Planning & Educational Use Disclaimer
 TOOL_DISCLAIMER_TEXT = (
@@ -269,8 +348,8 @@ EXAMPLE_BUILDINGS = [
 # ==============================================================================
 
 DEFAULT_CAP_VALUE = 110.20       # $/kW-year  (Generation Capacity: NREL ATB 2024 CT Carrying Cost Benchmark: $1,100/kW * 8.2% FCR + $20/kW-yr FOM)
-DEFAULT_TRANS_VALUE = 15.00      # $/kW-year  (Transmission Deferral)
-DEFAULT_DIST_VALUE = 15.00       # $/kW-year  (Distribution Deferral)
+DEFAULT_TRANS_VALUE = 14.00      # $/kW-year  (Transmission Deferral: LBNL Southeast Regional Average Benchmark)
+DEFAULT_DIST_VALUE = 22.00       # $/kW-year  (Distribution Deferral: LBNL Southeast Regional Average Benchmark)
 DEFAULT_CARBON_TAX = 30.00       # $/metric ton CO₂
 
 # Scalar input ranges (min, max, step)
@@ -422,6 +501,8 @@ SOUTHEAST_TD_PRESETS = {
     },
 }
 
+DEFAULT_TD_PRESET = "LBNL Southeast Regional Average"
+
 # ==============================================================================
 # TOP-LEVEL BALANCING AUTHORITY / UTILITY SYSTEM PRESETS
 # ==============================================================================
@@ -519,7 +600,12 @@ ORGANIZATION_PRESETS = {
     },
 }
 
+SYSTEM_STRESS_CWF_LABEL = "Public-data system-stress proxy (EIA)"
+CAMBIUM_NET_DEMAND_CWF_LABEL = "Cambium regional net-demand capacity proxy"
+CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL = "Seasonal Split Net-Demand (Cambium)"
+
 CWF_METHOD_OPTIONS = [
+    CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL,
     "Southeast Dual-Peak (Winter 6–9 AM + Summer 2–6 PM)",
     "Ambient Temperature Severity (Weather-Triggered)",
     "Cambium Price-Exceedance LOLP Proxy (Exponential)",
@@ -527,6 +613,57 @@ CWF_METHOD_OPTIONS = [
     "Wholesale Peaker Rent (Spark Spread)",
     "Uploaded / Default CWFT CSV",
 ]
+
+# Cambium Regional Net-Demand Capacity Proxy Defaults & Constants
+CAMBIUM_GEA_MANIFEST_PATH = "./data/cambium24_reeds_gea_manifest.json"
+CAMBIUM_STRESS_CACHE_DIR = "./data/cambium_system_stress_cache"
+CAMBIUM_EXCEEDANCE_RULE = "min(N_101, 0.95 * max(N))"
+CAMBIUM_WEATHER_YEAR_DEFAULT = 2012
+
+# Public-Data System-Stress Capacity-Credit Proxy Defaults & Thresholds
+DEFAULT_SYSTEM_STRESS_PERCENTILE = 95.0
+SYSTEM_STRESS_PERCENTILE_RANGE = (90.0, 99.0, 0.5)
+MIN_STATE_BA_SALES_COVERAGE = 0.95        # Minimum 95% EIA-861 residential sales share mapped to usable BAs
+MIN_VALID_HOURLY_FRACTION = 0.995         # Minimum 99.5% valid original hourly observations after UTC alignment
+MAX_INTERIOR_GAP_HOURS = 2                # Maximum consecutive missing hours eligible for linear interpolation
+IMPLAUSIBLE_SPIKE_MULTIPLIER_MEDIAN = 10.0  # Flag single-hour spikes > 10x median AND > 3x 2nd highest hour
+EIA_EARLIEST_COMPLETE_YEAR = 2016         # First full calendar year in EIA-930 (survey started July 2015)
+AVAILABLE_EIA_STRESS_YEARS = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016]
+DEFAULT_EIA_STRESS_YEAR = 2023
+EIA_930_EARLIEST_DEMAND_YEAR = 2016       # Alias for first full calendar year in EIA-930
+EIA_NET_DEMAND_START_YEAR = 2019          # First full calendar year with EIA-930 fuel-source wind/solar (started July 2018)
+EIA_930_EARLIEST_FULL_NET_LOAD_YEAR = 2019  # Alias for first full calendar year with wind/solar reporting
+EIA_API_V2_REGION_DATA_URL = "https://api.eia.gov/v2/electricity/rto/region-data/data/"
+EIA_API_V2_REGION_DATA_ROUTE = EIA_API_V2_REGION_DATA_URL
+EIA_API_V2_FUEL_DATA_URL = "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data/"
+EIA_API_V2_FUEL_TYPE_ROUTE = EIA_API_V2_FUEL_DATA_URL
+EIA_API_V2_MAX_PAGE_ROWS = 5000
+STATE_BA_CROSSWALK_PATH = "./data/state_ba_sales_crosswalk.csv"
+STATE_BA_CROSSWALK_MANIFEST_PATH = "./data/state_ba_sales_crosswalk_manifest.json"
+REEDS_HIERARCHY_PATH = "./data/reeds_state_ba_hierarchy.csv"
+SYSTEM_STRESS_CACHE_DIR = "./data/eia_system_stress_cache"
+SYSTEM_STRESS_CACHE_SCHEMA_VERSION = "1.0"
+
+DEFAULT_PROFILE_INTERVAL_CONVENTION = "hour_start"
+
+PROFILE_TIME_CONVENTION_OPTIONS = [
+    "hour_start",
+    "hour_end",
+]
+
+PROFILE_TIME_CONVENTION_LABELS = {
+    "hour_start": "Hour-Start / Standard 8,760 (Row 1 = Jan 1 00:00–01:00 LST; matches BEopt/EnergyPlus)",
+    "hour_end": "Hour-Ending Timestamp (Row 1 timestamp ends at 00:00 LST)",
+}
+
+PROFILE_INTERVAL_CONVENTION_OPTIONS = PROFILE_TIME_CONVENTION_LABELS
+
+PROFILE_YEAR_BASIS_OPTIONS = {
+    "AMY": "AMY (Actual Meteorological Year — Chronologically Matched)",
+    "TMY": "TMY / TMY3 (Typical Meteorological Year — Multi-Year Composite)",
+    "Composite": "Multi-Year Average / Synthetic Weather",
+    "Unknown": "Unknown Weather-Year Basis",
+}
 
 FEEDER_TYPE_OPTIONS = [
     "System Coincident (Top 100 Peak Hours)",

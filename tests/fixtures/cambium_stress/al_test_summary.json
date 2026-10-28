@@ -1,0 +1,18 @@
+{
+  "weather_year": 2012,
+  "planning_year": 2030,
+  "release": "Cambium24",
+  "scenario": "MidCase",
+  "state": "AL",
+  "bas": [
+    "p89",
+    "p90"
+  ],
+  "tz": "CT",
+  "max_net_load": 19769.4,
+  "n_101": 17303.800000000003,
+  "threshold": 17303.800000000003,
+  "active_hours": 100,
+  "top_hour_weight": 0.031411037942689214,
+  "effective_hours": 61.636690103422346
+}

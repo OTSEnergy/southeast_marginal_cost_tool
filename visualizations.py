@@ -1134,11 +1134,11 @@ def plot_feeder_vs_system_load(feeder_weights, system_weights, datetime_series=N
 
 
 def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_net_savings,
-                                  npv_program_cost=0.0):
+                                  npv_program_cost=0.0, npv_energy_savings=None, npv_capacity_savings=None):
     """
     Build a clean horizontal comparison / waterfall chart for the Lifetime Economic Balance
-    showing Grid Avoided Costs (+), Utility Lost Revenue (-), optionally Utility Program
-    Cost (-), and Net Valuation NPV.
+    showing Grid Avoided Costs (or broken into Fuel/Energy + Capacity savings) (+), Utility
+    Lost Revenue (-), optionally Utility Program Cost (-), and Net Valuation NPV.
 
     Parameters
     ----------
@@ -1152,6 +1152,12 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
         One-time utility program cost (incentive + admin), undiscounted since it's
         already in today's dollars. 0 (default) omits the bar entirely, so the
         common "no program cost" case doesn't show a needless $0 step.
+    npv_energy_savings : float, optional
+        Discounted lifetime fuel/energy avoided cost savings ($). If provided with
+        npv_capacity_savings, replaces single "Grid Avoided Costs" bar with two distinct
+        positive green bars.
+    npv_capacity_savings : float, optional
+        Discounted lifetime generation + T&D capacity avoided cost savings ($).
 
     Returns
     -------
@@ -1166,10 +1172,28 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
     def _signed_dollar(v):
         return f"+${v:,.0f}" if v >= 0 else f"-${abs(v):,.0f}"
 
-    measure = ["relative", "relative"]
-    y = ["Grid Avoided Costs", "Utility Lost Revenue"]
-    x = [npv_grid_savings, -npv_retail_lost_revenue]
-    text = [_signed_dollar(npv_grid_savings), _signed_dollar(-npv_retail_lost_revenue)]
+    has_breakout = (npv_energy_savings is not None and npv_capacity_savings is not None)
+
+    measure = []
+    y = []
+    x = []
+    text = []
+
+    if has_breakout:
+        measure.extend(["relative", "relative"])
+        y.extend(["Grid Energy Savings", "Capacity Savings"])
+        x.extend([npv_energy_savings, npv_capacity_savings])
+        text.extend([_signed_dollar(npv_energy_savings), _signed_dollar(npv_capacity_savings)])
+    else:
+        measure.append("relative")
+        y.append("Grid Avoided Costs")
+        x.append(npv_grid_savings)
+        text.append(_signed_dollar(npv_grid_savings))
+
+    measure.append("relative")
+    y.append("Utility Lost Revenue")
+    x.append(-npv_retail_lost_revenue)
+    text.append(_signed_dollar(-npv_retail_lost_revenue))
 
     if npv_program_cost > 0:
         measure.append("relative")
@@ -1185,8 +1209,15 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
     # Calculate cumulative positions of waterfall steps to determine full extent
     running = [0.0]
     curr = 0.0
-    curr += float(npv_grid_savings)
-    running.append(curr)
+    if has_breakout:
+        curr += float(npv_energy_savings)
+        running.append(curr)
+        curr += float(npv_capacity_savings)
+        running.append(curr)
+    else:
+        curr += float(npv_grid_savings)
+        running.append(curr)
+
     curr -= float(npv_retail_lost_revenue)
     running.append(curr)
     if npv_program_cost > 0:
@@ -1218,8 +1249,8 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
 
     fig.update_layout(
         template="plotly_white",
-        height=190,
-        margin=dict(l=145, r=110, t=15, b=25),
+        height=225 if has_breakout else 190,
+        margin=dict(l=155, r=110, t=15, b=25),
         xaxis=dict(
             title="",
             range=x_range,
@@ -1781,3 +1812,100 @@ def build_cumulative_cost_chart(datetime_series, utility_net_hr, baseline_custom
 
 
 
+
+
+
+def plot_system_stress_vs_weather_cwf_comparison(
+    stress_cwft,
+    weather_cwft,
+    datetime_series,
+    stress_label="Public-Data System-Stress Proxy (EIA)",
+    weather_label="Weather-Based Dual-Peak",
+):
+    """
+    Build a two-panel diagnostic figure comparing the monthly capacity-risk share (%)
+    and average hour-of-day capacity-risk profile (%) between the selected
+    system-stress CWF and the weather-based comparator CWF.
+    """
+    dts = pd.to_datetime(pd.Series(np.asarray(datetime_series)).reset_index(drop=True))
+    months = dts.dt.month.to_numpy()
+    hours = dts.dt.hour.to_numpy()
+
+    w_stress = np.asarray(stress_cwft, dtype=float)
+    w_weather = np.asarray(weather_cwft, dtype=float)
+
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    stress_monthly_pct = [float(np.sum(w_stress[months == m]) * 100.0) for m in range(1, 13)]
+    weather_monthly_pct = [float(np.sum(w_weather[months == m]) * 100.0) for m in range(1, 13)]
+
+    stress_hourly_pct = [float(np.sum(w_stress[hours == h]) * 100.0) for h in range(24)]
+    weather_hourly_pct = [float(np.sum(w_weather[hours == h]) * 100.0) for h in range(24)]
+
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=(
+            "Monthly Capacity Risk Share (% of Annual Weight)",
+            "Diurnal Capacity Risk Share by Hour of Day (%)",
+        ),
+        horizontal_spacing=0.10,
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=month_names,
+            y=stress_monthly_pct,
+            name=stress_label,
+            marker_color=COLORS.get("teal", "#0D9488"),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=month_names,
+            y=weather_monthly_pct,
+            name=weather_label,
+            marker_color=COLORS.get("amber", "#F59E0B"),
+        ),
+        row=1,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(24)),
+            y=stress_hourly_pct,
+            name=f"{stress_label} (Hourly)",
+            mode="lines+markers",
+            line=dict(color=COLORS.get("teal", "#0D9488"), width=2.5),
+            showlegend=False,
+        ),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(24)),
+            y=weather_hourly_pct,
+            name=f"{weather_label} (Hourly)",
+            mode="lines+markers",
+            line=dict(color=COLORS.get("amber", "#F59E0B"), width=2.0, dash="dash"),
+            showlegend=False,
+        ),
+        row=1,
+        col=2,
+    )
+
+    fig.update_layout(
+        barmode="group",
+        template="plotly_white",
+        height=370,
+        margin=dict(l=45, r=20, t=55, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.10, xanchor="left", x=0.0),
+    )
+    fig.update_yaxes(title_text="Share of Annual Capacity Weight (%)", row=1, col=1)
+    fig.update_yaxes(title_text="Share of Annual Capacity Weight (%)", row=1, col=2)
+    fig.update_xaxes(title_text="Month", row=1, col=1)
+    fig.update_xaxes(title_text="Hour of Day (0–23 LST)", dtick=3, row=1, col=2)
+    return fig

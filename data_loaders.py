@@ -56,6 +56,7 @@ NOTE ON STREAMLIT:
 
 import os
 import glob
+from typing import List, Dict, Any, Optional, Tuple, Callable
 import json
 import urllib.request
 import numpy as np
@@ -403,6 +404,7 @@ def load_load_profiles_from_csv(filepath):
             merged_dict = {'Hour': np.arange(1, 8761)}
             ingestion_warnings = []
             column_warnings = {}
+            column_imputed_counts = {}
             for fp in sorted(files):
                 stem = os.path.splitext(os.path.basename(fp))[0]
                 sub_df = _read_profile_file(fp)
@@ -415,6 +417,7 @@ def load_load_profiles_from_csv(filepath):
                     if vals is not None:
                         col_key = col_name if col_name not in merged_dict else f"{stem} - {col_name}"
                         merged_dict[col_key] = vals
+                        column_imputed_counts[col_key] = int(n_filled)
                         if n_filled > 0:
                             msg = f"'{fp}': {n_filled} missing hour(s) in '{col_key}' filled via linear interpolation."
                             ingestion_warnings.append(msg)
@@ -427,6 +430,7 @@ def load_load_profiles_from_csv(filepath):
                         vals, n_filled = _fill_hourly_gaps(vals, 8760)
                         col_key = col if col not in merged_dict else f"{stem} - {col}"
                         merged_dict[col_key] = vals
+                        column_imputed_counts[col_key] = int(n_filled)
                         if n_filled > 0:
                             msg = f"'{fp}': {n_filled} missing hour(s) in '{col_key}' filled via linear interpolation."
                             ingestion_warnings.append(msg)
@@ -437,6 +441,7 @@ def load_load_profiles_from_csv(filepath):
                 raise ValueError(f"Could not extract load profiles from files in '{filepath}'")
             res_df.attrs['ingestion_warnings'] = ingestion_warnings
             res_df.attrs['column_warnings'] = column_warnings
+            res_df.attrs['column_imputed_counts'] = column_imputed_counts
             return res_df
 
         # Otherwise, process single file
@@ -455,12 +460,14 @@ def load_load_profiles_from_csv(filepath):
                 })
                 ingestion_warnings = []
                 column_warnings = {}
+                column_imputed_counts = {col_name: int(n_filled)}
                 if n_filled > 0:
                     msg = f"'{filepath}': {n_filled} missing hour(s) in '{col_name}' filled via linear interpolation."
                     ingestion_warnings.append(msg)
                     column_warnings.setdefault(col_name, []).append(msg)
                 out_df.attrs['ingestion_warnings'] = ingestion_warnings
                 out_df.attrs['column_warnings'] = column_warnings
+                out_df.attrs['column_imputed_counts'] = column_imputed_counts
                 return out_df
             else:
                 raise ValueError(f"Could not find an electricity/facility load column in '{filepath}'")
@@ -473,10 +480,12 @@ def load_load_profiles_from_csv(filepath):
         out_dict = {'Hour': np.arange(1, 8761)}
         ingestion_warnings = []
         column_warnings = {}
+        column_imputed_counts = {}
         for col in non_date_cols:
             vals = pd.to_numeric(df[col], errors='coerce').to_numpy()
             vals, n_filled = _fill_hourly_gaps(vals, 8760)
             out_dict[col] = vals
+            column_imputed_counts[col] = int(n_filled)
             if n_filled > 0:
                 msg = f"'{filepath}': {n_filled} missing hour(s) in '{col}' filled via linear interpolation."
                 ingestion_warnings.append(msg)
@@ -485,6 +494,7 @@ def load_load_profiles_from_csv(filepath):
         out_df = pd.DataFrame(out_dict)
         out_df.attrs['ingestion_warnings'] = ingestion_warnings
         out_df.attrs['column_warnings'] = column_warnings
+        out_df.attrs['column_imputed_counts'] = column_imputed_counts
         return out_df
     except (ValueError, FileNotFoundError):
         raise
@@ -635,7 +645,15 @@ def parse_cambium_columns(df):
     """
     cols = df.columns
     energy_col = None
-    for name in ['lmp_energy', 'marginal_cost_energy', 'Cambium_Energy_MWh', 'marginal_cost_energy_MWh', 'energy_price']:
+    for name in [
+        'energy_cost_enduse',
+        'lmp_energy',
+        'marginal_cost_energy',
+        'Cambium_Energy_MWh',
+        'marginal_cost_energy_MWh',
+        'energy_cost_busbar',
+        'energy_price',
+    ]:
         for col in cols:
             if name.lower() == col.lower():
                 energy_col = col
@@ -662,6 +680,11 @@ def parse_cambium_columns(df):
             break
 
     # Intelligent fallbacks
+    if not energy_col:
+        for col in cols:
+            if 'enduse' in col.lower() and ('energy' in col.lower() or 'cost' in col.lower() or 'price' in col.lower()):
+                energy_col = col
+                break
     if not energy_col:
         for col in cols:
             if 'energy' in col.lower() or 'price' in col.lower() or 'mwh' in col.lower():
@@ -955,12 +978,14 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
 
     if custom_temp is not None:
         temperature = custom_temp
+        weather_source = "measured_file"
     else:
         # Fall back to synthetic profile
         seasonal_temp = 62.0 - 22.0 * np.cos(2 * np.pi * (hours - 360) / 8760)
         daily_temp = -8.0 * np.cos(2 * np.pi * (hours - 15) / 24)
         temp_noise = np.random.normal(0, 3.0, 8760)
         temperature = seasonal_temp + daily_temp + temp_noise
+        weather_source = "synthetic_southeast"
 
     energy_price = regional_base['Cambium_Energy_MWh'].to_numpy()
 
@@ -1006,10 +1031,13 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
         cwft_derived[summer_hours] = 0.55 / len(summer_hours)
 
     regional_base['Temperature_F'] = temperature
+    regional_base['Weather_Source'] = weather_source
     regional_base['Cambium_Energy_MWh'] = energy_price
     regional_base['CWFT_derived'] = cwft_derived
     regional_base['Mapped_Energy_Col'] = mapped_energy_col
     regional_base['Mapped_Carbon_Col'] = mapped_carbon_col
+    regional_base.attrs['weather_source'] = weather_source
+    regional_base.attrs['weather_case'] = weather_case
 
     return regional_base, ingestion_warnings
 
@@ -1165,3 +1193,71 @@ def extract_nrel_atb_ct_parameters(df_or_filepath, year=2024, scenario="Moderate
 
     return calc_res
 
+
+
+def load_cambium_net_demand_stress_weights(
+    target_states: List[str],
+    selected_scenario: str,
+    planning_year: str,
+    raw_directory: str = "./Cambium_Hourly_Data_raw",
+    custom_tz: Optional[str] = None,
+    auto_download_missing: bool = False,
+    progress_callback: Optional[Callable[[str, float], None]] = None,
+    seasonal_split: bool = True,
+    winter_weight: float = 0.60,
+    summer_weight: Optional[float] = None,
+    aggregation_level: str = "state",
+    top_n_peak_hours: int = 100,
+) -> Dict[str, Any]:
+    """
+    Integration boundary exposing the Streamlit-free Cambium net-demand
+    physical capacity proxy loader. Supports aggregation_level="state" (default)
+    or "gea". Optionally auto-downloads missing constituent balancing area CSVs.
+    """
+    from system_stress_data import load_cambium_net_demand_proxy_for_portfolio
+    res = load_cambium_net_demand_proxy_for_portfolio(
+        target_states=target_states,
+        selected_scenario=selected_scenario,
+        planning_year=planning_year,
+        raw_directory=raw_directory,
+        custom_tz=custom_tz,
+        seasonal_split=seasonal_split,
+        winter_weight=winter_weight,
+        summer_weight=summer_weight,
+        aggregation_level=aggregation_level,
+        top_n_peak_hours=top_n_peak_hours,
+    )
+    if not res.get("is_qualified") and auto_download_missing:
+        if res.get("missing_bas_by_state"):
+            from cambium_downloader import download_cambium_data
+            for st, bas in res["missing_bas_by_state"].items():
+                download_cambium_data(
+                    target_states=[st],
+                    selected_scenario=selected_scenario,
+                    planning_year=planning_year,
+                    output_directory=raw_directory,
+                    progress_callback=progress_callback,
+                )
+        elif res.get("missing_bas_by_gea"):
+            from cambium_downloader import download_missing_cambium_gea_data
+            download_missing_cambium_gea_data(
+                missing_bas_by_gea=res["missing_bas_by_gea"],
+                selected_scenario=selected_scenario,
+                planning_year=planning_year,
+                output_directory=raw_directory,
+                progress_callback=progress_callback,
+            )
+        # Re-evaluate with newly downloaded files
+        res = load_cambium_net_demand_proxy_for_portfolio(
+            target_states=target_states,
+            selected_scenario=selected_scenario,
+            planning_year=planning_year,
+            raw_directory=raw_directory,
+            custom_tz=custom_tz,
+            seasonal_split=seasonal_split,
+            winter_weight=winter_weight,
+            summer_weight=summer_weight,
+            aggregation_level=aggregation_level,
+            top_n_peak_hours=top_n_peak_hours,
+        )
+    return res
