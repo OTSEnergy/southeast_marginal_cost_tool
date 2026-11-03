@@ -310,6 +310,97 @@ ENTERGY_RS_URDB = {
 }
 
 # ------------------------------------------------------------------------------
+# Dakota Electric Association (MN) — Schedule 31: Residential & Farm Service
+# ------------------------------------------------------------------------------
+# Source: Dakota Electric Residential Tariff Book, effective 6/1/26
+#         (Docket E-111/GR-24-400, issued 12/30/24)
+# Fixed Charge: $12.00/mo
+# Energy Charge:
+#   - Summer (Jun–Aug): 13.20¢/kWh ($0.132000/kWh)
+#   - Other (Sep–May):  14.60¢/kWh ($0.146000/kWh)
+# Does not include the RTA (Resource & Tax Adjustment) rider, which is filed
+# annually and not fixed in the tariff book.
+# ------------------------------------------------------------------------------
+DAKOTA_SCHED31_URDB = {
+    "name": "Dakota Electric Association (MN) - Schedule 31 (Residential)",
+    "fixedcharge": 12.00,
+    "energyratewindow": [
+        [0]*24, [0]*24, [0]*24, [0]*24, [0]*24,  # Jan–May  (Other = Period 0)
+        [1]*24, [1]*24, [1]*24,                   # Jun–Aug  (Summer = Period 1)
+        [0]*24, [0]*24, [0]*24, [0]*24             # Sep–Dec  (Other = Period 0)
+    ],
+    "energyratestructure": [
+        [{"rate": 0.146000}],  # Period 0 — Other (Sep–May): 14.60¢/kWh
+        [{"rate": 0.132000}]   # Period 1 — Summer (Jun–Aug): 13.20¢/kWh
+    ]
+}
+
+# ------------------------------------------------------------------------------
+# Dakota Electric Association (MN) — Schedule 51: Controlled Energy Storage
+# ------------------------------------------------------------------------------
+# Source: Dakota Electric Residential Tariff Book, effective 6/1/26
+#         (Docket E-111/GR-24-400, issued 12/30/24)
+# Availability: Members taking concurrent service under Schedule 31 (or 41/46)
+# whose storage load (e.g. a Steffes ETS furnace/room-heat unit) is remotely,
+# interruptibly controlled by the Association — service normally available
+# ~8 hrs/day, 11:00 PM–7:00 AM. This is the live, open-to-new-members rate
+# that actually applies to a new ETS installation (Schedule 32's demand-
+# control rate is closed to new members as of this tariff book).
+# No separate fixed charge — billed on the same account as Schedule 31.
+# Energy Charge: Flat 6.06¢/kWh ($0.060600/kWh), all qualifying hours.
+# MODELING NOTE: In reality this rate is tied to a separately-metered,
+# utility-controlled circuit, not the whole house — see DAKOTA_BLENDED_TOU_URDB
+# below for the whole-house approximation actually used by app.py/examples.
+# This dict is kept as the sourced reference rate (and for a standalone script
+# that wants the literal two-meter split via two calculate_urdb_bill() calls).
+# ------------------------------------------------------------------------------
+DAKOTA_SCHED51_URDB = {
+    "name": "Dakota Electric Association (MN) - Schedule 51 (Controlled Energy Storage / ETS)",
+    "fixedcharge": 0.00,
+    "energyratewindow": [[0]*24 for _ in range(12)],
+    "energyratestructure": [
+        [{"rate": 0.060600}]   # Flat 6.06¢/kWh, all qualifying (utility-controlled) hours
+    ]
+}
+
+# ------------------------------------------------------------------------------
+# Dakota Electric Association (MN) — Blended ETS/Off-Peak TOU (Whole-House)
+# ------------------------------------------------------------------------------
+# Approximates Dakota's real two-meter billing (Schedule 31 + Schedule 51,
+# above) as a single whole-house TOU tariff, the same way the Alabama Power
+# RTA tariffs approximate a TOU rate structure for this tool. Applies the
+# Schedule 51 off-peak rate (6.06¢/kWh) to the entire house's load during the
+# utility-controlled window (11 PM–7 AM, all days), and Schedule 31's normal
+# seasonal rate the rest of the time. This is not literally how Dakota bills
+# a real customer (the 6.06¢ rate only applies to the separately-metered ETS
+# circuit) — it overstates savings on whatever baseline nighttime load exists
+# in both the baseline and proposed profiles — but it drops into this tool's
+# single-tariff architecture and existing TOU-comparison pattern cleanly.
+# Fixed Charge: $12.00/mo (Schedule 31's)
+# Energy Charge:
+#   - Off-Peak (11 PM–7 AM, every day): 6.06¢/kWh ($0.060600/kWh)
+#   - On-Peak, Summer (Jun–Aug), remaining hours: 13.20¢/kWh ($0.132000/kWh)
+#   - On-Peak, Other (Sep–May), remaining hours: 14.60¢/kWh ($0.146000/kWh)
+# ------------------------------------------------------------------------------
+_DAKOTA_OTHER_ROW = [2]*7 + [0]*16 + [2]*1    # hrs 0-6 & 23 off-peak; hrs 7-22 on-peak (Other rate)
+_DAKOTA_SUMMER_ROW = [2]*7 + [1]*16 + [2]*1   # hrs 0-6 & 23 off-peak; hrs 7-22 on-peak (Summer rate)
+
+DAKOTA_BLENDED_TOU_URDB = {
+    "name": "Dakota Electric Association (MN) - Blended ETS/Off-Peak TOU (Whole-House)",
+    "fixedcharge": 12.00,
+    "energyratewindow": [
+        _DAKOTA_OTHER_ROW, _DAKOTA_OTHER_ROW, _DAKOTA_OTHER_ROW, _DAKOTA_OTHER_ROW, _DAKOTA_OTHER_ROW,  # Jan–May
+        _DAKOTA_SUMMER_ROW, _DAKOTA_SUMMER_ROW, _DAKOTA_SUMMER_ROW,                                      # Jun–Aug
+        _DAKOTA_OTHER_ROW, _DAKOTA_OTHER_ROW, _DAKOTA_OTHER_ROW, _DAKOTA_OTHER_ROW                       # Sep–Dec
+    ],
+    "energyratestructure": [
+        [{"rate": 0.146000}],  # Period 0 — On-Peak, Other (Sep–May)
+        [{"rate": 0.132000}],  # Period 1 — On-Peak, Summer (Jun–Aug)
+        [{"rate": 0.060600}],  # Period 2 — Off-Peak (11 PM–7 AM, every day)
+    ]
+}
+
+# ------------------------------------------------------------------------------
 # Southeast Regional Average Tariff Benchmark (EIA Composite)
 # ------------------------------------------------------------------------------
 # Base Customer Charge: $15.00/mo

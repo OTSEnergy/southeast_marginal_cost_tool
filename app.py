@@ -145,6 +145,7 @@ from billing import (
     MS_RS_URDB,
     ENTERGY_RS_URDB,
     SOUTHEAST_AVG_URDB,
+    DAKOTA_BLENDED_TOU_URDB,
 )
 from data_loaders import (
     INPUT_DIRECTORY,
@@ -374,12 +375,24 @@ st.sidebar.markdown(
 
 # 1. Weather & Scenario Selectors
 with st.sidebar.expander("Grid Scenario & Region", expanded=True):
-    target_states = st.multiselect(
-        "State(s)",
-        options=STATE_OPTIONS,
-        default=DEFAULT_STATES,
-        help="Which state's Cambium grid price data to value against. Selecting more than one averages their hourly prices together into a single blended series."
-    )
+    _pending_example_label = st.session_state.get("example_select")
+    _pending_example = next((b for b in EXAMPLE_BUILDINGS if b["label"] == _pending_example_label), None)
+    if _pending_example:
+        target_states = st.multiselect(
+            "State(s)",
+            options=STATE_OPTIONS,
+            default=[_pending_example["state"]],
+            disabled=True,
+            help="Which state's Cambium grid price data to value against."
+        )
+        st.caption(f"Locked to {_pending_example['state']} by the selected example building, so its load profile is valued against that state's own grid data.")
+    else:
+        target_states = st.multiselect(
+            "State(s)",
+            options=STATE_OPTIONS,
+            default=DEFAULT_STATES,
+            help="Which state's Cambium grid price data to value against. Selecting more than one averages their hourly prices together into a single blended series."
+        )
     if len(target_states) > 1:
         st.caption(f"Averaging grid prices across {len(target_states)} states: {', '.join(target_states)}.")
     non_se_selected = [s for s in target_states if s not in SOUTHEAST_STATES]
@@ -493,6 +506,7 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
         "Try an Example Building",
         options=example_labels,
         index=0,
+        key="example_select",
         help="Pick a pre-configured real building model to explore the tool without preparing your own files. More examples will be added over time."
     )
     selected_example = next((b for b in EXAMPLE_BUILDINGS if b["label"] == selected_example_label), None)
@@ -769,14 +783,27 @@ with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"
             "Winter (Dec–Feb) and Summer (Jun–Sep), allocating capacity value between seasonal peaks. "
             "Prevents single-season dilution while grounding reliability in state-level modeled physical grid stress."
         )
-        winter_split_pct = st.slider(
-            "Winter Capacity Risk Share (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=80.0,
-            step=5.0,
-            help="Percent of annual capacity value assigned to winter net-demand peak hours (remainder goes to summer net-demand peaks). Defaults to 80% to reflect Southeast winter heating peak risk."
-        )
+        lock_winter_split = selected_example.get("cwf_winter_split") if selected_example else None
+        if lock_winter_split is not None:
+            winter_split_pct = st.slider(
+                "Winter Capacity Risk Share (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(lock_winter_split),
+                step=5.0,
+                disabled=True,
+                help="Percent of annual capacity value assigned to winter net-demand peak hours (remainder goes to summer net-demand peaks)."
+            )
+            st.caption(f"Locked to {lock_winter_split:.0f}% Winter by the selected example building, to reflect this system's documented winter-peaking risk profile.")
+        else:
+            winter_split_pct = st.slider(
+                "Winter Capacity Risk Share (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=80.0,
+                step=5.0,
+                help="Percent of annual capacity value assigned to winter net-demand peak hours (remainder goes to summer net-demand peaks). Defaults to 80% to reflect Southeast winter heating peak risk."
+            )
         top_n_peak_hours = st.slider(
             "Peak Hours (Annual)",
             min_value=50,
@@ -924,6 +951,8 @@ with st.sidebar.expander("Retail Tariff Structure", expanded=True):
         active_tariff_json = ENTERGY_RS_URDB
     elif "Southeast Regional Average" in tariff_type:
         active_tariff_json = SOUTHEAST_AVG_URDB
+    elif "Dakota Electric" in tariff_type:
+        active_tariff_json = DAKOTA_BLENDED_TOU_URDB
     elif tariff_type in ["Import from NLR URDB (API Label)", "Import from NREL URDB (API Label)"]:
         urdb_label = st.text_input(
             "URDB Rate Label", 
@@ -1013,9 +1042,14 @@ with st.sidebar.expander("Financial Assumptions & Multi-Year Trajectory", expand
     degradation_rate = st.number_input("Annual Efficiency Decay (%)", min_value=0.0, max_value=10.0, value=DEFAULT_DEGRADATION_RATE, step=0.1, format="%.1f")
 
     st.markdown("---")
-    gross_measure_cost = st.number_input("Gross Installed Measure Cost ($)", min_value=0.0, value=DEFAULT_GROSS_MEASURE_COST, step=250.0, format="%.2f", help="Total upfront equipment, materials, and installation labor cost.")
-    utility_incentive = st.number_input("Utility Rebate / Incentive ($)", min_value=0.0, value=DEFAULT_UTILITY_INCENTIVE, step=50.0, format="%.2f", help="Customer rebate or financial incentive provided by utility.")
-    utility_admin_cost = st.number_input("Utility Admin & Marketing Cost ($)", min_value=0.0, value=DEFAULT_UTILITY_ADMIN_COST, step=25.0, format="%.2f", help="Utility administrative, marketing, and processing costs per participant.")
+    example_gross_cost = selected_example.get("gross_measure_cost") if selected_example else None
+    example_incentive = selected_example.get("utility_incentive") if selected_example else None
+    example_admin_cost = selected_example.get("utility_admin_cost") if selected_example else None
+    gross_measure_cost = st.number_input("Gross Installed Measure Cost ($)", min_value=0.0, value=(example_gross_cost if example_gross_cost is not None else DEFAULT_GROSS_MEASURE_COST), step=250.0, format="%.2f", help="Total upfront equipment, materials, and installation labor cost.")
+    utility_incentive = st.number_input("Utility Rebate / Incentive ($)", min_value=0.0, value=(example_incentive if example_incentive is not None else DEFAULT_UTILITY_INCENTIVE), step=50.0, format="%.2f", help="Customer rebate or financial incentive provided by utility.")
+    utility_admin_cost = st.number_input("Utility Admin & Marketing Cost ($)", min_value=0.0, value=(example_admin_cost if example_admin_cost is not None else DEFAULT_UTILITY_ADMIN_COST), step=25.0, format="%.2f", help="Utility administrative, marketing, and processing costs per participant.")
+    if example_gross_cost is not None:
+        st.caption(f"Pre-filled from the selected example building (installed cost estimate from the Fair Quote Tool's Fully Communicating tier, plus a $500 backup-coil add-on where applicable). Adjust freely.")
 
 run_simulation = st.sidebar.button("Run Valuation Engine", type="primary", width="stretch")
 

@@ -699,7 +699,7 @@ def parse_cambium_columns(df):
     return hour_col, energy_col, carbon_col
 
 
-def load_custom_weather_file(weather_case):
+def load_custom_weather_file(weather_case, state=None):
     """
     Load a real weather file (.epw or .csv) from Weather_Data_raw/<case_folder>/.
 
@@ -712,6 +712,16 @@ def load_custom_weather_file(weather_case):
     ----------
     weather_case : str
         One of: "2012 (Cambium-aligned baseline)", "Extreme Winter", "Extreme Summer"
+    state : str, optional
+        Two-letter state code (e.g. "MN"). The case folders hold weather files
+        for multiple states (filenames follow the `USA_<ST>_<City>...` EPW
+        convention), so without this the function has no way to tell them
+        apart and will silently return whichever file glob happens to list
+        first. When given, only files whose name contains `USA_<state>_` are
+        considered, and a `_non_leap` variant is preferred over its matching
+        leap-year file (this project's 8760-hour convention; a leap file has
+        8784 rows and would otherwise get silently truncated to the first
+        8760 of them, misaligning everything from ~late Feb onward).
 
     Returns
     -------
@@ -734,6 +744,15 @@ def load_custom_weather_file(weather_case):
 
     if not files:
         return None
+
+    if state:
+        state_files = [f for f in files if f"USA_{state.upper()}_" in os.path.basename(f)]
+        if state_files:
+            files = state_files
+
+    non_leap_files = [f for f in files if "_non_leap" in os.path.basename(f).lower()]
+    if non_leap_files:
+        files = non_leap_files
 
     file_path = files[0]  # Take the first matched file
     try:
@@ -974,7 +993,8 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
     np.random.seed(42)
 
     # Try to load custom weather file (.epw or .csv) from Weather_Data_raw/
-    custom_temp = load_custom_weather_file(weather_case)
+    weather_state = target_states[0] if target_states else None
+    custom_temp = load_custom_weather_file(weather_case, state=weather_state)
 
     if custom_temp is not None:
         temperature = custom_temp

@@ -351,6 +351,124 @@ EXAMPLE_BUILDINGS = [
         "state": "AL",
         "tariff": "Alabama Power - Rate RTA-E (Residential Time Advantage - Energy Only)",
     },
+    {
+        "label": "Minneapolis, MN — ETS (Storage Off / Max Temp ODT: 25°F / 12°F)",
+        "description": (
+            "Single-family home in Minneapolis, MN (autosized electric-resistance design "
+            "load, AMY2012 weather). Baseline is heat-pump-only service; Proposed adds a "
+            "Steffes Comfort Plus ETS unit (4120 14 kW) blended with heat pump assist "
+            "('OffsetERHeat+PeakHP'), charging during Dakota Electric's Schedule 51 "
+            "utility-controlled window (11 PM-7 AM, every day) — a fixed clock, not a price "
+            "signal, matching how Dakota's real off-peak storage rate is actually "
+            "dispatched. ETS activation is further gated by outdoor temperature: Storage "
+            "Off ODT=25°F (ETS begins engaging at or below this temperature) and Storage "
+            "Max Temp ODT=12°F (ETS reaches its full charge target at or below this "
+            "temperature). Modeled in Steffes' own Excel sizing/control-strategy tool, not "
+            "this tool's price-aware logic."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/ETS_Examples",
+        "baseline_col": "Total_NoETS_MN_25_12",
+        "proposed_col": "Total_WithETS_MN_25_12",
+        "weather_year": "2012",
+        "state": "MN",
+        "tariff": "Dakota Electric Association (MN) - Blended ETS/Off-Peak TOU (Whole-House)",
+        "cwf_winter_split": 90.0,
+    },
+    {
+        "label": "Minneapolis, MN — ETS (Storage Off / Max Temp ODT: 50°F / 40°F)",
+        "description": (
+            "Same Minneapolis, MN home, ETS hardware, and fixed 11 PM-7 AM Dakota Electric "
+            "Schedule 51 charge window as the other Minneapolis ETS examples. ETS "
+            "activation is further gated by outdoor temperature: Storage Off ODT=50°F (ETS "
+            "begins engaging at or below this temperature) and Storage Max Temp ODT=40°F "
+            "(ETS reaches its full charge target at or below this temperature). Modeled in "
+            "Steffes' own Excel sizing/control-strategy tool, not this tool's price-aware "
+            "logic."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/ETS_Examples",
+        "baseline_col": "Total_NoETS_MN_50_40",
+        "proposed_col": "Total_WithETS_MN_50_40",
+        "weather_year": "2012",
+        "state": "MN",
+        "tariff": "Dakota Electric Association (MN) - Blended ETS/Off-Peak TOU (Whole-House)",
+        "cwf_winter_split": 90.0,
+    },
+    {
+        "label": "Minneapolis, MN — ETS (Storage Off / Max Temp ODT: 50°F / 20°F)",
+        "description": (
+            "Same Minneapolis, MN home, ETS hardware, and fixed 11 PM-7 AM Dakota Electric "
+            "Schedule 51 charge window as the other Minneapolis ETS examples. ETS "
+            "activation is further gated by outdoor temperature: Storage Off ODT=50°F (ETS "
+            "begins engaging at or below this temperature) and Storage Max Temp ODT=20°F "
+            "(ETS reaches its full charge target at or below this temperature). Modeled in "
+            "Steffes' own Excel sizing/control-strategy tool, not this tool's price-aware "
+            "logic."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/ETS_Examples",
+        "baseline_col": "Total_NoETS_MN_50_20",
+        "proposed_col": "Total_WithETS_MN_50_20",
+        "weather_year": "2012",
+        "state": "MN",
+        "tariff": "Dakota Electric Association (MN) - Blended ETS/Off-Peak TOU (Whole-House)",
+        "cwf_winter_split": 90.0,
+    },
+    {
+        "label": "Minneapolis, MN — ETS (Storage Off / Max Temp ODT: 50°F / 0°F)",
+        "description": (
+            "Same Minneapolis, MN home, ETS hardware, and fixed 11 PM-7 AM Dakota Electric "
+            "Schedule 51 charge window as the other Minneapolis ETS examples. ETS "
+            "activation is further gated by outdoor temperature: Storage Off ODT=50°F (ETS "
+            "begins engaging at or below this temperature) and Storage Max Temp ODT=0°F "
+            "(ETS reaches its full charge target at or below this temperature). Modeled in "
+            "Steffes' own Excel sizing/control-strategy tool, not this tool's price-aware "
+            "logic."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/ETS_Examples",
+        "baseline_col": "Total_NoETS_MN_50_0",
+        "proposed_col": "Total_WithETS_MN_50_0",
+        "weather_year": "2012",
+        "state": "MN",
+        "tariff": "Dakota Electric Association (MN) - Blended ETS/Off-Peak TOU (Whole-House)",
+        "cwf_winter_split": 90.0,
+    },
+    {
+        "label": "Minneapolis, MN — ETS (Storage Off / Max Temp ODT: 40°F / 20°F)",
+        "description": (
+            "Same Minneapolis, MN home, ETS hardware, and fixed 11 PM-7 AM Dakota Electric "
+            "Schedule 51 charge window as the other Minneapolis ETS examples. ETS "
+            "activation is further gated by outdoor temperature: Storage Off ODT=40°F (ETS "
+            "begins engaging at or below this temperature) and Storage Max Temp ODT=20°F "
+            "(ETS reaches its full charge target at or below this temperature). Modeled in "
+            "Steffes' own Excel sizing/control-strategy tool, not this tool's price-aware "
+            "logic."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/ETS_Examples",
+        "baseline_col": "Total_NoETS_MN_40_20",
+        "proposed_col": "Total_WithETS_MN_40_20",
+        "weather_year": "2012",
+        "state": "MN",
+        "tariff": "Dakota Electric Association (MN) - Blended ETS/Off-Peak TOU (Whole-House)",
+        "cwf_winter_split": 90.0,
+    },
+    {
+        "label": "Minneapolis, MN — ETS (Storage Off / Max Temp ODT: 15°F / -5°F)",
+        "description": (
+            "Same Minneapolis, MN home, ETS hardware, and fixed 11 PM-7 AM Dakota Electric "
+            "Schedule 51 charge window as the other Minneapolis ETS examples. ETS "
+            "activation is further gated by outdoor temperature: Storage Off ODT=15°F (ETS "
+            "begins engaging at or below this temperature) and Storage Max Temp ODT=-5°F "
+            "(ETS reaches its full charge target at or below this temperature). Modeled in "
+            "Steffes' own Excel sizing/control-strategy tool, not this tool's price-aware "
+            "logic."
+        ),
+        "load_profiles_path": "Load_Profiles_raw/ETS_Examples",
+        "baseline_col": "Total_NoETS_MN_15_neg5",
+        "proposed_col": "Total_WithETS_MN_15_neg5",
+        "weather_year": "2012",
+        "state": "MN",
+        "tariff": "Dakota Electric Association (MN) - Blended ETS/Off-Peak TOU (Whole-House)",
+        "cwf_winter_split": 90.0,
+    },
 ]
 
 
@@ -784,6 +902,7 @@ TARIFF_OPTIONS = [
     "Mississippi Power - Rate Schedule RS (Residential)",
     "Entergy Mississippi - Rate Schedule RS (Residential)",
     "Southeast Regional Average Tariff ($0.135/kWh)",
+    "Dakota Electric Association (MN) - Blended ETS/Off-Peak TOU (Whole-House)",
     "Import from NLR URDB (API Label)",
     "Paste Custom URDB V3 JSON",
     "Custom Flat Rate / Demand",

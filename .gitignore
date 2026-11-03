@@ -75,6 +75,9 @@ Weather_Data_raw/Extreme_Winter/*
 Weather_Data_raw/Extreme_Summer/*
 !Weather_Data_raw/Extreme_Summer/instructions.txt
 
+# HP sizing examples: not yet ready to share, holding until that topic is revisited
+Load_Profiles_raw/HP_Sizing_Examples/
+
 
 
 
