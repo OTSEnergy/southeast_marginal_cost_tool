@@ -29,6 +29,8 @@ TESTED BY:
     tests/test_calculations.py::TestConfig
 """
 
+from typing import Dict, Any, List, Optional
+
 # ==============================================================================
 # GRID SCENARIO & PLANNING YEAR OPTIONS
 # ==============================================================================
@@ -139,6 +141,69 @@ ESCALATION_MODES = [
 DEFAULT_ESCALATION_MODE = ESCALATION_MODE_CAMBIUM_TRAJECTORY
 DEFAULT_CAMBIUM_MILESTONES = ["2025", "2030", "2035", "2040", "2045"]
 DEFAULT_CAPACITY_ESCALATION_RATE = 1.0  # % (annual inflation on gen, transmission & distribution replacement value)
+
+# ==============================================================================
+# NON-CAMBIUM COST ESCALATION SCENARIOS (INCREMENTAL ADDERS ON TOP OF BASELINE)
+# ==============================================================================
+
+ESCALATION_SCENARIO_BASE = "Base Growth (0.0%/yr on top of baseline)"
+ESCALATION_SCENARIO_HIGH = "High Escalation (+1.5% to +2.5%/yr on top of baseline)"
+ESCALATION_SCENARIO_LOW = "Low Growth (-1.0% to -1.5%/yr below baseline)"
+ESCALATION_SCENARIO_CUSTOM = "Custom (Category-by-Category Overrides)"
+
+NON_CAMBIUM_ESCALATION_SCENARIOS: Dict[str, Dict[str, Any]] = {
+    ESCALATION_SCENARIO_BASE: {
+        "description": "Applies zero incremental real escalation (+0.0%/yr) on top of each component's approved baseline carrying cost and inflation trajectory (EIA AEO Reference, EPA SC-GHG, Southeast IRPs).",
+        "capacity_adder": 0.0,    # %/yr on top of SERC / IRP Levelized Carrying Cost Trajectory
+        "td_adder": 0.0,          # %/yr on top of baseline T&D replacement inflation
+        "carbon_adder": 0.0,      # %/yr on top of baseline carbon price trajectory
+        "retail_adder": 0.0,      # %/yr on top of baseline retail tariff inflation
+        "source": "EIA AEO 2023/2025 Reference Case, EPA SC-GHG (2023), and Southeast IRP dockets.",
+    },
+    ESCALATION_SCENARIO_HIGH: {
+        "description": "Reflects severe macroeconomic capital cost inflation, persistent electrical equipment/transformer supply chain shortages, and an aggressive regulatory carbon price ramp.",
+        "capacity_adder": 1.5,    # %/yr on top of baseline (Handy-Whitman Utility Plant Construction Index in bull cycle)
+        "td_adder": 1.8,          # %/yr on top of baseline (Wood Mackenzie / LBNL transformer & conductor lead-time premium)
+        "carbon_adder": 2.5,      # %/yr on top of baseline (EPA / IWG High Social Damage curve escalation)
+        "retail_adder": 1.5,      # %/yr on top of baseline (EIA AEO High Macro / High Capital Cost rate base expansion)
+        "source": "Handy-Whitman Electric Plant Index, NREL High CapEx Sensitivity, and EPA SC-GHG High Curve.",
+    },
+    ESCALATION_SCENARIO_LOW: {
+        "description": "Reflects subdued inflation, power equipment technological learning and manufacturing supply chain normalization, and flat or paused environmental policy.",
+        "capacity_adder": -1.0,   # %/yr relative to baseline (Gas turbine technological learning and equipment price deflation)
+        "td_adder": -1.0,         # %/yr relative to baseline (Low grid capital expenditure / efficiency gains)
+        "carbon_adder": -1.5,     # %/yr relative to baseline (Frozen nominal carbon penalty / regulatory pause)
+        "retail_adder": -1.0,     # %/yr relative to baseline (EIA AEO Low Macro / Low Fuel Price retail price trajectory)
+        "source": "EIA AEO Low Macroeconomic Case and NREL ATB Rapid Learning Scenario.",
+    },
+    ESCALATION_SCENARIO_CUSTOM: {
+        "description": "User-defined custom escalation adders applied on top of each component's baseline.",
+        "capacity_adder": 0.0,
+        "td_adder": 0.0,
+        "carbon_adder": 0.0,
+        "retail_adder": 0.0,
+        "source": "User-specified category rates.",
+    },
+}
+
+DEFAULT_ESCALATION_SCENARIO = ESCALATION_SCENARIO_BASE
+
+def get_escalation_scenario_adders(scenario_name: str) -> Dict[str, float]:
+    """Return dictionary of category escalation adders for the given scenario."""
+    if scenario_name in NON_CAMBIUM_ESCALATION_SCENARIOS:
+        sc = NON_CAMBIUM_ESCALATION_SCENARIOS[scenario_name]
+        return {
+            "capacity_adder": float(sc["capacity_adder"]),
+            "td_adder": float(sc["td_adder"]),
+            "carbon_adder": float(sc["carbon_adder"]),
+            "retail_adder": float(sc["retail_adder"]),
+        }
+    return {
+        "capacity_adder": 0.0,
+        "td_adder": 0.0,
+        "carbon_adder": 0.0,
+        "retail_adder": 0.0,
+    }
 
 WEATHER_CASE_OPTIONS = [
     "2012 (Cambium-aligned baseline)",

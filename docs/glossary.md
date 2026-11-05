@@ -165,6 +165,12 @@
 | **Mid-Year Continuous Discounting** | Discounting convention where cash flows occurring continuously throughout the 8,760 hours of operating year $t$ arrive at mid-year ($t - 0.5$) rather than being deferred to December 31 ($t$), applying discount factor $1 / (1 + r)^{t - 0.5}$. |
 | **NPV Waterfall Bridge** | A deterministic, step-by-step sequential attribution waterfall explaining the change in project NPV from a reference baseline to methodological improvements and forecast sensitivities, ensuring reconciliation with exactly zero residual. |
 | **Physical Credited kW** | The accredited capacity contribution of an energy efficiency or demand flexibility measure during peak stress hours: winter morning credited kW, summer afternoon credited kW, and blended generation/transmission/distribution credited kW. Kept strictly distinct from financial multipliers. |
+| **Non-Cambium Escalation Scenarios** | Macroeconomic and regulatory sensitivity suites (Base Growth, High Escalation, Low Growth, Custom) applied to cost streams outside Cambium hourly wholesale energy (Generation Capacity ECC, T&D Deferral, CO₂ Carbon Penalty, Retail Rates). |
+| **Incremental Escalation Adder (\Delta r)** | Real annual growth rate applied multiplicatively on top of a component\'s underlying time-dependent baseline: {effective}(t) = V_{baseline}(t) \times (1 + \Delta r)^{t - t_0}$. Preserves empirical IRP trajectories and standard escalators while modeling policy and supply-chain sensitivities. |
+| **Capacity ECC Adder** | Annual growth increment on the Next Planned Peaking Unit levelized carrying cost (Base: +0.0%, High: +1.5% [Handy-Whitman Construction Index / NREL ATB High CapEx], Low: -1.0% [technological learning]). |
+| **T&D Deferral Adder** | Annual growth increment on deferred wires/substation replacement value (Base: +0.0%, High: +1.8% [Wood Mackenzie / LBNL transformer shortage premium], Low: -1.0%). |
+| **Carbon Penalty Adder** | Annual growth increment on the social cost of carbon / compliance tax (Base: +0.0%, High: +2.5% [EPA SC-GHG 2023 technical report damage escalation], Low: -1.5% [regulatory freeze]). |
+| **Retail Rate Adder** | Annual growth increment on retail tariff billing rates (Base: +0.0%, High: +1.5% [EIA AEO High Macro rate base addition], Low: -1.0% [Low Macro / Low Fuel]). |
 
 ---
 

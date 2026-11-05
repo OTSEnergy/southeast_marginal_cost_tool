@@ -2,6 +2,43 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-11-05] — Non-Cambium Cost Escalation Scenarios (Base, High, Low, Custom) with Incremental Adders
+
+### Context
+Implemented dedicated multi-year cost escalation scenario selection for all non-Cambium cost streams (Generation Capacity ECC, Transmission & Distribution Deferral, CO₂ Carbon Penalty, and Retail Electricity Rates). Wholesale energy prices remain automatically modeled via hourly dynamic Cambium milestone trajectories. Rather than replacing baseline time-dependent escalators, user-selected escalation rates operate as incremental annual adders (\Delta r) on top of each component's approved baseline carrying cost and inflation path, parameterized by empirical benchmarks from public data sources.
+
+### Key Changes
+- **Decentralized Instance-Level Escalation Controls (pp.py, calculations.py)**:
+  * Removed separate global 'Non-Cambium Cost Escalation Scenarios' expander.
+  * Embedded compact escalation selectors directly into each parameter's native sidebar section:
+    - **Energy Price Escalation**: Embedded in 'Grid Scenario & Region' (Base, High +1.5%, Low -1.0%, Custom).
+    - **Capacity Cost Escalation**: Embedded in 'Total Economic Carrying Cost of a CT' (Base +0.0%, High +1.5%, Low -1.0%, Custom).
+    - **Carbon Price Escalation**: Embedded in 'Grid Scenario & Region' Avoided Emissions (Base +0.0%, High +2.5%, Low -1.5%, Custom).
+    - **T&D Replacement Escalation**: Embedded in 'T&D Deferral' (Base +0.0%, High +1.8%, Low -1.0%, Custom).
+    - **Retail Rate Escalation**: Embedded in 'Retail Tariff Structure' (Base +0.0%, High +1.5%, Low -1.0%, Custom).
+  * Enables independent mix-and-match combinations (e.g. High escalation for capacity and Low growth for wholesale energy).
+  * Simplified UI by eliminating verbose explanatory blocks in favor of native tooltips.
+1. **Incremental Escalation Adder Formulation (serc_capacity_cost.py, src/serc_capacity_cost.py, calculations.py)**:
+   - Compounding formula: V_effective(t) = V_baseline(t) * (1 + \Delta r_scenario)^(t - t_0).
+   - Generation Capacity ECC: Adder compounds multiplicatively on top of empirical IRP levelized capital recovery and fixed O&M trajectories (2.2% annual GDP deflator).
+   - T&D Deferral: Adder compounds on top of 1.0% baseline equipment replacement inflation.
+   - Carbon Penalty: Adder compounds on top of baseline carbon price trajectory ($/metric ton CO₂).
+   - Retail Rates: Adder compounds on top of 2.0% baseline retail tariff inflation.
+2. **Public Data Source Benchmarking (config.py)**:
+   - **Base Growth (+0.0% all adders)**: Zero incremental escalation over EIA AEO Reference, EPA SC-GHG (2023), and Southeast IRP dockets.
+   - **High Escalation**: +1.5% Capacity ECC (Handy-Whitman Electric Utility Construction Index bull cycle & NREL ATB High CapEx), +1.8% T&D (Wood Mackenzie / LBNL transformer & conductor lead-time shortage premium), +2.5% Carbon (EPA SC-GHG 2023 high damage curve), +1.5% Retail (EIA AEO High Macro rate base additions).
+   - **Low Growth**: -1.0% Capacity ECC (technological learning & deflation), -1.0% T&D (subdued grid capex / efficiency gains), -1.5% Carbon (regulatory freeze / compliance pause), -1.0% Retail (EIA AEO Low Macro / Low Fuel price trajectory).
+   - **Custom**: User-configurable category-by-category numeric overrides.
+3. **Sidebar UI Scenario Picker (pp.py)**:
+   - Added 'Non-Cambium Cost Escalation Scenarios' expander with scenario selectbox (Base Growth, High Escalation, Low Growth, Custom) and 4 category number inputs with detailed hover tooltips citing public benchmarks.
+   - Wired user selections directly into serc_model.get_projection() and calculate_multi_year_avoided_costs_and_npv().
+4. **Unit Cost Reporting in Cash Flow Table (calculations.py & pp.py)**:
+   - Added Unit_Capacity_Cost_per_kW_yr, Unit_Trans_Value_per_kW_yr, Unit_Dist_Value_per_kW_yr, and Unit_Carbon_Tax_per_Ton columns to cash flow tables in both current and financially_consistent valuation methods.
+   - Enhanced cash flow table formatting in Streamlit UI.
+5. **Unit Tests & Test Suite Expansion (	ests/test_escalation_scenarios.py)**:
+   - Added 13 comprehensive unit tests verifying scenario configuration integrity, SERCCapacityModel adder compounding, baseline invariance under Base Growth, monotonic cash flow scaling under High and Low scenarios, independent stream decoupling, and financially consistent compatibility.
+   - Test suite now stands at 316 of 316 passing tests (pytest).
+
 ## [2026-11-04] — UI Polish: Streamlined Capacity Trajectory & Dropdown Benchmarks
 
 ### Context

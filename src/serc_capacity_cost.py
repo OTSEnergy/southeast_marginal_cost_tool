@@ -384,6 +384,7 @@ class SERCCapacityModel:
         summer_accreditation_ratio: float = 1.00,
         winter_weight: float = 0.50,
         summer_weight: float = 0.50,
+        capacity_escalation_adder: float = 0.0,
     ) -> pd.DataFrame:
         """
         Generate a multi-year capacity cost projection DataFrame.
@@ -408,6 +409,9 @@ class SERCCapacityModel:
             Winter seasonal allocation factor (default 0.50).
         summer_weight : float
             Summer seasonal allocation factor (default 0.50).
+        capacity_escalation_adder : float
+            Incremental annual escalation rate (%/yr) applied on top of the
+            underlying baseline carrying cost / inflation trajectory. Default 0.0.
 
         Returns
         -------
@@ -430,10 +434,12 @@ class SERCCapacityModel:
         records: List[Dict[str, Union[int, float, str, None]]] = []
 
         for yr in range(start_year, end_year + 1):
+            adder_factor = (1.0 + (capacity_escalation_adder / 100.0)) ** (yr - start_year)
             for u in target_utilities:
                 bm = self.get_benchmark(u)
                 ecc_dict = self.calculate_ecc(u, year=yr, currency=curr_tag)
-                gross_ecc = ecc_dict["gross_ecc_per_kw_yr"]
+                base_gross_ecc = ecc_dict["gross_ecc_per_kw_yr"]
+                gross_ecc = base_gross_ecc * adder_factor
 
                 row: Dict[str, Union[int, float, str, None]] = {
                     "year": yr,
@@ -444,9 +450,10 @@ class SERCCapacityModel:
                     "inflation_factor": round(ecc_dict["inflation_factor"], 6),
                     "installed_capex_per_kw": round(ecc_dict["installed_capex_per_kw"], 2),
                     "levelized_fcr": round(bm.levelized_fcr, 4),
-                    "annual_capital_recovery_per_kw_yr": round(ecc_dict["annual_capital_recovery_per_kw_yr"], 2),
-                    "fom_per_kw_yr": round(ecc_dict["fom_per_kw_yr"], 2),
+                    "annual_capital_recovery_per_kw_yr": round(ecc_dict["annual_capital_recovery_per_kw_yr"] * adder_factor, 2),
+                    "fom_per_kw_yr": round(ecc_dict["fom_per_kw_yr"] * adder_factor, 2),
                     "gross_ecc_per_kw_yr": round(gross_ecc, 2),
+                    "capacity_escalation_adder": capacity_escalation_adder,
                     "regulatory_docket": bm.regulatory_docket,
                 }
 

@@ -1618,6 +1618,128 @@ def interpolate_cambium_milestone_8760(
     return interpolated
 
 
+def build_annual_escalated_values_table(
+    asset_life: int,
+    start_year: int,
+    cap_value: float,
+    trans_value: float = 25.0,
+    dist_value: float = 35.0,
+    carbon_tax: float = 0.0,
+    retail_rate_kwh: Optional[float] = None,
+    capacity_escalation_rate: float = 2.2,
+    td_escalation_rate: float = 1.0,
+    carbon_escalation_rate: float = 0.0,
+    retail_escalation_rate: float = 2.0,
+    capacity_escalation_adder: float = 0.0,
+    td_escalation_adder: float = 0.0,
+    carbon_escalation_adder: float = 0.0,
+    retail_escalation_adder: float = 0.0,
+    energy_escalation_adder: float = 0.0,
+    capacity_cost_schedule: Optional[Dict[int, float]] = None,
+) -> pd.DataFrame:
+    """
+    Build a structured DataFrame of annual escalated unit values over the asset life.
+
+    Parameters
+    ----------
+    asset_life : int
+        Measure operating lifetime in years (e.g. 15).
+    start_year : int
+        Base calendar year (e.g. 2026).
+    cap_value : float
+        Year 1 generation capacity value ($/kW-year).
+    trans_value : float
+        Year 1 transmission capacity value ($/kW-year).
+    dist_value : float
+        Year 1 distribution capacity value ($/kW-year).
+    carbon_tax : float
+        Year 1 carbon tax ($/metric ton CO2).
+    retail_rate_kwh : Optional[float]
+        Initial retail rate ($/kWh). If provided, computes escalated retail rate.
+    capacity_escalation_rate : float
+        Base annual capacity inflation / replacement escalation (%) (default 2.2%).
+    td_escalation_rate : float
+        Base annual T&D equipment inflation (%) (default 1.0%).
+    carbon_escalation_rate : float
+        Base annual carbon price escalation (%) (default 0.0%).
+    retail_escalation_rate : float
+        Base annual retail tariff escalation (%) (default 2.0%).
+    capacity_escalation_adder : float
+        Incremental scenario adder on capacity (%/yr).
+    td_escalation_adder : float
+        Incremental scenario adder on T&D (%/yr).
+    carbon_escalation_adder : float
+        Incremental scenario adder on carbon (%/yr).
+    retail_escalation_adder : float
+        Incremental scenario adder on retail (%/yr).
+    capacity_cost_schedule : Optional[Dict[int, float]]
+        Pre-computed calendar-year capacity cost schedule (e.g. from SERCCapacityModel).
+
+    Returns
+    -------
+    pd.DataFrame
+        Structured table with annual escalated values across operating years.
+    """
+    op_years = np.arange(1, int(asset_life) + 1)
+    cal_years = np.arange(int(start_year), int(start_year) + int(asset_life))
+
+    cap_esc_pct = capacity_escalation_rate / 100.0
+    td_esc_pct = td_escalation_rate / 100.0
+    carbon_esc_pct = carbon_escalation_rate / 100.0
+    retail_esc_pct = retail_escalation_rate / 100.0
+
+    cap_add_pct = capacity_escalation_adder / 100.0
+    td_add_pct = td_escalation_adder / 100.0
+    carbon_add_pct = carbon_escalation_adder / 100.0
+    retail_add_pct = retail_escalation_adder / 100.0
+
+    cap_vals = []
+    trans_vals = []
+    dist_vals = []
+    carbon_vals = []
+    retail_factors = []
+    retail_rates = []
+
+    for yr_num, cal_yr in zip(op_years, cal_years):
+        t_exp = yr_num - 1
+
+        # Generation Capacity ECC
+        if capacity_cost_schedule is not None and cal_yr in capacity_cost_schedule:
+            yr_cap = float(capacity_cost_schedule[cal_yr])
+        else:
+            yr_cap = float(cap_value * (((1.0 + cap_esc_pct) * (1.0 + cap_add_pct)) ** t_exp))
+        cap_vals.append(round(yr_cap, 2))
+
+        # Transmission & Distribution
+        td_factor = ((1.0 + td_esc_pct) * (1.0 + td_add_pct)) ** t_exp
+        trans_vals.append(round(float(trans_value * td_factor), 2))
+        dist_vals.append(round(float(dist_value * td_factor), 2))
+
+        # Carbon Penalty
+        carbon_factor = ((1.0 + carbon_esc_pct) * (1.0 + carbon_add_pct)) ** t_exp
+        carbon_vals.append(round(float(carbon_tax * carbon_factor), 2))
+
+        # Retail Rate Factor
+        ret_factor = ((1.0 + retail_esc_pct) * (1.0 + retail_add_pct)) ** t_exp
+        retail_factors.append(round(float(ret_factor), 4))
+        if retail_rate_kwh is not None:
+            retail_rates.append(round(float(retail_rate_kwh * ret_factor), 4))
+
+    data: Dict[str, Any] = {
+        "Operating Year": [f"Year {y}" for y in op_years],
+        "Calendar Year": cal_years,
+        "Capacity ECC ($/kW-yr)": cap_vals,
+        "Transmission ($/kW-yr)": trans_vals,
+        "Distribution ($/kW-yr)": dist_vals,
+        "Carbon Tax ($/ton)": carbon_vals,
+        "Retail Rate Factor": [f"{f:.4f}x" for f in retail_factors],
+    }
+    if retail_rate_kwh is not None:
+        data["Retail Rate ($/kWh)"] = retail_rates
+
+    return pd.DataFrame(data)
+
+
 def calculate_multi_year_avoided_costs_and_npv(
     asset_life: int,
     start_year: int,
@@ -1639,6 +1761,13 @@ def calculate_multi_year_avoided_costs_and_npv(
     utility_admin_cost: float = 0.0,
     dr_capacity_derate: float = 1.0,
     capacity_escalation_rate: float = 0.0,
+    td_escalation_rate: Optional[float] = None,
+    carbon_escalation_rate: Optional[float] = None,
+    capacity_escalation_adder: float = 0.0,
+    td_escalation_adder: float = 0.0,
+    carbon_escalation_adder: float = 0.0,
+    retail_escalation_adder: float = 0.0,
+    energy_escalation_adder: float = 0.0,
     interpolated_carbon_emissions: Optional[Dict[int, np.ndarray]] = None,
     dist_weight_array: Optional[np.ndarray] = None,
     financial_method: str = "current",
@@ -1767,13 +1896,39 @@ def calculate_multi_year_avoided_costs_and_npv(
         annual_lost_revenue = np.zeros(asset_life, dtype=float)
         annual_cap_unit_costs = np.zeros(asset_life, dtype=float)
 
+        # Base annual rates and adders
+        eff_td_rate = capacity_escalation_rate if td_escalation_rate is None else td_escalation_rate
+        eff_carbon_rate = capacity_escalation_rate if carbon_escalation_rate is None else carbon_escalation_rate
+
+        cap_esc_pct = capacity_escalation_rate / 100.0
+        td_esc_pct = eff_td_rate / 100.0
+        carbon_esc_pct = eff_carbon_rate / 100.0
+        retail_esc_pct = retail_escalation_rate / 100.0
+
+        cap_adder_pct = capacity_escalation_adder / 100.0
+        td_adder_pct = td_escalation_adder / 100.0
+        carbon_adder_pct = carbon_escalation_adder / 100.0
+        retail_adder_pct = retail_escalation_adder / 100.0
+        energy_adder_pct = energy_escalation_adder / 100.0
+
+        annual_trans_unit_costs = np.zeros(asset_life, dtype=float)
+        annual_dist_unit_costs = np.zeros(asset_life, dtype=float)
+        annual_carbon_tax_units = np.zeros(asset_life, dtype=float)
+
         disc_factors = 1.0 / ((1.0 + discount_pct) ** years)
         cust_disc_factors = 1.0 / ((1.0 + cust_discount_pct) ** years)
 
         for idx, (yr_num, cal_yr) in enumerate(zip(years, calendar_years)):
             deg_factor = (1.0 - degradation_pct) ** (yr_num - 1)
-            cap_esc_factor = (1.0 + cap_esc_pct) ** (yr_num - 1)
-            retail_esc_factor = (1.0 + retail_esc_pct) ** (yr_num - 1)
+            cap_esc_factor = ((1.0 + cap_esc_pct) * (1.0 + cap_adder_pct)) ** (yr_num - 1)
+            td_esc_factor = ((1.0 + td_esc_pct) * (1.0 + td_adder_pct)) ** (yr_num - 1)
+            carbon_esc_factor = ((1.0 + carbon_esc_pct) * (1.0 + carbon_adder_pct)) ** (yr_num - 1)
+            retail_esc_factor = ((1.0 + retail_esc_pct) * (1.0 + retail_adder_pct)) ** (yr_num - 1)
+
+            # Record effective unit rates
+            annual_trans_unit_costs[idx] = float(trans_value * td_esc_factor)
+            annual_dist_unit_costs[idx] = float(dist_value * td_esc_factor)
+            annual_carbon_tax_units[idx] = float(carbon_tax * carbon_esc_factor)
 
             # Degraded load reductions (kW to MWh)
             red_mwh = (load_reduction / 1000.0) * deg_factor
@@ -1805,11 +1960,12 @@ def calculate_multi_year_avoided_costs_and_npv(
             annual_cap_unit_costs[idx] = yr_cap_val
 
             # 5 component avoided cost streams for operating year yr_num
-            energy_val = float(np.sum(red_mwh * energy_price_h))
+            energy_esc_factor = (1.0 + energy_adder_pct) ** (yr_num - 1)
+            energy_val = float(np.sum(red_mwh * (energy_price_h * energy_esc_factor)))
             gen_cap_val = float(np.sum(cap_red_mwh * (yr_cap_val * cwft_array * 1000.0)))
-            trans_val = float(np.sum(red_mwh * (trans_value * cap_esc_factor * pcaf_array * 1000.0)))
-            dist_val = float(np.sum(red_mwh * (dist_value * cap_esc_factor * dist_weights * 1000.0)))
-            emiss_val = float(np.sum(red_mwh * ((carbon_h / 1000.0) * (carbon_tax * cap_esc_factor))))
+            trans_val = float(np.sum(red_mwh * (annual_trans_unit_costs[idx] * pcaf_array * 1000.0)))
+            dist_val = float(np.sum(red_mwh * (annual_dist_unit_costs[idx] * dist_weights * 1000.0)))
+            emiss_val = float(np.sum(red_mwh * ((carbon_h / 1000.0) * annual_carbon_tax_units[idx])))
 
             tot_grid = energy_val + gen_cap_val + trans_val + dist_val + emiss_val
             tot_lost_rev = float(annual_lost_revenue_yr1 * retail_esc_factor * deg_factor)
@@ -1858,6 +2014,9 @@ def calculate_multi_year_avoided_costs_and_npv(
             "Operating_Year": years,
             "Calendar_Year": calendar_years,
             "Unit_Capacity_Cost_per_kW_yr": annual_cap_unit_costs,
+            "Unit_Trans_Value_per_kW_yr": annual_trans_unit_costs,
+            "Unit_Dist_Value_per_kW_yr": annual_dist_unit_costs,
+            "Unit_Carbon_Tax_per_Ton": annual_carbon_tax_units,
             "Wholesale_Energy_Savings": annual_energy_savings,
             "Gen_Capacity_Savings": annual_gen_cap_savings,
             "Trans_Capacity_Savings": annual_trans_savings,
@@ -1942,6 +2101,21 @@ def calculate_multi_year_avoided_costs_and_npv(
         r_ret_nom = retail_escalation_rate / 100.0
         r_ret_real = (1.0 + r_ret_nom) / (1.0 + i) - 1.0
 
+    eff_td_rate = capacity_escalation_rate if td_escalation_rate is None else td_escalation_rate
+    eff_carbon_rate = capacity_escalation_rate if carbon_escalation_rate is None else carbon_escalation_rate
+
+    r_td_nom = eff_td_rate / 100.0
+    r_td_real = (1.0 + r_td_nom) / (1.0 + i) - 1.0
+
+    r_carbon_nom = eff_carbon_rate / 100.0
+    r_carbon_real = (1.0 + r_carbon_nom) / (1.0 + i) - 1.0
+
+    cap_adder_pct = capacity_escalation_adder / 100.0
+    td_adder_pct = td_escalation_adder / 100.0
+    carbon_adder_pct = carbon_escalation_adder / 100.0
+    retail_adder_pct = retail_escalation_adder / 100.0
+    energy_adder_pct = energy_escalation_adder / 100.0
+
     # Discount timing exponent tau
     tau = years.astype(float) if discount_timing == "year_end" else years.astype(float) - 0.5
 
@@ -1953,6 +2127,9 @@ def calculate_multi_year_avoided_costs_and_npv(
     annual_grid_savings = np.zeros(asset_life, dtype=float)
     annual_lost_revenue = np.zeros(asset_life, dtype=float)
     annual_cap_unit_costs = np.zeros(asset_life, dtype=float)
+    annual_trans_unit_costs = np.zeros(asset_life, dtype=float)
+    annual_dist_unit_costs = np.zeros(asset_life, dtype=float)
+    annual_carbon_tax_units = np.zeros(asset_life, dtype=float)
 
     if valuation_basis == "real":
         disc_factors = 1.0 / ((1.0 + r_real) ** tau)
@@ -1961,8 +2138,14 @@ def calculate_multi_year_avoided_costs_and_npv(
 
         for idx, (yr_num, cal_yr) in enumerate(zip(years, calendar_years)):
             deg_factor = (1.0 - degradation_pct) ** (yr_num - 1)
-            cap_esc_factor = (1.0 + r_cap_real) ** (yr_num - 1)
-            retail_esc_factor = (1.0 + r_ret_real) ** (yr_num - 1)
+            cap_esc_factor = ((1.0 + r_cap_real) * (1.0 + cap_adder_pct)) ** (yr_num - 1)
+            td_esc_factor = ((1.0 + r_td_real) * (1.0 + td_adder_pct)) ** (yr_num - 1)
+            carbon_esc_factor = ((1.0 + r_carbon_real) * (1.0 + carbon_adder_pct)) ** (yr_num - 1)
+            retail_esc_factor = ((1.0 + r_ret_real) * (1.0 + retail_adder_pct)) ** (yr_num - 1)
+
+            annual_trans_unit_costs[idx] = float(trans_value * td_esc_factor)
+            annual_dist_unit_costs[idx] = float(dist_value * td_esc_factor)
+            annual_carbon_tax_units[idx] = float(carbon_tax * carbon_esc_factor)
 
             red_mwh = (load_reduction / 1000.0) * deg_factor
             cap_red_mwh = red_mwh * dr_capacity_derate
@@ -1988,11 +2171,12 @@ def calculate_multi_year_avoided_costs_and_npv(
                 yr_cap_val = float(cap_value * cap_esc_factor)
             annual_cap_unit_costs[idx] = yr_cap_val
 
-            energy_val = float(np.sum(red_mwh * (energy_price_h * energy_base_to_target)))
+            energy_esc_factor = (1.0 + energy_adder_pct) ** (yr_num - 1)
+            energy_val = float(np.sum(red_mwh * (energy_price_h * energy_esc_factor * energy_base_to_target)))
             gen_cap_val = float(np.sum(cap_red_mwh * (yr_cap_val * cwft_array * 1000.0)))
-            trans_val = float(np.sum(red_mwh * (trans_value * cap_esc_factor * pcaf_array * 1000.0)))
-            dist_val = float(np.sum(red_mwh * (dist_value * cap_esc_factor * dist_weights * 1000.0)))
-            emiss_val = float(np.sum(red_mwh * ((carbon_h / 1000.0) * (carbon_tax * cap_esc_factor))))
+            trans_val = float(np.sum(red_mwh * (annual_trans_unit_costs[idx] * pcaf_array * 1000.0)))
+            dist_val = float(np.sum(red_mwh * (annual_dist_unit_costs[idx] * dist_weights * 1000.0)))
+            emiss_val = float(np.sum(red_mwh * ((carbon_h / 1000.0) * annual_carbon_tax_units[idx])))
 
             tot_grid = energy_val + gen_cap_val + trans_val + dist_val + emiss_val
             tot_lost_rev = float(annual_lost_revenue_yr1 * retail_esc_factor * deg_factor)
@@ -2016,8 +2200,14 @@ def calculate_multi_year_avoided_costs_and_npv(
             inflation_factor_t = (1.0 + i) ** (target_dollar_year - base_dollar_year + tau_t)
             cap_inflation_t = (1.0 + i) ** tau_t
 
-            cap_esc_factor = ((1.0 + r_cap_real) ** (yr_num - 1)) * cap_inflation_t
-            retail_esc_factor = ((1.0 + r_ret_real) ** (yr_num - 1)) * cap_inflation_t
+            cap_esc_factor = (((1.0 + r_cap_real) * (1.0 + cap_adder_pct)) ** (yr_num - 1)) * cap_inflation_t
+            td_esc_factor = (((1.0 + r_td_real) * (1.0 + td_adder_pct)) ** (yr_num - 1)) * cap_inflation_t
+            carbon_esc_factor = (((1.0 + r_carbon_real) * (1.0 + carbon_adder_pct)) ** (yr_num - 1)) * cap_inflation_t
+            retail_esc_factor = (((1.0 + r_ret_real) * (1.0 + retail_adder_pct)) ** (yr_num - 1)) * cap_inflation_t
+
+            annual_trans_unit_costs[idx] = float(trans_value * td_esc_factor)
+            annual_dist_unit_costs[idx] = float(dist_value * td_esc_factor)
+            annual_carbon_tax_units[idx] = float(carbon_tax * carbon_esc_factor)
 
             red_mwh = (load_reduction / 1000.0) * deg_factor
             cap_red_mwh = red_mwh * dr_capacity_derate
@@ -2043,11 +2233,12 @@ def calculate_multi_year_avoided_costs_and_npv(
                 yr_cap_val = float(cap_value * cap_esc_factor)
             annual_cap_unit_costs[idx] = yr_cap_val
 
-            energy_val = float(np.sum(red_mwh * (energy_price_h * inflation_factor_t)))
+            energy_esc_factor = (1.0 + energy_adder_pct) ** (yr_num - 1)
+            energy_val = float(np.sum(red_mwh * (energy_price_h * energy_esc_factor * inflation_factor_t)))
             gen_cap_val = float(np.sum(cap_red_mwh * (yr_cap_val * cwft_array * 1000.0)))
-            trans_val = float(np.sum(red_mwh * (trans_value * cap_esc_factor * pcaf_array * 1000.0)))
-            dist_val = float(np.sum(red_mwh * (dist_value * cap_esc_factor * dist_weights * 1000.0)))
-            emiss_val = float(np.sum(red_mwh * ((carbon_h / 1000.0) * (carbon_tax * cap_esc_factor))))
+            trans_val = float(np.sum(red_mwh * (annual_trans_unit_costs[idx] * pcaf_array * 1000.0)))
+            dist_val = float(np.sum(red_mwh * (annual_dist_unit_costs[idx] * dist_weights * 1000.0)))
+            emiss_val = float(np.sum(red_mwh * ((carbon_h / 1000.0) * annual_carbon_tax_units[idx])))
 
             tot_grid = energy_val + gen_cap_val + trans_val + dist_val + emiss_val
             tot_lost_rev = float(annual_lost_revenue_yr1 * retail_esc_factor * deg_factor)
@@ -2096,6 +2287,10 @@ def calculate_multi_year_avoided_costs_and_npv(
     cash_flow_df = pd.DataFrame({
         "Operating_Year": years,
         "Calendar_Year": calendar_years,
+        "Unit_Capacity_Cost_per_kW_yr": annual_cap_unit_costs,
+        "Unit_Trans_Value_per_kW_yr": annual_trans_unit_costs,
+        "Unit_Dist_Value_per_kW_yr": annual_dist_unit_costs,
+        "Unit_Carbon_Tax_per_Ton": annual_carbon_tax_units,
         "Wholesale_Energy_Savings": annual_energy_savings,
         "Gen_Capacity_Savings": annual_gen_cap_savings,
         "Trans_Capacity_Savings": annual_trans_savings,

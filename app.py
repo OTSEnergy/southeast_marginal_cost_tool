@@ -32,6 +32,9 @@ from config import (
     ESCALATION_MODES, DEFAULT_ESCALATION_MODE,
     ESCALATION_MODE_CAMBIUM_TRAJECTORY, ESCALATION_MODE_FLAT_RATE,
     DEFAULT_CAMBIUM_MILESTONES,
+    NON_CAMBIUM_ESCALATION_SCENARIOS, DEFAULT_ESCALATION_SCENARIO,
+    ESCALATION_SCENARIO_BASE, ESCALATION_SCENARIO_HIGH, ESCALATION_SCENARIO_LOW,
+    ESCALATION_SCENARIO_CUSTOM, get_escalation_scenario_adders,
     DEFAULT_GROSS_MEASURE_COST, DEFAULT_UTILITY_INCENTIVE, DEFAULT_UTILITY_ADMIN_COST,
     DEFAULT_DR_HOURS_PER_YEAR, DEFAULT_DR_SEASON, DR_SEASON_OPTIONS,
     DEFAULT_DR_MAX_HOURS_PER_DAY, DEFAULT_DR_CAPACITY_KW,
@@ -90,6 +93,7 @@ from calculations import (
     interpolate_cambium_milestone_8760,
     calculate_multi_year_avoided_costs_and_npv,
     calculate_annual_capacity_savings,
+    build_annual_escalated_values_table,
 )
 from system_stress_data import (
     evaluate_system_stress_capacity_proxy,
@@ -232,6 +236,85 @@ load_wmo_station_lookup = st.cache_data(load_wmo_station_lookup)
 
 
 # dispatch_dr_program() has been moved to calculations.py (imported above)
+
+
+def render_annual_trajectory_popover_content(
+    life: int,
+    start_yr: int,
+    u_target: str,
+    cap_val: float,
+    trans_val: float = DEFAULT_TRANS_VALUE,
+    dist_val: float = DEFAULT_DIST_VALUE,
+    carb_tax: float = DEFAULT_CARBON_TAX,
+    cap_add: float = 0.0,
+    td_add: float = 0.0,
+    carb_add: float = 0.0,
+    ret_add: float = 0.0,
+    energy_add: float = 0.0,
+    sc_name: str = "Component Settings",
+    key_suffix: str = "",
+):
+    try:
+        serc_m = SERCCapacityModel()
+        canonical_u = u_target if (u_target in serc_m.benchmarks or u_target.lower() in serc_m.ALIAS_MAP) else "SERC Weighted Composite"
+        proj = serc_m.get_projection(
+            start_year=int(start_yr),
+            end_year=int(start_yr) + int(life) - 1,
+            utility=canonical_u,
+            currency="nominal",
+            capacity_escalation_adder=float(cap_add),
+        )
+        cap_sched = dict(zip(proj["year"], proj["gross_ecc_per_kw_yr"]))
+    except Exception:
+        cap_sched = None
+
+    df_vals = build_annual_escalated_values_table(
+        asset_life=int(life),
+        start_year=int(start_yr),
+        cap_value=float(cap_val),
+        trans_value=float(trans_val),
+        dist_value=float(dist_val),
+        carbon_tax=float(carb_tax),
+        capacity_escalation_rate=2.2,
+        td_escalation_rate=1.0,
+        carbon_escalation_rate=0.0,
+        retail_escalation_rate=2.0,
+        capacity_escalation_adder=float(cap_add),
+        td_escalation_adder=float(td_add),
+        carbon_escalation_adder=float(carb_add),
+        retail_escalation_adder=float(ret_add),
+        energy_escalation_adder=float(energy_add),
+        capacity_cost_schedule=cap_sched,
+    )
+
+    st.markdown(f"##### 📈 Annual Unit Value Trajectory ({int(life)}-Year Asset Life)")
+    st.caption(
+        f"**Utility / Resource:** {u_target} &nbsp;|&nbsp; **Escalation Case:** {sc_name} &nbsp;|&nbsp; "
+        f"**Horizon:** {int(start_yr)}–{int(start_yr) + int(life) - 1}"
+    )
+    st.caption(
+        "Shows baseline values escalating year-by-year across product life: Capacity compounding at 2.2% annual GDP deflator + adder, T&D at 1.0% + adder, and retail at 2.0% + adder."
+    )
+    fmt_map = {
+        "Capacity ECC ($/kW-yr)": "${:,.2f}",
+        "Transmission ($/kW-yr)": "${:,.2f}",
+        "Distribution ($/kW-yr)": "${:,.2f}",
+        "Carbon Tax ($/ton)": "${:,.2f}",
+    }
+    st.dataframe(
+        df_vals.style.format({k: v for k, v in fmt_map.items() if k in df_vals.columns}),
+        width="stretch",
+        hide_index=True,
+    )
+    csv_bytes = df_vals.to_csv(index=False).encode("utf-8")
+    clean_u = u_target.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+    st.download_button(
+        "⬇️ Download CSV",
+        data=csv_bytes,
+        file_name=f"annual_escalated_values_{clean_u}_{int(start_yr)}_{int(start_yr)+int(life)-1}.csv",
+        mime="text/csv",
+        key=f"dl_annual_vals_{key_suffix}",
+    )
 
 
 def render_weather_generator(key_suffix: str):
@@ -444,6 +527,26 @@ with st.sidebar.expander("Grid Scenario & Region", expanded=True):
         help="Alters temperatures, pushes peaks, and shifts reliability CWFT risk."
     )
 
+    energy_esc_choice = st.selectbox(
+        "Energy Price Escalation",
+        options=[
+            "Base (Cambium Milestone Trajectory)",
+            "High Escalation (+1.5%/yr adder)",
+            "Low Growth (-1.0%/yr adder)",
+            "Custom Adder (%)",
+        ],
+        index=0,
+        help="Annual growth adder (%/yr) on top of the hourly Cambium wholesale price trajectory. Base uses raw Cambium forecasts. High (+1.5%) matches EIA AEO High Gas/Macro; Low (-1.0%) matches Low Gas/Macro."
+    )
+    if energy_esc_choice.startswith("High"):
+        energy_adder_input = 1.5
+    elif energy_esc_choice.startswith("Low"):
+        energy_adder_input = -1.0
+    elif energy_esc_choice.startswith("Custom"):
+        energy_adder_input = st.number_input("Custom Energy Adder (%/yr)", min_value=-10.0, max_value=15.0, value=0.0, step=0.1, format="%.2f", key="custom_energy_adder")
+    else:
+        energy_adder_input = 0.0
+
     missing_in_sidebar = check_missing_cambium_data(target_states, selected_scenario, planning_year)
     if missing_in_sidebar:
         st.caption(f"⚡ *NLR data for {', '.join(missing_in_sidebar)} will auto-download on run.*")
@@ -461,6 +564,28 @@ with st.sidebar.expander("Grid Scenario & Region", expanded=True):
         format="$%.2f",
         help="Monetizes marginal carbon emissions reductions based on Cambium CO₂ intensity ($/metric ton CO₂). Set to $0 for non-carbon evaluations."
     )
+    if carbon_tax > 0.0:
+        carbon_esc_choice = st.selectbox(
+            "Carbon Price Escalation",
+            options=[
+                "Base (+0.0%/yr)",
+                "High Escalation (+2.5%/yr adder)",
+                "Low Growth (-1.5%/yr adder)",
+                "Custom Adder (%)",
+            ],
+            index=0,
+            help="Annual growth adder on top of the base carbon price ($/metric ton CO₂). High (+2.5%) reflects EPA SC-GHG damage curve escalation; Low (-1.5%) reflects regulatory freeze."
+        )
+        if carbon_esc_choice.startswith("High"):
+            carbon_adder_input = 2.5
+        elif carbon_esc_choice.startswith("Low"):
+            carbon_adder_input = -1.5
+        elif carbon_esc_choice.startswith("Custom"):
+            carbon_adder_input = st.number_input("Custom Carbon Adder (%/yr)", min_value=-10.0, max_value=20.0, value=0.0, step=0.1, format="%.2f", key="custom_carbon_adder")
+        else:
+            carbon_adder_input = 0.0
+    else:
+        carbon_adder_input = 0.0
 
 # 2. Demand Response toggle (kept ahead of Building & Load Data below, since the
 # load profile column logic branches on dr_mode).
@@ -819,6 +944,45 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         elif selected_serc_utility in ["NREL ATB 2025", "NLR / NREL ATB 2025"]:
             ct_calc = calculate_ct_carrying_cost(1105.80, 26.60, 0.082)
 
+    cap_esc_choice = st.selectbox(
+        "Capacity Cost Escalation",
+        options=[
+            "Base (+0.0%/yr on top of IRP)",
+            "High Escalation (+1.5%/yr adder)",
+            "Low Growth (-1.0%/yr adder)",
+            "Custom Adder (%)",
+        ],
+        index=0,
+        help="Annual growth adder on top of the approved IRP levelized carrying cost trajectory (2.2% nominal GDP deflator). High (+1.5%) reflects Handy-Whitman construction index / NREL ATB High CapEx; Low (-1.0%) reflects CT technological learning."
+    )
+    if cap_esc_choice.startswith("High"):
+        cap_adder_input = 1.5
+    elif cap_esc_choice.startswith("Low"):
+        cap_adder_input = -1.0
+    elif cap_esc_choice.startswith("Custom"):
+        cap_adder_input = st.number_input("Custom Capacity Adder (%/yr)", min_value=-10.0, max_value=15.0, value=0.0, step=0.1, format="%.2f", key="custom_cap_adder")
+    else:
+        cap_adder_input = 0.0
+
+    st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+    with st.popover("📈 View Annual Carrying Cost Trajectory Table", width="stretch", help="Click to see annual capacity and grid unit values over the product lifetime."):
+        render_annual_trajectory_popover_content(
+            life=st.session_state.get("asset_life_input", DEFAULT_ASSET_LIFE),
+            start_yr=st.session_state.get("start_year_input", DEFAULT_START_YEAR),
+            u_target=selected_serc_utility,
+            cap_val=cap_value,
+            trans_val=DEFAULT_TRANS_VALUE,
+            dist_val=DEFAULT_DIST_VALUE,
+            carb_tax=carbon_tax,
+            cap_add=cap_adder_input,
+            td_add=st.session_state.get("td_adder_input", 0.0),
+            carb_add=carbon_adder_input,
+            ret_add=st.session_state.get("retail_adder_input", 0.0),
+            energy_add=energy_adder_input,
+            sc_name=f"Cap: {cap_esc_choice.split(' ')[0]} | Energy: {energy_esc_choice.split(' ')[0]}",
+            key_suffix="cap_sec3",
+        )
+
 # 5. Capacity Risk Allocation (CWF)
 with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation", expanded=False):
     cwf_source_mode = st.radio(
@@ -964,6 +1128,26 @@ with st.sidebar.expander("T&D Deferral & Local Feeder Profile", expanded=False):
             help="Local distribution capacity deferral credit ($/kW-yr). Allocated across local feeder peak hours."
         )
 
+    td_esc_choice = st.selectbox(
+        "T&D Replacement Escalation",
+        options=[
+            "Base (+0.0%/yr on top of 1.0% inflation)",
+            "High Escalation (+1.8%/yr adder)",
+            "Low Growth (-1.0%/yr adder)",
+            "Custom Adder (%)",
+        ],
+        index=0,
+        help="Annual growth adder on top of baseline T&D replacement value (1.0% base escalation). High (+1.8%) reflects transformer and conductor shortage lead-time premium; Low (-1.0%) reflects grid efficiency gains."
+    )
+    if td_esc_choice.startswith("High"):
+        td_adder_input = 1.8
+    elif td_esc_choice.startswith("Low"):
+        td_adder_input = -1.0
+    elif td_esc_choice.startswith("Custom"):
+        td_adder_input = st.number_input("Custom T&D Adder (%/yr)", min_value=-10.0, max_value=15.0, value=0.0, step=0.1, format="%.2f", key="custom_td_adder")
+    else:
+        td_adder_input = 0.0
+
     combined_td = trans_value + dist_value
     if combined_td == 0.0:
         st.info("ℹ️ **T&D Deferral Excluded** ($0.00/kW-yr). Results reflect generation capacity & wholesale energy savings only.")
@@ -1002,10 +1186,26 @@ with st.sidebar.expander("Retail Tariff Structure", expanded=True):
             help="Define customer bill impact using packaged rates, pasting URDB JSONs, or querying the OpenEI API."
         )
 
-    retail_escalation_rate = st.number_input(
-        "Retail Price Escalation (%)",
-        min_value=-5.0, max_value=15.0, value=DEFAULT_RETAIL_ESCALATION, step=0.5, format="%.1f"
+    retail_esc_choice = st.selectbox(
+        "Retail Rate Escalation",
+        options=[
+            "Base (+0.0%/yr on top of 2.0% inflation)",
+            "High Escalation (+1.5%/yr adder)",
+            "Low Growth (-1.0%/yr adder)",
+            "Custom Adder (%)",
+        ],
+        index=0,
+        help="Annual growth adder on top of baseline retail tariff inflation (2.0% base escalation). High (+1.5%) reflects EIA AEO High Macro rate base addition; Low (-1.0%) reflects Low Macro / Low Fuel price trajectory."
     )
+    if retail_esc_choice.startswith("High"):
+        retail_adder_input = 1.5
+    elif retail_esc_choice.startswith("Low"):
+        retail_adder_input = -1.0
+    elif retail_esc_choice.startswith("Custom"):
+        retail_adder_input = st.number_input("Custom Retail Adder (%/yr)", min_value=-10.0, max_value=15.0, value=0.0, step=0.1, format="%.2f", key="custom_retail_adder")
+    else:
+        retail_adder_input = 0.0
+    retail_escalation_rate = float(DEFAULT_RETAIL_ESCALATION)
 
     active_tariff_json = None
     custom_rate_kwh = 0.12
@@ -1077,13 +1277,14 @@ with st.sidebar.expander("Retail Tariff Structure", expanded=True):
 
 # 6. Financial Assumptions (Asset Lifetime, NPV, Escalation & Measure Costs)
 with st.sidebar.expander("Financial Assumptions & Multi-Year Trajectory", expanded=False):
-    asset_life = st.number_input("Asset Lifetime (Years)", min_value=1, max_value=50, value=DEFAULT_ASSET_LIFE, step=1)
+    asset_life = st.number_input("Asset Lifetime (Years)", min_value=1, max_value=50, value=DEFAULT_ASSET_LIFE, step=1, key="asset_life_input")
     start_year = st.number_input(
         "Valuation Start Year",
         min_value=2024,
         max_value=2050,
         value=DEFAULT_START_YEAR,
         step=1,
+        key="start_year_input",
         help="Base calendar year for multi-year cash flow evaluation (Years 1..N correspond to start_year..start_year+N-1)."
     )
     discount_rate = st.number_input("Discount Rate / WACC (%)", min_value=0.0, max_value=25.0, value=DEFAULT_DISCOUNT_RATE, step=0.5, format="%.1f", help="The utility's cost of capital -- discounts the grid-side (utility) NPV streams.")
@@ -1667,6 +1868,7 @@ else:
                             end_year=max(target_years),
                             utility=u_target,
                             currency=curr_name,
+                            capacity_escalation_adder=cap_adder_input,
                         )
                         capacity_cost_schedule = dict(zip(proj_df["year"], proj_df["gross_ecc_per_kw_yr"]))
                     except Exception:
@@ -1693,6 +1895,11 @@ else:
                     utility_admin_cost=utility_admin_cost,
                     dr_capacity_derate=dr_capacity_derate,
                     capacity_escalation_rate=capacity_escalation_rate,
+                    capacity_escalation_adder=cap_adder_input,
+                    td_escalation_adder=td_adder_input,
+                    carbon_escalation_adder=carbon_adder_input,
+                    retail_escalation_adder=retail_adder_input,
+                    energy_escalation_adder=energy_adder_input,
                     interpolated_carbon_emissions=interpolated_carbon,
                     dist_weight_array=dist_weight_array,
                     capacity_cost_schedule=capacity_cost_schedule,
@@ -1976,7 +2183,27 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 with st.container(border=True):
                     col_bal_chart, col_bal_net = st.columns([3.3, 1.2])
                     with col_bal_chart:
-                        st.markdown("#### Lifetime Economic Balance (NPV Valuation)")
+                        col_bal_hdr, col_bal_pop = st.columns([3, 1.3])
+                        with col_bal_hdr:
+                            st.markdown("#### Lifetime Economic Balance (NPV Valuation)")
+                        with col_bal_pop:
+                            with st.popover("📈 Annual Values Table", width="stretch", help="Click to view year-by-year projected unit values over the asset life"):
+                                render_annual_trajectory_popover_content(
+                                    life=asset_life,
+                                    start_yr=start_year,
+                                    u_target=selected_serc_utility,
+                                    cap_val=cap_value,
+                                    trans_val=trans_value,
+                                    dist_val=dist_value,
+                                    carb_tax=carbon_tax,
+                                    cap_add=cap_adder_input,
+                                    td_add=td_adder_input,
+                                    carb_add=carbon_adder_input,
+                                    ret_add=retail_adder_input,
+                                    energy_add=energy_adder_input,
+                                    sc_name=f"Cap: {cap_esc_choice.split(' ')[0]} | Energy: {energy_esc_choice.split(' ')[0]}",
+                                    key_suffix="summary_tab",
+                                )
                         st.caption(
                             "Compares total wholesale grid avoided costs against utility retail lost revenue and the "
                             f"one-time program cost, over the {asset_life}-year horizon ({discount_rate}% discount rate)."
@@ -2867,20 +3094,29 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 f"Evaluated across {len(years)} operating years starting {start_year} using milestone interpolation. "
                                 "Wholesale energy prices account for hourly non-linear duck-curve suppression and peak growth."
                             )
+                            fmt_dict = {
+                                "Wholesale_Energy_Savings": "${:,.2f}",
+                                "Generation_Capacity_Savings": "${:,.2f}",
+                                "Transmission_Savings": "${:,.2f}",
+                                "Distribution_Savings": "${:,.2f}",
+                                "Emissions_Savings": "${:,.2f}",
+                                "Capacity_Emissions_Savings": "${:,.2f}",
+                                "Total_Grid_Savings": "${:,.2f}",
+                                "Lost_Retail_Revenue": "${:,.2f}",
+                                "Unit_Capacity_Cost_per_kW_yr": "${:,.2f}",
+                                "Unit_Trans_Value_per_kW_yr": "${:,.2f}",
+                                "Unit_Dist_Value_per_kW_yr": "${:,.2f}",
+                                "Unit_Carbon_Tax_per_Ton": "${:,.2f}",
+                                "Discount_Factor_Utility": "{:.4f}",
+                                "Discount_Factor_Customer": "{:.4f}",
+                                "Discounted_Grid_Savings": "${:,.2f}",
+                                "Discounted_Lost_Revenue": "${:,.2f}",
+                                "Discounted_Customer_Savings": "${:,.2f}",
+                                "Cumulative_Utility_Net_PV": "${:,.2f}",
+                            }
                             st.dataframe(
-                                cash_flow_table_df.style.format({
-                                    "Wholesale_Energy_Savings": "${:,.2f}",
-                                    "Capacity_Emissions_Savings": "${:,.2f}",
-                                    "Total_Grid_Savings": "${:,.2f}",
-                                    "Lost_Retail_Revenue": "${:,.2f}",
-                                    "Discount_Factor_Utility": "{:.4f}",
-                                    "Discount_Factor_Customer": "{:.4f}",
-                                    "Discounted_Grid_Savings": "${:,.2f}",
-                                    "Discounted_Lost_Revenue": "${:,.2f}",
-                                    "Discounted_Customer_Savings": "${:,.2f}",
-                                    "Cumulative_Utility_Net_PV": "${:,.2f}",
-                                }),
-                                use_container_width=True
+                                cash_flow_table_df.style.format({k: v for k, v in fmt_dict.items() if k in cash_flow_table_df.columns}),
+                                width="stretch"
                             )
                     with col_text:
                         if perspective == "Utility":

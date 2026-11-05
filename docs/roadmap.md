@@ -714,7 +714,7 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 5.1 Utility validation | | ⬜ Not Started | | |
 | ↳ 5.2 Technology developer tests | | ⬜ Not Started | | |
 | ↳ 5.3 Usability feedback | | ⬜ Not Started | | |
-| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v5 Done (2026-11-04)** | AI | 257 tests passing (2026-11-04) across `test_calculations.py`, `test_cambium_downloader.py`, and `test_system_stress_data.py`. Added full coverage for high gas prices and expanded Cambium scenario options, package mappings, alias resolution, mock generation, and file matching. |
+| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v6 Done (2026-11-05)** | AI | 316 tests passing (2026-11-05) across test suite including test_escalation_scenarios.py, test_capacity_cost.py, test_calculations.py, test_cambium_downloader.py, and test_system_stress_data.py. Full coverage for non-Cambium cost escalation scenarios (Base, High, Low, Custom) and SERC regional capacity valuation. (2026-11-04) across `test_calculations.py`, `test_cambium_downloader.py`, and `test_system_stress_data.py`. Added full coverage for high gas prices and expanded Cambium scenario options, package mappings, alias resolution, mock generation, and file matching. |
 | **M6: Handoff & Expansion** | | | | |
 | ↳ 6.1 Multi-region expansion | | ⬜ Not Started | | |
 | ↳ 6.2 Institutional home transition | | ⬜ Not Started | | |
