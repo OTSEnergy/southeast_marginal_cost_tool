@@ -52,6 +52,12 @@ The tool currently delivers a **modularized, multi-metric valuation engine** wit
 
 Before cataloguing gaps, here is what the tool **does** have working today:
 
+
+### ✅ Recently Resolved (2026-11-04)
+- **Cambium Scenario Isolation (Co-location Fix)**: Resolved defect in `system_stress_data.py` where balancing area CSV scanning neglected scenario filters, causing co-located scenario contamination. Implemented strict metadata header matching (`find_cambium_ba_file`) with SHA256 duplicate validation and `scenario_matches`.
+- **Explicit Financial Basis & Fisher Equivalence**: Resolved implicit financial mixing in `calculations.py`. Added `financial_method="financially_consistent"`, Fisher relationship $(1 + r_{nom}) = (1 + r_{real}) \times (1 + i)$, dollar-year base harmonization (2023$ to start-year 2026$), real vs nominal equivalence ($< 10^{-11}$ diff), and continuous mid-year discounting.
+- **Reproducible NPV Change Bridge & Annual Explanations**: Added `build_reproducible_npv_bridge` (step-by-step waterfall attribution with 0.000000 residual), `build_annual_energy_explanation` (with zero-reduction limit flagging), and `build_annual_capacity_explanation` (physical credited kW breakdown).
+
 ### ✅ Functional
 - **Fully Modular Architecture** (Streamlit UI in `app.py` [1,210 lines], pure-Python logic in `calculations.py`, `billing.py`, `data_loaders.py`, `visualizations.py`, `config.py`)
 - **8,760-hour avoided cost engine** with 5 stacked components (energy, generation capacity, T&D, emissions)
@@ -138,8 +144,10 @@ The underlying **default** (`load_profiles.csv`, used only when no example is se
 
 ---
 
-### 3.3 🟢 Grid Data Coverage Expanded to All 48 Contiguous States (On-Demand Cambium + EIA-861/930)
-**Lines:** app.py 428–507, README lines 48–52
+### 3.3 🟢 Grid Data Coverage & Full Cambium Scenario Suite (On-Demand Cambium + EIA-861/930)
+**Lines:** app.py 402–507, README lines 48–52
+
+**Updated 2026-11-04:** Expanded Cambium scenario options to include the full NREL Cambium dataset suite: High Gas Prices (`HighGasPrice` / `HighNaturalGasPrice`), Low Gas Prices (`LowGasPrice` / `LowNaturalGasPrice`), Low/High Renewable Costs (`LowRECost`, `HighRECost`), Decarbonization trajectories (`Decarb95by2035`, `Decarb100by2035`, `LowCarbonConstraint` [95by2050]), and combined boundary sensitivities (`LowRECost_HighGasPrice`, `HighRECost_LowGasPrice`). Added robust alias normalization and dynamic scenario guide documentation in the sidebar and Scenario Manager.
 
 **Updated 2026-10-27:** `cambium_downloader.py` now maps all **48 contiguous U.S. states** (`CONTIGUOUS_48_STATES`, `p1..p134` pinned to NREL/ReEDS-2.0 commit `b9fbed8759767c8efb9e26492a5bdc8ec903f969` with Cambium 2024 `p119/p122 -> z122` compatibility) and downloads state datasets on demand via S3 HTTP range requests. Retail tariff presets and T&D benchmarks explicitly disclose their Southeast regional scope when non-Southeast states are selected.
 

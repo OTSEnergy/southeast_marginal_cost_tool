@@ -1,0 +1,210 @@
+{
+  "metadata": {
+    "tool": "Southeast Marginal Cost (SEMC) Valuation Engine",
+    "audit_date": "2026-11-04",
+    "profile_pair": "ERHeatBeOptModel_Birmingham2012_kW vs HeatPumpBeOptModel_Birmingham2012_kW",
+    "annual_kwh_reduction": 4492.859474933726,
+    "tariff": "Alabama Power FD (Residential Service)",
+    "asset_life_years": 15,
+    "start_year": 2026,
+    "end_year": 2040,
+    "nominal_wacc_pct": 7.0,
+    "inflation_pct": 2.0,
+    "fisher_real_discount_rate_pct": 4.90196078431373
+  },
+  "baseline_reproduction": {
+    "MidCase": {
+      "energy_pv": 1194.0616886145099,
+      "capacity_pv": 2052.6085311786087,
+      "lost_revenue_pv": 6020.652901789494,
+      "program_cost_pv": 600.0,
+      "project_npv": -3373.9826819963764,
+      "target_project_npv": -3373.982682,
+      "reproduction_difference": 3.623426891863346e-09
+    },
+    "HighDemandGrowth": {
+      "energy_pv": 1206.745908949673,
+      "capacity_pv": 2117.1005657823653,
+      "lost_revenue_pv": 6020.652901789494,
+      "program_cost_pv": 600.0,
+      "project_npv": -3296.806427057455,
+      "target_project_npv": -3296.806427,
+      "reproduction_difference": -5.745505404775031e-08
+    },
+    "HighNGPrice": {
+      "energy_pv": 1395.4682276956473,
+      "capacity_pv": 2007.6689852574548,
+      "lost_revenue_pv": 6020.652901789494,
+      "program_cost_pv": 600.0,
+      "project_npv": -3217.5156888363913,
+      "target_project_npv": -3217.515689,
+      "reproduction_difference": 1.6360854715458117e-07
+    },
+    "HighRECost": {
+      "energy_pv": 1201.0550708971257,
+      "capacity_pv": 2078.4465849308954,
+      "lost_revenue_pv": 6020.652901789494,
+      "program_cost_pv": 600.0,
+      "project_npv": -3341.151245961473,
+      "target_project_npv": -3341.151246,
+      "reproduction_difference": 3.852710506180301e-08
+    }
+  },
+  "financially_consistent_results": {
+    "MidCase": {
+      "energy_pv": 1481.0824832043445,
+      "capacity_pv": 2144.3620088889907,
+      "lost_revenue_pv": 6289.78159020486,
+      "program_cost_pv": 600.0,
+      "project_npv": -3264.337098111524
+    },
+    "HighDemandGrowth": {
+      "energy_pv": 1494.93876730484,
+      "capacity_pv": 2211.7368963941317,
+      "lost_revenue_pv": 6289.78159020486,
+      "program_cost_pv": 600.0,
+      "project_npv": -3183.105926505888
+    },
+    "HighNGPrice": {
+      "energy_pv": 1735.7064043983955,
+      "capacity_pv": 2097.4136241842316,
+      "lost_revenue_pv": 6289.78159020486,
+      "program_cost_pv": 600.0,
+      "project_npv": -3056.661561622233
+    },
+    "HighRECost": {
+      "energy_pv": 1490.945410852021,
+      "capacity_pv": 2171.3550472635425,
+      "lost_revenue_pv": 6289.78159020486,
+      "program_cost_pv": 600.0,
+      "project_npv": -3227.4811320892964
+    },
+    "Georgia_Grid_MidCase": {
+      "energy_pv": 1724.149415121474,
+      "capacity_pv": 2178.459007636942,
+      "lost_revenue_pv": 6289.78159020486,
+      "program_cost_pv": 600.0,
+      "project_npv": -2987.173167446445
+    }
+  },
+  "capacity_metrics_year1": {
+    "gen_credited_kw": 1.9467615405655199,
+    "trans_credited_kw": 0.30450159610132405,
+    "dist_credited_kw": 0.30450159610132405,
+    "gen_unit_price": 110.2,
+    "trans_unit_price": 14.0,
+    "dist_unit_price": 22.0,
+    "reserve_margin_factor": 1.0,
+    "dr_capacity_derate": 1.0,
+    "lifetime_gen_cap_pv": 2040.1175650121936,
+    "lifetime_trans_pv": 40.53950595208762,
+    "lifetime_dist_pv": 63.704937924709114,
+    "lifetime_total_cap_pv": 2144.3620088889907
+  },
+  "bridge_steps": [
+    {
+      "Step_Number": 0,
+      "Description": "Baseline Reference (Current Method)",
+      "Factor_Category": "Baseline Reference",
+      "Delta_NPV": 0.0,
+      "Intermediate_NPV": -3373.9826819963764,
+      "Residual": 0.0
+    },
+    {
+      "Step_Number": 1,
+      "Description": "Dollar-Basis Harmonization (Energy Real 2023$ -> 2026$)",
+      "Factor_Category": "Dollar Basis",
+      "Delta_NPV": 73.0861278367171,
+      "Intermediate_NPV": -3300.8965541596594,
+      "Residual": 0.0
+    },
+    {
+      "Step_Number": 2,
+      "Description": "Discount Rate Basis (Nominal 7.0% WACC -> Exact Fisher Real 4.90196%)",
+      "Factor_Category": "Discount Rate",
+      "Delta_NPV": -429.5094485605391,
+      "Intermediate_NPV": -3730.4060027201986,
+      "Residual": 0.0
+    },
+    {
+      "Step_Number": 3,
+      "Description": "Escalation Harmonization (Nominal 2.0% Retail -> 0.0% Real; 1.0% Cap -> -0.98% Real)",
+      "Factor_Category": "Price Escalation",
+      "Delta_NPV": 529.0645055539267,
+      "Intermediate_NPV": -3201.341497166272,
+      "Residual": 0.0
+    },
+    {
+      "Step_Number": 4,
+      "Description": "Discount Timing (Continuous Operating Cash Flows: Year-End -> Mid-Year)",
+      "Factor_Category": "Discount Timing",
+      "Delta_NPV": -62.995600945253045,
+      "Intermediate_NPV": -3264.337098111525,
+      "Residual": 0.0
+    },
+    {
+      "Step_Number": 5,
+      "Description": "Forecast Sensitivity: HighDemandGrowth (under Financially Consistent Basis)",
+      "Factor_Category": "Forecast Scenario",
+      "Delta_NPV": 81.23117160563697,
+      "Intermediate_NPV": -3183.105926505888,
+      "Residual": 0.0
+    },
+    {
+      "Step_Number": 6,
+      "Description": "Forecast Sensitivity: HighNGPrice (under Financially Consistent Basis)",
+      "Factor_Category": "Forecast Scenario",
+      "Delta_NPV": 207.67553648929197,
+      "Intermediate_NPV": -3056.661561622233,
+      "Residual": 0.0
+    },
+    {
+      "Step_Number": 7,
+      "Description": "Forecast Sensitivity: HighRECost (under Financially Consistent Basis)",
+      "Factor_Category": "Forecast Scenario",
+      "Delta_NPV": 36.855966022228586,
+      "Intermediate_NPV": -3227.4811320892964,
+      "Residual": 0.0
+    },
+    {
+      "Step_Number": 8,
+      "Description": "Forecast Sensitivity: Georgia_Grid_MidCase (under Financially Consistent Basis)",
+      "Factor_Category": "Forecast Scenario",
+      "Delta_NPV": 277.16393066508,
+      "Intermediate_NPV": -2987.173167446445,
+      "Residual": 0.0
+    }
+  ],
+  "benchmarks": [
+    {
+      "Jurisdiction": "Alabama Power (APSC Docket 18005)",
+      "Rate_or_Docket": "Rate PAE (Purchase of Alternative Energy)",
+      "Resource_Type": "Small QF / Distributed Generation (< 100 kW)",
+      "Avoided_Cost_Metric": "Seasonal on-peak / off-peak avoided energy",
+      "Reported_Benchmark_Range": "3.45\u00a2 - 5.47\u00a2/kWh ($34.50 - $54.70/MWh)",
+      "Benchmark_Midpoint_Dollar_MWh": 44.6,
+      "Cambium_SEMC_Modeled_MWh": 35.51685766101717,
+      "Alignment_Assessment": "Consistent with Cambium 2026 avoided energy ($35.32/MWh base, $44.02/MWh winter peak weighted)."
+    },
+    {
+      "Jurisdiction": "Alabama Power (APSC Docket U-5213)",
+      "Rate_or_Docket": "Rate CPE (Contract for Purchase of Energy)",
+      "Resource_Type": "Large QF / Cogeneration (> 100 kW)",
+      "Avoided_Cost_Metric": "Hourly marginal energy cost + avoided capacity",
+      "Reported_Benchmark_Range": "$32.00 - $48.00/MWh energy; $85 - $115/kW-yr capacity",
+      "Benchmark_Midpoint_Dollar_MWh": 40.0,
+      "Cambium_SEMC_Modeled_MWh": 32.761644338632046,
+      "Alignment_Assessment": "Direct alignment: SEMC CT capacity ($110.20/kW-yr) and 10-year Cambium energy ($35.78/MWh)."
+    },
+    {
+      "Jurisdiction": "Georgia Power (GPSC Docket 44160 / 4822)",
+      "Rate_or_Docket": "2022 Integrated Resource Plan (IRP) Avoided Cost",
+      "Resource_Type": "System Marginal Resource (PURPA Standard Offer)",
+      "Avoided_Cost_Metric": "Proxy unit CC/CT avoided energy & long-run capacity",
+      "Reported_Benchmark_Range": "3.00\u00a2 - 4.20\u00a2/kWh ($30.00 - $42.00/MWh)",
+      "Benchmark_Midpoint_Dollar_MWh": 36.0,
+      "Cambium_SEMC_Modeled_MWh": 41.29447568248853,
+      "Alignment_Assessment": "Strong alignment: GA Cambium p94 2026 avoided energy is $39.85/MWh, exactly within IRP proxy range."
+    }
+  ]
+}

@@ -49,7 +49,9 @@ from config import (
     SYSTEM_STRESS_PERCENTILE_RANGE, PROFILE_YEAR_BASIS_OPTIONS,
     PROFILE_INTERVAL_CONVENTION_OPTIONS, DEFAULT_PROFILE_INTERVAL_CONVENTION,
     STANDARD_UTC_OFFSET_OPTIONS, STATE_TIMEZONE_METADATA,
+    STATE_UTILITY_BENCHMARKS, get_state_capacity_benchmark, refresh_capacity_benchmarks,
 )
+from serc_capacity_cost import SERCCapacityModel
 from visualizations import (
     build_weekly_overlay_chart,
     build_weekly_load_and_temp_chart,
@@ -87,6 +89,7 @@ from calculations import (
     calculate_system_stress_capacity_metrics,
     interpolate_cambium_milestone_8760,
     calculate_multi_year_avoided_costs_and_npv,
+    calculate_annual_capacity_savings,
 )
 from system_stress_data import (
     evaluate_system_stress_capacity_proxy,
@@ -408,14 +411,15 @@ with st.sidebar.expander("Grid Scenario & Region", expanded=True):
     if selected_scenario in SCENARIO_DESCRIPTIONS:
         st.caption(SCENARIO_DESCRIPTIONS[selected_scenario])
 
+    scenario_guide_html = "".join([
+        f'<p style="margin-bottom: 6px;"><b>{scen}:</b> {SCENARIO_DESCRIPTIONS.get(scen, "")}</p>'
+        for scen in SCENARIO_OPTIONS
+    ])
     st.markdown(
         f"""<details style="margin-top: 4px; margin-bottom: 12px; font-size: 0.82rem; color: #475569; background: #F8FAFC; padding: 8px 10px; border-radius: 6px; border: 1px solid #E2E8F0;">
   <summary style="cursor: pointer; font-weight: 600; color: #0284C7;">📖 Future Scenario Guide & Docs</summary>
   <div style="margin-top: 8px; line-height: 1.45;">
-    <p style="margin-bottom: 6px;"><b>MidCase:</b> {SCENARIO_DESCRIPTIONS['MidCase']}</p>
-    <p style="margin-bottom: 6px;"><b>HighDemandGrowth:</b> {SCENARIO_DESCRIPTIONS['HighDemandGrowth']}</p>
-    <p style="margin-bottom: 6px;"><b>LowDemandGrowth:</b> {SCENARIO_DESCRIPTIONS['LowDemandGrowth']}</p>
-    <p style="margin-bottom: 8px;"><b>LowCarbonConstraint:</b> {SCENARIO_DESCRIPTIONS['LowCarbonConstraint']}</p>
+    {scenario_guide_html}
     <hr style="margin: 8px 0; border: none; border-top: 1px solid #CBD5E1;" />
     <p style="margin: 0; font-size: 0.8rem;">
       Full report & methodology: <br/>
@@ -660,20 +664,79 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
 
 # 4. Avoided Generation Capacity (CT Carrying Cost / IRP Benchmark)
 with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", expanded=False):
+    # Recalculate button running updater script for freshest public numbers
+    if st.button("🔄 Recalculate & Refresh Benchmark Data", key="refresh_benchmarks_btn", help="Runs background updater to re-validate public NLR ATB and Southeast IRP benchmarks and re-exports fresh 2025–2050 carrying cost projections."):
+        with st.spinner("Finding and recalculating latest regulatory capacity benchmarks..."):
+            refresh_res = refresh_capacity_benchmarks()
+            st.success(f"✅ Refreshed! {refresh_res['records_generated']} records updated: {refresh_res['message']}")
+            st.rerun()
+
+    # Determine state-specific company capacity cost default
+    state_bench_info = get_state_capacity_benchmark(target_states)
+    util_options = list(state_bench_info["utility_options"].keys())
+    
+    # Track utility choice across runs to dismiss prompt once chosen
+    curr_util_selection = st.session_state.get("serc_state_utility_dropdown")
+    state_sig = tuple(target_states)
+    if st.session_state.get("_last_util_prompt_state") != state_sig:
+        st.session_state["_last_util_prompt_state"] = state_sig
+        st.session_state["_utility_has_been_chosen"] = False
+
+    if curr_util_selection and curr_util_selection in util_options and curr_util_selection != util_options[0]:
+        st.session_state["_utility_has_been_chosen"] = True
+
+    if state_bench_info["has_multiple"]:
+        if not st.session_state.get("_utility_has_been_chosen", False):
+            st.info(f"📍 **Utility Capacity Cost Prompt:** {state_bench_info['prompt_message']}")
+        dropdown_label = "Select Operating Utility for Capacity Valuation"
+        dropdown_help = (
+            "Select operating utility or benchmark. Note: The dollar amount shown (e.g. $141.22/kW-yr for Alabama Power) "
+            "is the Year 1 starting baseline value that increases over time across the project planning horizon, "
+            "escalating at 2.2% annual inflation (or 1.0% real replacement escalation) across future years."
+        )
+    else:
+        st.caption(f"📍 **State Default Applied:** {state_bench_info['state_summary']}")
+        dropdown_label = "Select Operating Utility / Benchmark for Capacity Valuation"
+        dropdown_help = (
+            f"Defaulted to {state_bench_info['default_utility']} benchmark. Note: The dollar amount shown is the "
+            f"Year 1 starting baseline value that increases over time across the project planning horizon "
+            f"(escalating annually at 2.2% inflation / capital cost escalation)."
+        )
+
+    selected_util_label = st.selectbox(
+        dropdown_label,
+        options=util_options,
+        index=0,
+        key="serc_state_utility_dropdown",
+        help=dropdown_help,
+    )
+    chosen_entry = state_bench_info["utility_options"][selected_util_label]
+    active_def_cap_val = chosen_entry["cap_value"]
+    active_def_preset = chosen_entry["preset"]
+    selected_serc_utility = chosen_entry["utility"]
+
     cap_mode = st.radio(
         "Capacity Valuation Method",
         options=["Direct IRP Scaler ($/kW-year)", "Carrying cost of a CT Builder"],
         index=0,
-        help="Default: Direct IRP scalar pre-populated with calculated NLR ATB 2024 Combustion Turbine (CT) economic carrying cost ($110.20/kW-yr), or build custom capacity value using the CT Carrying Cost Builder."
+        help=(
+            "Default: Direct IRP scalar pre-populated with company capacity cost based on chosen state (or SERC Composite if 2+ utilities). "
+            "Note: The dollar value shown is the Year 1 baseline value that increases over time across the planning horizon."
+        )
     )
+
+    # Annual SERC Capacity Carrying Cost Trajectory is always automatically implemented across project life
+    use_serc_trajectory = True
 
     ct_calc = None
     if "Carrying cost of a CT Builder" in cap_mode:
+        preset_keys = list(SOUTHEAST_PEAKER_PRESETS.keys())
+        default_preset_idx = preset_keys.index(active_def_preset) if active_def_preset in preset_keys else 0
         selected_peaker_preset = st.selectbox(
             "Combustion Turbine (CT) Benchmark Preset",
-            options=list(SOUTHEAST_PEAKER_PRESETS.keys()) + ["Custom Peaker Parameters"],
-            index=0,
-            help="Choose a pre-configured peaker benchmark from NLR Annual Technology Baseline (ATB 2024) or Southeast utility IRP dockets."
+            options=preset_keys + ["Custom Peaker Parameters"],
+            index=default_preset_idx,
+            help="Choose a pre-configured peaker benchmark from the SERC Regional Capacity Model, NLR / NREL Annual Technology Baseline (ATB 2025), or Southeast utility IRP dockets."
         )
 
         if selected_peaker_preset in SOUTHEAST_PEAKER_PRESETS:
@@ -683,23 +746,23 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
                 st.caption(f"**Data Source:** {preset_data['source']}")
             def_capex = preset_data["capex_kw"]
             def_fom = preset_data["fom_kw_yr"]
-            def_fcr = preset_data.get("fcr", 0.082) * 100.0
-            def_wacc = preset_data.get("wacc", 0.070) * 100.0
+            def_fcr = preset_data.get("fcr", 0.097) * 100.0
+            def_wacc = preset_data.get("wacc", 0.071) * 100.0
             def_life = preset_data.get("life", 30)
-            def_tax = preset_data.get("tax_rate", 0.257) * 100.0
+            def_tax = preset_data.get("tax_rate", 0.25) * 100.0
             def_eas = preset_data.get("eas_offset_kw_yr", 0.0)
         else:
-            def_capex, def_fom, def_fcr, def_wacc, def_life, def_tax, def_eas = 1100.0, 20.0, 8.20, 7.0, 30, 25.7, 0.0
+            def_capex, def_fom, def_fcr, def_wacc, def_life, def_tax, def_eas = 1080.0, 25.0, 9.70, 7.1, 30, 25.0, 0.0
 
         col_ct1, col_ct2 = st.columns(2)
         with col_ct1:
             ct_capex = st.number_input("Overnight CAPEX ($/kW)", min_value=100.0, max_value=3000.0, value=def_capex, step=25.0, format="%.1f",
-                                       help="Overnight capital expenditure ($/kW) from NLR ATB (typical CT range: $950 – $1,250/kW).")
+                                       help="Overnight capital expenditure ($/kW) from SERC IRPs / NLR ATB (typical CT range: $950 – $1,350/kW).")
             ct_fcr = st.number_input("Fixed Charge Rate (FCR %)", min_value=1.0, max_value=30.0, value=def_fcr, step=0.1, format="%.2f",
-                                     help="Annual Fixed Charge Rate (FCR) accounting for WACC, depreciation, taxes, and asset life (NLR ATB Regulated Utility: 7.5%–8.8%, Merchant: 9.5%–11.2%).")
+                                     help="Annual Fixed Charge Rate (FCR) accounting for WACC, depreciation, taxes, and asset life (SERC Composite: 9.70%, NLR ATB 2025 Regulated Utility: 8.20%, Merchant: 10.20%).")
         with col_ct2:
             ct_fom = st.number_input("Fixed O&M ($/kW-yr)", min_value=0.0, max_value=100.0, value=def_fom, step=0.5, format="%.2f",
-                                     help="Annual fixed operations and maintenance cost ($/kW-yr) from NLR ATB (typical CT range: $15 – $25/kW-yr).")
+                                     help="Annual fixed operations and maintenance cost ($/kW-yr) from SERC IRPs / NLR ATB (typical CT range: $15 – $30/kW-yr).")
             ct_eas = st.number_input("E&AS Offset ($/kW-yr)", min_value=0.0, max_value=50.0, value=def_eas, step=0.5, format="%.2f",
                                      help="Inframarginal energy/ancillary profit offset. Often $0 in Southeast cost-of-service IRPs (Gross CONE).")
 
@@ -712,7 +775,7 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
             with col_fin2:
                 ct_life = st.number_input("Economic Life (yrs)", min_value=10, max_value=50, value=def_life, step=1)
                 calc_fcr_toggle = st.checkbox("Use Synthesized WACC/MACRS FCR", value=False,
-                                              help="When checked, computes FCR dynamically via Capital Recovery Factor (CRF) and MACRS depreciation rather than using the direct NLR ATB FCR.")
+                                              help="When checked, computes FCR dynamically via Capital Recovery Factor (CRF) and MACRS depreciation rather than using the direct FCR.")
 
         if calc_fcr_toggle:
             fcr = calculate_regulated_fcr(wacc=ct_wacc/100.0, economic_life=ct_life, tax_rate=ct_tax/100.0)
@@ -727,17 +790,34 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
             value=f"${cap_value:,.2f}/kW-yr",
             delta=f"FCR: {fcr*100:.2f}% | Cap Recovery: ${ct_calc['capital_recovery_annuity']:,.2f} | FOM: ${ct_calc['fom_kw_yr']:,.2f}"
         )
-        st.caption("Source: [Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)")
+        st.caption(f"Active Benchmark: **{selected_serc_utility}** (${cap_value:,.2f}/kW-yr).")
     else:
+        cap_input_key = f"direct_cap_{tuple(target_states)}_{selected_serc_utility}"
         cap_value = st.number_input(
             "Total Economic Carrying Cost of a CT ($/kW-year)",
-            min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1], value=DEFAULT_CAP_VALUE, step=CAP_VALUE_RANGE[2], format="%.2f",
-            help="Commission-approved avoided generation capacity credit from utility IRP or PURPA docket (Total ECC of a CT). Default $110.20/kW-yr from NLR ATB 2024."
+            min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1],
+            value=float(active_def_cap_val),
+            step=CAP_VALUE_RANGE[2], format="%.2f",
+            key=cap_input_key,
+            help=(
+                f"Commission-approved avoided generation capacity credit from utility IRP or PURPA docket. "
+                f"Note: This input is the Year 1 starting value (${active_def_cap_val:,.2f}/kW-yr for {selected_serc_utility}) "
+                f"that increases over time across the asset lifetime via the multi-year capacity trajectory "
+                f"(escalating at 2.2% annual inflation / replacement cost escalation across future planning years)."
+            )
         )
-        st.caption("Source: [Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)")
-        # Populate benchmark breakdown for waterfall visualization when default is unchanged
+        st.caption(f"Active Benchmark: **{selected_serc_utility}** (${active_def_cap_val:,.2f}/kW-yr).")
+        # Populate benchmark breakdown for waterfall visualization
         if abs(cap_value - DEFAULT_CAP_VALUE) < 1e-4:
-            ct_calc = calculate_ct_carrying_cost(1100.0, 20.00, 0.082)
+            ct_calc = calculate_ct_carrying_cost(1080.0, 25.00, 0.097)
+        elif selected_serc_utility in ["Southern Company", "Southern Company (Georgia Power)"]:
+            ct_calc = calculate_ct_carrying_cost(1110.0, 28.00, 0.102)
+        elif selected_serc_utility in ["Tennessee Valley Authority", "Tennessee Valley Authority (TVA)"]:
+            ct_calc = calculate_ct_carrying_cost(1035.0, 23.00, 0.089)
+        elif selected_serc_utility in ["Duke Energy Carolinas & Progress"]:
+            ct_calc = calculate_ct_carrying_cost(1075.0, 25.00, 0.098)
+        elif selected_serc_utility in ["NREL ATB 2025", "NLR / NREL ATB 2025"]:
+            ct_calc = calculate_ct_carrying_cost(1105.80, 26.60, 0.082)
 
 # 5. Capacity Risk Allocation (CWF)
 with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation", expanded=False):
@@ -1009,37 +1089,14 @@ with st.sidebar.expander("Financial Assumptions & Multi-Year Trajectory", expand
     discount_rate = st.number_input("Discount Rate / WACC (%)", min_value=0.0, max_value=25.0, value=DEFAULT_DISCOUNT_RATE, step=0.5, format="%.1f", help="The utility's cost of capital -- discounts the grid-side (utility) NPV streams.")
     customer_discount_rate = st.number_input("Customer Discount Rate (%)", min_value=0.0, max_value=25.0, value=discount_rate, step=0.5, format="%.1f", help="The homeowner's own discount rate for their bill-savings NPV and payback -- in practice often higher than a utility's WACC (personal opportunity cost of money, financing terms, risk tolerance). Defaults to match the WACC above; change it to model a more realistic customer perspective.")
 
-    st.markdown("---")
-    st.markdown("**Grid Energy Price Escalation**")
-    escalation_mode = st.selectbox(
-        "Escalation Methodology",
-        options=ESCALATION_MODES,
-        index=0,
-        help="Choose between dynamic hourly Cambium milestone trajectories (capturing non-linear peak vs solar price divergence across future years) or traditional flat annual percentage escalation."
-    )
-
-    if escalation_mode == ESCALATION_MODE_CAMBIUM_TRAJECTORY:
-        cambium_milestones = st.multiselect(
-            "Cambium Milestone Years",
-            options=PLANNING_YEAR_OPTIONS,
-            default=[y for y in DEFAULT_CAMBIUM_MILESTONES if y in PLANNING_YEAR_OPTIONS],
-            help="Milestone years used to linearly interpolate hourly 8,760 grid prices across the asset lifetime."
-        )
-        if not cambium_milestones:
-            st.caption("⚠️ *Select at least one milestone year. Defaulting to planning year.*")
-            cambium_milestones = [planning_year]
-        capacity_escalation_rate = st.number_input(
-            "Capacity & T&D Cost Escalation (%)",
-            min_value=-5.0, max_value=15.0, value=DEFAULT_CAPACITY_ESCALATION, step=0.5, format="%.1f",
-            help="Annual inflation rate on generation capacity, transmission, and distribution avoided cost values ($/kW-yr)."
-        )
-        escalation_rate = DEFAULT_ESCALATION_RATE  # scalar fallback
-    else:
-        escalation_rate = st.number_input("Grid Price Escalation (%)", min_value=-5.0, max_value=15.0, value=DEFAULT_ESCALATION_RATE, step=0.5, format="%.1f")
-        capacity_escalation_rate = escalation_rate
+    # Grid Energy Price Escalation & Asset Decay — automated behind the scenes
+    escalation_mode = ESCALATION_MODE_CAMBIUM_TRAJECTORY
+    cambium_milestones = [y for y in DEFAULT_CAMBIUM_MILESTONES if y in PLANNING_YEAR_OPTIONS]
+    if not cambium_milestones:
         cambium_milestones = [planning_year]
-
-    degradation_rate = st.number_input("Annual Efficiency Decay (%)", min_value=0.0, max_value=10.0, value=DEFAULT_DEGRADATION_RATE, step=0.1, format="%.1f")
+    capacity_escalation_rate = float(DEFAULT_CAPACITY_ESCALATION)
+    escalation_rate = float(DEFAULT_ESCALATION_RATE)  # scalar fallback
+    degradation_rate = float(DEFAULT_DEGRADATION_RATE)
 
     st.markdown("---")
     example_gross_cost = selected_example.get("gross_measure_cost") if selected_example else None
@@ -1138,13 +1195,12 @@ if not st.session_state['simulation_executed']:
     
     with welcome_tab_instruct:
         st.markdown(TOOL_DISCLAIMER_HTML, unsafe_allow_html=True)
-        st.markdown("##### Before you run, check three things:")
+        st.markdown("##### Before you run, check two things:")
         st.markdown(
             "1. **Load profile CSV** — 8,760 hourly rows; baseline + proposed columns (kW)\n"
-            "2. **CWFT.csv** — 8,760 rows; capacity-risk weights that sum to 1.0\n"
-            "3. **Weather years match** — load data, Cambium grid data, and CWFT all use the same year"
+            "2. **Weather years match** — load data and Cambium grid data both align to the same weather year"
         )
-        st.caption("No load/CWFT files yet? Default examples are generated automatically the first time you run.")
+        st.caption("No load files yet? Default examples are generated automatically the first time you run.")
         st.info("💡 **Automated Grid Data:** Cambium hourly grid data is downloaded automatically on-demand from the NLR Scenario Viewer if not already cached locally.")
 
         with st.expander("NLR Cambium Auto-Downloader & Data Guide"):
@@ -1600,6 +1656,22 @@ else:
                 interpolated_energy = interpolate_cambium_milestone_8760(milestone_energy_prices, target_years)
                 interpolated_carbon = interpolate_cambium_milestone_8760(milestone_carbon, target_years)
 
+                capacity_cost_schedule = None
+                if use_serc_trajectory:
+                    try:
+                        serc_model = SERCCapacityModel()
+                        u_target = selected_serc_utility if (selected_serc_utility in serc_model.benchmarks or selected_serc_utility.lower() in serc_model.ALIAS_MAP) else "SERC Weighted Composite"
+                        curr_name = "nominal" if escalation_mode == ESCALATION_MODE_CAMBIUM_TRAJECTORY else "real_2024"
+                        proj_df = serc_model.get_projection(
+                            start_year=min(target_years),
+                            end_year=max(target_years),
+                            utility=u_target,
+                            currency=curr_name,
+                        )
+                        capacity_cost_schedule = dict(zip(proj_df["year"], proj_df["gross_ecc_per_kw_yr"]))
+                    except Exception:
+                        capacity_cost_schedule = None
+
                 multi_res = calculate_multi_year_avoided_costs_and_npv(
                     asset_life=asset_life,
                     start_year=int(start_year),
@@ -1623,6 +1695,7 @@ else:
                     capacity_escalation_rate=capacity_escalation_rate,
                     interpolated_carbon_emissions=interpolated_carbon,
                     dist_weight_array=dist_weight_array,
+                    capacity_cost_schedule=capacity_cost_schedule,
                 )
 
                 grid_savings_disc = multi_res["grid_savings_discounted"]
@@ -1671,6 +1744,15 @@ else:
             discounted_payback = cost_tests["discounted_payback"]
             net_customer_cost = cost_tests["net_customer_cost"]
             
+            # Standalone Annual Capacity Savings / Costs Accounting
+            ann_cap_res = calculate_annual_capacity_savings(
+                load_reduction_kw=load_reduction,
+                cwft_array=cwft_array,
+                cap_value=cap_value,
+                dr_capacity_derate=dr_capacity_derate,
+                datetime_series=datetime_series,
+            )
+
             # 5. Peak Coincidence, EPC & Capacity Credit Proxy Math
             epc_baseline = (baseline_load * cwft_array).sum()
             epc_proposed = (proposed_load * cwft_array).sum()
@@ -2658,20 +2740,21 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 "used throughout the rest of the tool, using the Next "
                                 "Planned Peaker — a Simple-Cycle Combustion Turbine (CT / SCCT) — "
                                 "as the benchmark for what new capacity costs the utility to build:\n\n"
-                                "- **Capital Recovery = CAPEX × FCR** — the annualized cost "
-                                "of building 1 kW of the peaker ($1,100/kW × 8.20% = $90.20/kW-yr "
-                                "under central NLR ATB 2024 Moderate values). FCR (Fixed Charge Rate) "
+                                "- **Capital Recovery = CAPEX × LFCR** — the annualized cost "
+                                "of building 1 kW of the peaker ($1,080/kW × 9.70% = $104.76/kW-yr "
+                                "under the central SERC Regional SCCT Composite benchmark). Levelized FCR "
                                 "accounts for utility WACC, depreciation tax shield (MACRS), corporate tax, "
                                 "and economic project life.\n"
                                 "- **+ Fixed O&M** — the annual cost to staff and maintain "
-                                "the plant ($20.00/kW-yr in NLR ATB 2024).\n"
+                                "the plant ($25.00/kW-yr SERC benchmark).\n"
                                 "- **= Gross Carrying Cost** — what it costs to simply own "
-                                "and maintain the plant for a year ($110.20/kW-yr benchmark).\n"
+                                "and maintain the plant for a year ($129.76/kW-yr default benchmark).\n"
                                 "- **− E&AS Offset** (if any) — energy/ancillary profit offset; "
                                 "usually $0 in Southeast cost-of-service IRPs (Gross CONE).\n"
                                 "- **= Net Avoided Capacity** — the final number, fed back "
                                 "as the Generation Capacity scalar everywhere in this tool.\n\n"
-                                "**Data Source:** [Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data), "
+                                "**Default Benchmark:** SERC Regional Capacity Model ($129.76/kW-yr). "
+                                "**Alternate Source:** [Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data), "
                                 "*Electricity > Fossil Energy Technologies > Natural Gas: Combustion Turbine (CT)*."
                             )
                             _cwf_methodology_caveat()
@@ -3118,13 +3201,14 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     )
 
                 with st.expander("📖 Cambium Future Scenario Reference & Documentation", expanded=False):
+                    scenario_bullets = "\n\n".join([
+                        f"• **{scen}**: {SCENARIO_DESCRIPTIONS.get(scen, '')}"
+                        for scen in SCENARIO_OPTIONS
+                    ])
                     st.markdown(
                         f"Detailed modeling assumptions, technology cost projections, and ReEDS IRA policy implementations:  \n"
                         f"[Cambium 2024 Scenario Descriptions and Documentation]({CAMBIUM_DOC_URL})\n\n"
-                        f"• **MidCase**: {SCENARIO_DESCRIPTIONS['MidCase']}\n\n"
-                        f"• **HighDemandGrowth**: {SCENARIO_DESCRIPTIONS['HighDemandGrowth']}\n\n"
-                        f"• **LowDemandGrowth**: {SCENARIO_DESCRIPTIONS['LowDemandGrowth']}\n\n"
-                        f"• **LowCarbonConstraint**: {SCENARIO_DESCRIPTIONS['LowCarbonConstraint']}"
+                        f"{scenario_bullets}"
                     )
                 
                 # Save scenario current run section

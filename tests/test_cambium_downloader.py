@@ -22,8 +22,15 @@ from cambium_downloader import (
     check_missing_cambium_gea_data_for_states,
     download_missing_cambium_gea_data,
     download_cambium_gea_data,
+    scenario_matches,
+    filename_matches_scenario,
 )
-from config import CONTIGUOUS_48_STATES
+from config import (
+    CONTIGUOUS_48_STATES,
+    SCENARIO_OPTIONS,
+    SCENARIO_DESCRIPTIONS,
+    SCENARIO_ALIASES,
+)
 
 
 class TestCambiumDownloaderConfig:
@@ -314,3 +321,102 @@ class TestCambiumMilestonesDownloaderAndDetection:
                 )
                 assert mock_dl.call_count == 2
                 assert len(files) == 2
+
+
+class TestCambiumScenarioSuite:
+    """Verifies expanded Cambium scenarios (HighGasPrice, LowGasPrice, Decarb, etc.)."""
+
+    def test_high_gas_prices_and_all_scenarios_in_options(self):
+        expected_scenarios = [
+            "MidCase",
+            "HighGasPrice",
+            "LowGasPrice",
+            "HighDemandGrowth",
+            "LowDemandGrowth",
+            "LowRECost",
+            "HighRECost",
+            "LowRECost_HighGasPrice",
+            "HighRECost_LowGasPrice",
+            "LowCarbonConstraint",
+            "Decarb95by2035",
+            "Decarb100by2035",
+        ]
+        for scen in expected_scenarios:
+            assert scen in SCENARIO_OPTIONS
+            assert scen in SCENARIO_DESCRIPTIONS
+            assert len(SCENARIO_DESCRIPTIONS[scen]) > 25
+
+    def test_scenario_package_map_covers_all_options_and_aliases(self):
+        for scen in SCENARIO_OPTIONS:
+            assert scen in SCENARIO_PACKAGE_MAP, f"Missing {scen} in SCENARIO_PACKAGE_MAP"
+            pkg = SCENARIO_PACKAGE_MAP[scen]
+            assert "project_uuid" in pkg
+            assert "file_id" in pkg
+            assert isinstance(pkg["file_id"], int)
+            assert len(pkg["project_uuid"]) == 36
+            assert "scenario_str" in pkg
+            assert "release" in pkg
+
+    def test_scenario_matches_helper_with_aliases(self):
+        # Exact matches
+        assert scenario_matches("MidCase", "MidCase")
+        assert scenario_matches("HighGasPrice", "HighGasPrice")
+
+        # High natural gas price aliases
+        assert scenario_matches("HighNaturalGasPrice", "HighGasPrice")
+        assert scenario_matches("highnaturalgas", "HighGasPrice")
+        assert scenario_matches("High_Gas_Price", "HighGasPrice")
+        assert scenario_matches("highgas", "HighGasPrice")
+        assert scenario_matches("HighGasPrice", "HighNaturalGasPrice")
+
+        # Low gas price aliases
+        assert scenario_matches("LowNaturalGasPrice", "LowGasPrice")
+        assert scenario_matches("lowgas", "LowGasPrice")
+
+        # Decarbonization aliases
+        assert scenario_matches("MidCase95by2050", "LowCarbonConstraint")
+        assert scenario_matches("lowcarbonconstraint", "MidCase95by2050")
+        assert scenario_matches("MidCase95by2035", "Decarb95by2035")
+        assert scenario_matches("MidCase100by2035", "Decarb100by2035")
+
+        # Non-matching scenarios
+        assert not scenario_matches("HighGasPrice", "LowGasPrice")
+        assert not scenario_matches("HighDemandGrowth", "LowDemandGrowth")
+
+    def test_filename_matches_scenario_helper(self):
+        assert filename_matches_scenario("Cambium24_HighGasPrice_hourly_p89_2030.csv", "HighGasPrice")
+        assert filename_matches_scenario("Cambium24_HighNaturalGasPrice_hourly_p89_2030.csv", "HighGasPrice")
+        assert filename_matches_scenario("Cambium24_highgas_hourly_p89_2030.csv", "HighGasPrice")
+        assert filename_matches_scenario("Cambium24_LowNaturalGasPrice_hourly_p90_2030.csv", "LowGasPrice")
+        assert filename_matches_scenario("Cambium23_MidCase95by2050_hourly_p94_2030.csv", "LowCarbonConstraint")
+        assert filename_matches_scenario("Cambium23_MidCase95by2035_hourly_p94_2030.csv", "Decarb95by2035")
+        assert filename_matches_scenario("Cambium23_MidCase100by2035_hourly_p94_2030.csv", "Decarb100by2035")
+
+    def test_mock_state_generator_for_new_scenarios(self):
+        import tempfile
+        from data_loaders import generate_mock_state_file, file_matches_scenario
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for scen in ["HighGasPrice", "LowGasPrice", "LowRECost", "Decarb100by2035"]:
+                filepath = os.path.join(tmpdir, f"Cambium24_{scen}_hourly_p89_2030.csv")
+                generate_mock_state_file(filepath, "AL", scen)
+                assert os.path.exists(filepath)
+                df = pd.read_csv(filepath)
+                assert len(df) == 8760
+                assert "lmp_energy" in df.columns
+                assert "co2_combust" in df.columns
+                assert df["Scenario"].iloc[0] == scen
+                assert file_matches_scenario(filepath, scen)
+
+            # High gas prices should have higher mean energy price than low gas prices
+            high_gas_fp = os.path.join(tmpdir, "Cambium24_HighGasPrice_hourly_p89_2030.csv")
+            low_gas_fp = os.path.join(tmpdir, "Cambium24_LowGasPrice_hourly_p89_2030.csv")
+            high_gas_df = pd.read_csv(high_gas_fp)
+            low_gas_df = pd.read_csv(low_gas_fp)
+            assert high_gas_df["lmp_energy"].mean() > low_gas_df["lmp_energy"].mean()
+
+            # Decarb 100 by 2035 should have near-zero carbon
+            decarb_fp = os.path.join(tmpdir, "Cambium24_Decarb100by2035_hourly_p89_2030.csv")
+            decarb_df = pd.read_csv(decarb_fp)
+            assert decarb_df["co2_combust"].mean() < 50.0

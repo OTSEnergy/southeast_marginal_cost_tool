@@ -2106,6 +2106,7 @@ def validate_cambium_ba_csv(filepath: str) -> Dict[str, Any]:
     state = meta.get("state", "unknown")
     tz = meta.get("tz", "CT")
     planning_year = meta.get("t", "unknown")
+    scenario = meta.get("Scenario", meta.get("scenario", "unknown"))
 
     return {
         "df": df,
@@ -2115,6 +2116,7 @@ def validate_cambium_ba_csv(filepath: str) -> Dict[str, Any]:
         "state": state,
         "tz": tz,
         "planning_year": str(planning_year),
+        "scenario": str(scenario),
     }
 
 
@@ -2250,6 +2252,91 @@ def align_est_weights_to_local_tz(
     return weights_local
 
 
+def find_cambium_ba_file(
+    raw_directory: str,
+    ba: str,
+    planning_year: Union[str, int],
+    selected_scenario: str,
+) -> Optional[str]:
+    """
+    Strictly locates a Cambium balancing area CSV matching BA code, planning year,
+    and scenario. Validates metadata rows (Project, Scenario, t, r) to prevent
+    cross-scenario capacity contamination when multiple scenarios are co-located.
+
+    Duplicate handling:
+      - Identical duplicates (matching SHA256 checksums): logs an info notice and uses one.
+      - Conflicting duplicates (different checksums/data): raises ValueError detailing conflict.
+    """
+    from cambium_downloader import scenario_matches, filename_matches_scenario, pd_read_first_rows
+    import hashlib
+
+    if not os.path.exists(raw_directory):
+        return None
+
+    ba_low = str(ba).strip().lower()
+    yr_str = str(planning_year).strip()
+    matched_files = []
+
+    for root, _, files in os.walk(raw_directory):
+        if any(x in root for x in ["__pycache__", ".git"]):
+            continue
+        for f_name in files:
+            f_low = f_name.lower()
+            if not f_low.endswith(".csv"):
+                continue
+            # Quick candidate check: year and BA substring in name or path
+            if yr_str not in f_low or f"_{ba_low}_" not in f_low:
+                continue
+
+            full_path = os.path.join(root, f_name)
+            # Inspect metadata row
+            first_rows = pd_read_first_rows(full_path)
+            if not first_rows:
+                continue
+
+            meta = first_rows.get("meta", {})
+            file_scenario = meta.get("Scenario", meta.get("scenario", ""))
+            file_year = str(meta.get("t", ""))
+            file_ba = str(meta.get("r", "")).lower()
+
+            if file_scenario:
+                # Standard NREL Cambium metadata present
+                if (scenario_matches(file_scenario, selected_scenario) and
+                    file_year == yr_str and
+                    file_ba == ba_low):
+                    matched_files.append(full_path)
+            else:
+                # Fallback to filename-based scenario and BA matching
+                if filename_matches_scenario(f_name, selected_scenario):
+                    matched_files.append(full_path)
+
+    if not matched_files:
+        return None
+    if len(matched_files) == 1:
+        return matched_files[0]
+
+    # Multiple matching candidate files found: verify identical vs conflicting
+    hashes = []
+    for fp in matched_files:
+        h = hashlib.sha256()
+        with open(fp, "rb") as f:
+            while chunk := f.read(65536):
+                h.update(chunk)
+        hashes.append(h.hexdigest())
+
+    if len(set(hashes)) == 1:
+        logger.info(
+            f"Identical duplicate Cambium BA files found for BA '{ba}', year '{planning_year}', "
+            f"scenario '{selected_scenario}': {matched_files}. Using '{matched_files[0]}'."
+        )
+        return matched_files[0]
+    else:
+        raise ValueError(
+            f"Conflicting duplicate Cambium BA files found for BA '{ba}', year '{planning_year}', "
+            f"scenario '{selected_scenario}': {matched_files}. File checksums do not match."
+        )
+
+
 def load_cambium_net_demand_proxy_for_portfolio(
     target_states: List[str],
     selected_scenario: str,
@@ -2275,6 +2362,22 @@ def load_cambium_net_demand_proxy_for_portfolio(
     """
     validate_cambium_state_mapping(target_states)
 
+    # Resolve custom_tz to integer offset if provided
+    resolved_custom_offset = None
+    if custom_tz is not None:
+        try:
+            resolved_custom_offset = int(custom_tz)
+        except (ValueError, TypeError):
+            ctz_up = str(custom_tz).strip().upper()
+            if ctz_up in ["ET", "EST"]:
+                resolved_custom_offset = -5
+            elif ctz_up in ["CT", "CST"]:
+                resolved_custom_offset = -6
+            elif ctz_up in ["MT", "MST"]:
+                resolved_custom_offset = -7
+            elif ctz_up in ["PT", "PST"]:
+                resolved_custom_offset = -8
+
     if aggregation_level == "state":
         from cambium_downloader import STATE_TO_BALANCING_AREAS, REEDS_CAMBIUM24_AGGREG_MAP
 
@@ -2294,15 +2397,7 @@ def load_cambium_net_demand_proxy_for_portfolio(
 
             missing_for_st = []
             for ba in mapped_bas:
-                matched_file = None
-                for root, _, files in os.walk(raw_directory):
-                    for f_name in files:
-                        f_low = f_name.lower()
-                        if f_low.endswith(".csv") and year_str in f_low and f"_{ba}_" in f_low:
-                            matched_file = os.path.join(root, f_name)
-                            break
-                    if matched_file:
-                        break
+                matched_file = find_cambium_ba_file(raw_directory, ba, year_str, selected_scenario)
                 if not matched_file:
                     missing_for_st.append(ba)
 
@@ -2332,17 +2427,11 @@ def load_cambium_net_demand_proxy_for_portfolio(
             st_upper = st.upper()
             ba_data_map: Dict[str, Dict[str, Any]] = {}
             for ba in state_to_bas[st_upper]:
-                matched_file = None
-                for root, _, files in os.walk(raw_directory):
-                    for f_name in files:
-                        f_low = f_name.lower()
-                        if f_low.endswith(".csv") and year_str in f_low and f"_{ba}_" in f_low:
-                            matched_file = os.path.join(root, f_name)
-                            break
-                    if matched_file:
-                        break
+                matched_file = find_cambium_ba_file(raw_directory, ba, year_str, selected_scenario)
                 if not matched_file:
-                    raise FileNotFoundError(f"Expected BA file for '{ba}' in state '{st}' not found in '{raw_directory}'.")
+                    raise FileNotFoundError(
+                        f"Expected BA file for '{ba}' in state '{st}' (scenario: '{selected_scenario}', year: '{year_str}') not found in '{raw_directory}'."
+                    )
                 parsed = validate_cambium_ba_csv(matched_file)
                 ba_data_map[ba] = parsed
 
@@ -2362,7 +2451,7 @@ def load_cambium_net_demand_proxy_for_portfolio(
                 w_est, diag = calculate_cambium_net_demand_exceedance_weights(agg["net_load_est"])
 
             # Align EST weights to building local standard time
-            w_st_local = align_est_weights_to_local_tz(w_est, st_upper, custom_utc_offset=None)
+            w_st_local = align_est_weights_to_local_tz(w_est, st_upper, custom_utc_offset=resolved_custom_offset)
             state_weights_local[st] = w_st_local
             state_diagnostics[st] = diag
 
@@ -2436,18 +2525,11 @@ def load_cambium_net_demand_proxy_for_portfolio(
         ba_data_map: Dict[str, Dict[str, Any]] = {}
         for ba in req_bas:
             # Look up matching file in raw_directory
-            matched_file = None
-            for root, _, files in os.walk(raw_directory):
-                for f_name in files:
-                    f_low = f_name.lower()
-                    if f_low.endswith(".csv") and year_str in f_low and f"_{ba}_" in f_low:
-                        matched_file = os.path.join(root, f_name)
-                        break
-                if matched_file:
-                    break
-
+            matched_file = find_cambium_ba_file(raw_directory, ba, year_str, selected_scenario)
             if not matched_file:
-                raise FileNotFoundError(f"Expected BA file for '{ba}' in GEA '{g}' not found in '{raw_directory}'.")
+                raise FileNotFoundError(
+                    f"Expected BA file for '{ba}' in GEA '{g}' (scenario: '{selected_scenario}', year: '{year_str}') not found in '{raw_directory}'."
+                )
 
             parsed = validate_cambium_ba_csv(matched_file)
             ba_data_map[ba] = parsed
@@ -2502,7 +2584,7 @@ def load_cambium_net_demand_proxy_for_portfolio(
                 w_st_est += sh * gea_weights_est[g]
 
         # Convert EST weights to building local standard time
-        w_st_local = align_est_weights_to_local_tz(w_st_est, st, custom_utc_offset=None)
+        w_st_local = align_est_weights_to_local_tz(w_st_est, st, custom_utc_offset=resolved_custom_offset)
         state_weights_local[st] = w_st_local
 
     # Combine state weights into multi-state portfolio

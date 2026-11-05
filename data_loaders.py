@@ -569,17 +569,48 @@ def generate_mock_state_file(filepath, state_code, scenario):
 
     hours = np.arange(1, 8761)
 
-    if scenario == "HighDemandGrowth":
+    scen_clean = str(scenario).strip().lower().replace("_", "").replace("-", "")
+    if scen_clean in ["highgasprice", "highnaturalgasprice", "highgas"]:
+        energy_base = np.random.uniform(32.0, 48.0, 8760)
+        carbon_base = np.random.uniform(320.0, 620.0, 8760)
+        winter_spike_range = (95.0, 155.0)
+        summer_spike_range = (85.0, 135.0)
+    elif scen_clean in ["lowgasprice", "lownaturalgasprice", "lowgas"]:
+        energy_base = np.random.uniform(14.0, 22.0, 8760)
+        carbon_base = np.random.uniform(450.0, 820.0, 8760)
+        winter_spike_range = (40.0, 65.0)
+        summer_spike_range = (35.0, 60.0)
+    elif scen_clean in ["highdemandgrowth", "highdemand"]:
         energy_base = np.random.uniform(25.0, 38.0, 8760)
         carbon_base = np.random.uniform(450.0, 850.0, 8760)
         winter_spike_range = (80.0, 130.0)
         summer_spike_range = (70.0, 110.0)
-    elif scenario == "LowCarbonConstraint":
+    elif scen_clean in ["lowcarbonconstraint", "midcase95by2050", "decarb95by2050"]:
         energy_base = np.random.uniform(18.0, 28.0, 8760)
         carbon_base = np.random.uniform(150.0, 450.0, 8760)
         winter_spike_range = (45.0, 80.0)
         summer_spike_range = (35.0, 70.0)
-    elif scenario == "LowDemandGrowth":
+    elif scen_clean in ["decarb95by2035", "midcase95by2035"]:
+        energy_base = np.random.uniform(18.0, 30.0, 8760)
+        carbon_base = np.random.uniform(60.0, 220.0, 8760)
+        winter_spike_range = (50.0, 90.0)
+        summer_spike_range = (40.0, 80.0)
+    elif scen_clean in ["decarb100by2035", "midcase100by2035"]:
+        energy_base = np.random.uniform(20.0, 32.0, 8760)
+        carbon_base = np.random.uniform(0.0, 45.0, 8760)
+        winter_spike_range = (55.0, 100.0)
+        summer_spike_range = (45.0, 90.0)
+    elif scen_clean in ["lowrecost", "lowrecosthighgasprice"]:
+        energy_base = np.random.uniform(15.0, 26.0, 8760)
+        carbon_base = np.random.uniform(180.0, 450.0, 8760)
+        winter_spike_range = (50.0, 85.0)
+        summer_spike_range = (38.0, 70.0)
+    elif scen_clean in ["highrecost", "highrecostlowgasprice"]:
+        energy_base = np.random.uniform(26.0, 38.0, 8760)
+        carbon_base = np.random.uniform(400.0, 800.0, 8760)
+        winter_spike_range = (75.0, 120.0)
+        summer_spike_range = (65.0, 105.0)
+    elif scen_clean in ["lowdemandgrowth", "lowdemand"]:
         energy_base = np.random.uniform(15.0, 25.0, 8760)
         carbon_base = np.random.uniform(300.0, 650.0, 8760)
         winter_spike_range = (50.0, 80.0)
@@ -614,15 +645,14 @@ def generate_mock_state_file(filepath, state_code, scenario):
 # ==============================================================================
 
 def file_matches_scenario(filepath, scenario):
-    """Check if a simplified-format CSV matches the selected scenario."""
-    filename = os.path.basename(filepath).lower()
-    scenario_clean = scenario.lower()
-    if scenario_clean in filename:
+    """Check if a simplified-format CSV matches the selected scenario or its aliases."""
+    from cambium_downloader import filename_matches_scenario, scenario_matches
+    if filename_matches_scenario(filepath, scenario):
         return True
     try:
         head_df = pd.read_csv(filepath, nrows=5)
         if 'Scenario' in head_df.columns:
-            if head_df['Scenario'].iloc[0].lower() == scenario_clean:
+            if scenario_matches(str(head_df['Scenario'].iloc[0]), scenario):
                 return True
     except Exception:
         pass
@@ -879,13 +909,14 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
 
             if is_raw_nrel:
                 # Read metadata from row index 1
+                from cambium_downloader import scenario_matches
                 meta_df = pd.read_csv(file, nrows=1)
                 file_state = str(meta_df['state'].iloc[0]).upper() if 'state' in meta_df.columns else ""
-                file_scenario = str(meta_df['Scenario'].iloc[0]).lower() if 'Scenario' in meta_df.columns else ""
+                file_scenario = str(meta_df['Scenario'].iloc[0]) if 'Scenario' in meta_df.columns else ""
                 file_year = str(meta_df['t'].iloc[0]) if 't' in meta_df.columns else ""
 
-                # Check if file matches selected scenario, state, and planning year
-                if (file_scenario == selected_scenario.lower() and
+                # Check if file matches selected scenario (including aliases), state, and planning year
+                if (scenario_matches(file_scenario, selected_scenario) and
                     file_state in [s.upper() for s in target_states] and
                     file_year == str(planning_year)):
 
@@ -1108,17 +1139,17 @@ def fetch_urdb_rate(rate_label, api_key="DEMO_KEY"):
 # 7. NLR ATB DIRECT EXTRACTION ENGINE
 # ==============================================================================
 
-def extract_nrel_atb_ct_parameters(df_or_filepath, year=2024, scenario="Moderate", financial_case=None):
+def extract_nrel_atb_ct_parameters(df_or_filepath, year=2025, scenario="Moderate", financial_case=None):
     """
     Extract Combustion Turbine (CT) CAPEX, Fixed O&M, and FCR parameters directly
-    from an NLR Annual Technology Baseline (ATB) flat CSV file or DataFrame, and
+    from an NLR / NREL Annual Technology Baseline (ATB) flat CSV file or DataFrame, and
     compute the standard annualized Economic Carrying Cost (Gross CONE).
 
     Standard NLR ATB Flat Table Schema:
-      - technology: 'NaturalGas' / 'Natural Gas'
-      - techdetail: 'CT' / 'Combustion Turbine'
-      - core_metric_parameter / parameter: 'CAPEX', 'Fixed O&M', 'FCR'
-      - core_metric_variable / year: target projection year (e.g. 2024, 2030)
+      - technology: 'NaturalGas' / 'Natural Gas' / 'NaturalGas_FE'
+      - techdetail: 'CT' / 'Combustion Turbine' / 'NG Combustion Turbine (F-Frame)'
+      - core_metric_parameter / parameter: 'CAPEX', 'OCC', 'Fixed O&M', 'FCR'
+      - core_metric_variable / year: target projection year (e.g. 2025, 2030)
       - scenario: 'Moderate', 'Conservative', 'Advanced'
       - core_metric_case / financial_case: 'Market + Policies' (Regulated / Tax Credits) or 'R&D Only'
       - value: numeric value
@@ -1131,7 +1162,7 @@ def extract_nrel_atb_ct_parameters(df_or_filepath, year=2024, scenario="Moderate
     df_or_filepath : str or pd.DataFrame
         Path to the NLR ATB flat CSV file or an in-memory pandas DataFrame.
     year : int or str, optional
-        Target projection year (default 2024).
+        Target projection year (default 2025).
     scenario : str, optional
         ATB cost scenario (default 'Moderate'). Matches case-insensitively.
     financial_case : str, optional
@@ -1195,10 +1226,10 @@ def extract_nrel_atb_ct_parameters(df_or_filepath, year=2024, scenario="Moderate
                     continue
         return default_val
 
-    # Default fallback: NLR ATB 2024 Moderate values
-    capex_kw = _get_val([r'\bcapex\b', r'capital\s*expenditure'], 1100.0)
-    fom_kw_yr = _get_val([r'fixed\s*o&m', r'\bfom\b', r'fixed\s*operations'], 20.00)
-    fcr_val = _get_val([r'\bfcr\b', r'fixed\s*charge\s*rate'], 0.082)
+    # Default fallback: NLR / NREL ATB 2025 Moderate values
+    capex_kw = _get_val([r'\bcapex\b', r'capital\s*expenditure', r'overnight\s*capital', r'\bocc\b'], 1105.80)
+    fom_kw_yr = _get_val([r'fixed\s*o&m', r'\bfom\b', r'fixed\s*operations'], 26.60)
+    fcr_val = _get_val([r'\bfcr\b', r'fixed\s*charge\s*rate', r'charge\s*rate'], 0.082)
 
     # Normalize FCR if given as a percentage (e.g. 8.2 instead of 0.082)
     if fcr_val > 1.0:
@@ -1209,7 +1240,7 @@ def extract_nrel_atb_ct_parameters(df_or_filepath, year=2024, scenario="Moderate
     calc_res["fcr"] = fcr_val
     calc_res["year"] = year
     calc_res["scenario"] = scenario
-    calc_res["source"] = f"NLR ATB ({year} {scenario} Gas CT: atb.nlr.gov)"
+    calc_res["source"] = f"NLR ATB ({year} {scenario} Gas CT: atb.nlr.gov/electricity/{year}/data)"
 
     return calc_res
 
@@ -1372,7 +1403,8 @@ def load_cambium_milestones(
             planning_year=str(yr),
             input_directory=input_directory,
         )
-        milestone_dfs[yr_int] = df
+        if df is not None and not df.empty:
+            milestone_dfs[yr_int] = df
         if warnings:
             all_warnings.extend([f"[{yr}] {w}" for w in warnings])
 

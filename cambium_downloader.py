@@ -146,33 +146,205 @@ def validate_cambium_state_mapping(target_states: List[str]) -> Dict[str, List[s
         resolved[st] = list(STATE_TO_BALANCING_AREAS[st])
     return resolved
 
-# Scenario to project and file ID mappings
+# Scenario to project and file ID mappings across Cambium suites
 SCENARIO_PACKAGE_MAP: Dict[str, Dict[str, any]] = {
     "MidCase": {
         "project_uuid": PROJECT_UUIDS["Cambium 2024"],
         "file_id": 69176,
         "scenario_str": "MidCase",
         "release": "Cambium24",
+        "supported": True,
+    },
+    "HighNGPrice": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 69152,
+        "scenario_str": "HighNGPrice",
+        "release": "Cambium24",
+        "supported": True,
+    },
+    "HighGasPrice": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 69152,
+        "scenario_str": "HighNGPrice",
+        "release": "Cambium24",
+        "supported": True,
+    },
+    "HighNaturalGasPrice": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 69152,
+        "scenario_str": "HighNGPrice",
+        "release": "Cambium24",
+        "supported": True,
+    },
+    "LowGasPrice": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 0,
+        "scenario_str": "LowGasPrice",
+        "release": "Cambium24",
+        "supported": False,
+    },
+    "LowNaturalGasPrice": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 0,
+        "scenario_str": "LowNaturalGasPrice",
+        "release": "Cambium24",
+        "supported": False,
     },
     "HighDemandGrowth": {
         "project_uuid": PROJECT_UUIDS["Cambium 2024"],
         "file_id": 69148,
         "scenario_str": "HighDemandGrowth",
         "release": "Cambium24",
+        "supported": True,
+    },
+    "LowDemandGrowth": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 0,
+        "scenario_str": "LowDemandGrowth",
+        "release": "Cambium24",
+        "supported": False,
+    },
+    "LowRECost": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 0,
+        "scenario_str": "LowRECost",
+        "release": "Cambium24",
+        "supported": False,
+    },
+    "HighRECost": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 69156,
+        "scenario_str": "HighRECost",
+        "release": "Cambium24",
+        "supported": True,
+    },
+    "LowRECost_HighGasPrice": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 0,
+        "scenario_str": "LowRECost_HighGasPrice",
+        "release": "Cambium24",
+        "supported": False,
+    },
+    "HighRECost_LowGasPrice": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
+        "file_id": 0,
+        "scenario_str": "HighRECost_LowGasPrice",
+        "release": "Cambium24",
+        "supported": False,
     },
     "LowCarbonConstraint": {
         "project_uuid": PROJECT_UUIDS["Cambium 2023"],
         "file_id": 67072,
         "scenario_str": "MidCase95by2050",
         "release": "Cambium23",
+        "supported": True,
     },
-    "LowDemandGrowth": {
-        "project_uuid": PROJECT_UUIDS["Cambium 2024"],
-        "file_id": 69176,
-        "scenario_str": "MidCase",
-        "release": "Cambium24",
+    "MidCase95by2050": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2023"],
+        "file_id": 67072,
+        "scenario_str": "MidCase95by2050",
+        "release": "Cambium23",
+        "supported": True,
+    },
+    "Decarb95by2035": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2023"],
+        "file_id": 67072,
+        "scenario_str": "MidCase95by2035",
+        "release": "Cambium23",
+        "supported": True,
+    },
+    "MidCase95by2035": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2023"],
+        "file_id": 67072,
+        "scenario_str": "MidCase95by2035",
+        "release": "Cambium23",
+        "supported": True,
+    },
+    "Decarb100by2035": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2023"],
+        "file_id": 67072,
+        "scenario_str": "MidCase100by2035",
+        "release": "Cambium23",
+        "supported": True,
+    },
+    "MidCase100by2035": {
+        "project_uuid": PROJECT_UUIDS["Cambium 2023"],
+        "file_id": 67072,
+        "scenario_str": "MidCase100by2035",
+        "release": "Cambium23",
+        "supported": True,
     },
 }
+
+
+def get_scenario_package_info(selected_scenario: str) -> Dict[str, Any]:
+    """
+    Resolves canonical scenario package info from SCENARIO_PACKAGE_MAP and aliases.
+    Raises ValueError for unknown or unsupported scenarios to prevent silent MidCase fallback.
+    """
+    if not selected_scenario:
+        raise ValueError("Selected scenario cannot be empty.")
+    pkg = None
+    if selected_scenario in SCENARIO_PACKAGE_MAP:
+        pkg = SCENARIO_PACKAGE_MAP[selected_scenario]
+    else:
+        for canon_sc, info in SCENARIO_PACKAGE_MAP.items():
+            if scenario_matches(selected_scenario, canon_sc):
+                pkg = info
+                break
+    if pkg is None:
+        supported = [k for k, v in SCENARIO_PACKAGE_MAP.items() if v.get("supported", True)]
+        raise ValueError(
+            f"Unsupported or unknown Cambium scenario: '{selected_scenario}'. "
+            f"Supported scenarios with verified packages: {supported}."
+        )
+    if not pkg.get("supported", True) or pkg.get("file_id") == 0:
+        raise ValueError(
+            f"Cambium scenario '{selected_scenario}' is currently unsupported or does not have a verified download archive. "
+            "It cannot be downloaded from Scenario Viewer."
+        )
+    return pkg
+
+
+def scenario_matches(file_scenario: str, target_scenario: str) -> bool:
+    """
+    Checks if a scenario from file metadata matches the target selected scenario,
+    taking into account case insensitivity, delimiter stripping, and aliases.
+    """
+    if not file_scenario or not target_scenario:
+        return False
+    fs_clean = str(file_scenario).strip().lower().replace("_", "").replace("-", "")
+    ts_clean = str(target_scenario).strip().lower().replace("_", "").replace("-", "")
+    if fs_clean == ts_clean:
+        return True
+    from config import SCENARIO_ALIASES
+    for canonical, aliases in SCENARIO_ALIASES.items():
+        canon_clean = canonical.lower().replace("_", "").replace("-", "")
+        aliases_clean = [a.lower().replace("_", "").replace("-", "") for a in aliases]
+        if ts_clean == canon_clean or ts_clean in aliases_clean:
+            if fs_clean == canon_clean or fs_clean in aliases_clean:
+                return True
+    return False
+
+
+def filename_matches_scenario(filename: str, target_scenario: str) -> bool:
+    """
+    Checks if a file path or name matches the target selected scenario or its aliases.
+    """
+    fn_lower = os.path.basename(filename).lower()
+    ts_lower = str(target_scenario).lower()
+    if ts_lower in fn_lower:
+        return True
+    from config import SCENARIO_ALIASES
+    ts_clean = ts_lower.replace("_", "").replace("-", "")
+    for canonical, aliases in SCENARIO_ALIASES.items():
+        canon_clean = canonical.lower().replace("_", "").replace("-", "")
+        aliases_clean = [a.lower().replace("_", "").replace("-", "") for a in aliases]
+        if ts_clean == canon_clean or ts_clean in aliases_clean:
+            for alias in aliases:
+                if alias.lower() in fn_lower:
+                    return True
+    return False
 
 
 class RemoteZipReader(io.RawIOBase):
@@ -268,12 +440,12 @@ def check_missing_cambium_data(
                     file_scenario = str(meta.get('scenario', meta.get('Scenario', ''))).lower()
                     file_year = str(meta.get('t', ''))
 
-                    if (file_scenario == selected_scenario.lower() and
+                    if (scenario_matches(file_scenario, selected_scenario) and
                         file_state in [s.upper() for s in target_states] and
                         file_year == str(planning_year)):
                         loaded_states.add(file_state)
                 else:
-                    if selected_scenario.lower() in file.lower():
+                    if filename_matches_scenario(file, selected_scenario):
                         meta_state = first_row.get("meta", {}).get("State")
                         if meta_state:
                             st_upper = str(meta_state).upper()
@@ -432,7 +604,7 @@ def download_cambium_data(
     """
     os.makedirs(output_directory, exist_ok=True)
 
-    package_info = SCENARIO_PACKAGE_MAP.get(selected_scenario, SCENARIO_PACKAGE_MAP["MidCase"])
+    package_info = get_scenario_package_info(selected_scenario)
     project_uuid = package_info["project_uuid"]
     file_id = package_info["file_id"]
 
@@ -618,8 +790,7 @@ def check_missing_cambium_gea_data(
     # Scan local directory to find present BA files for scenario and year
     present_bas = set()
     year_str = str(planning_year)
-    scenario_str = selected_scenario.lower()
-    
+
     if os.path.exists(input_directory):
         for root, _, files in os.walk(input_directory):
             if any(x in root for x in ["__pycache__", ".git"]):
@@ -627,10 +798,22 @@ def check_missing_cambium_gea_data(
             for file in files:
                 if not file.lower().endswith(".csv") or year_str not in file:
                     continue
-                file_lower = file.lower()
-                m = re.search(r"hourly_([a-z0-9]+)_", file_lower)
-                if m:
-                    present_bas.add(m.group(1))
+                full_path = os.path.join(root, file)
+                first_row = pd_read_first_rows(full_path)
+                if not first_row:
+                    continue
+                meta = first_row.get("meta", {})
+                file_sc = meta.get("Scenario", meta.get("scenario", ""))
+                file_yr = str(meta.get("t", ""))
+                file_ba = str(meta.get("r", "")).lower()
+                if file_sc:
+                    if scenario_matches(file_sc, selected_scenario) and file_yr == year_str and file_ba:
+                        present_bas.add(file_ba)
+                else:
+                    if filename_matches_scenario(file, selected_scenario):
+                        m = re.search(r"hourly_([a-z0-9]+)_", file.lower())
+                        if m:
+                            present_bas.add(m.group(1))
                     
     missing_by_gea: Dict[str, List[str]] = {}
     for g in geas:
@@ -694,7 +877,7 @@ def download_cambium_gea_data(
         return []
         
     os.makedirs(output_directory, exist_ok=True)
-    package_info = SCENARIO_PACKAGE_MAP.get(selected_scenario, SCENARIO_PACKAGE_MAP["MidCase"])
+    package_info = get_scenario_package_info(selected_scenario)
     project_uuid = package_info["project_uuid"]
     file_id = package_info["file_id"]
 

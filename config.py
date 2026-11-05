@@ -35,9 +35,17 @@ TESTED BY:
 
 SCENARIO_OPTIONS = [
     "MidCase",
+    "HighGasPrice",
+    "LowGasPrice",
     "HighDemandGrowth",
-    "LowCarbonConstraint",
     "LowDemandGrowth",
+    "LowRECost",
+    "HighRECost",
+    "LowRECost_HighGasPrice",
+    "HighRECost_LowGasPrice",
+    "LowCarbonConstraint",
+    "Decarb95by2035",
+    "Decarb100by2035",
 ]
 
 CAMBIUM_DOC_URL = "https://docs.nlr.gov/docs/fy25osti/93005.pdf"
@@ -47,6 +55,16 @@ SCENARIO_DESCRIPTIONS = {
         "Central baseline projection under current federal and state policies (including the Inflation Reduction Act [IRA]). "
         "Uses moderate technology cost declines (NLR ATB) and benchmark fuel prices (EIA AEO Reference)."
     ),
+    "HighGasPrice": (
+        "Elevated natural gas fuel price trajectory (aligned with EIA AEO Low Oil and Gas Supply / High Gas Price sensitivity). "
+        "Higher gas fuel costs increase marginal dispatch costs of natural gas generation, leading to higher wholesale power prices, "
+        "increased market revenues for clean/efficiency resources, and accelerated renewable and battery storage deployment."
+    ),
+    "LowGasPrice": (
+        "Low natural gas fuel price trajectory (aligned with EIA AEO High Oil and Gas Supply / Low Gas Price sensitivity). "
+        "Sustained cheap natural gas reduces wholesale energy prices and marginal avoided costs, improving gas plant economics "
+        "and moderating the pace of new clean capacity additions."
+    ),
     "HighDemandGrowth": (
         "High electricity demand growth driven by rapid electrification across transportation (EVs) and building space/water heating (heat pumps), "
         "along with accelerated computing, data center, and industrial load expansion. Leads to higher peak demand and capacity additions."
@@ -55,10 +73,57 @@ SCENARIO_DESCRIPTIONS = {
         "Low electricity demand growth characterized by slower economic expansion, modest electrification adoption, and aggressive "
         "building energy efficiency improvements. Leads to lower peak demand, lower wholesale energy prices, and deferred capacity buildout."
     ),
+    "LowRECost": (
+        "Advanced technology cost declines and performance improvements for renewable generation and battery storage (NREL ATB Advanced). "
+        "Lower capital costs accelerate solar, wind, and storage deployment, suppressing daytime wholesale energy prices and deepening diurnal price spreads."
+    ),
+    "HighRECost": (
+        "Conservative technology cost declines for renewable generation and battery storage (NREL ATB Conservative). "
+        "Slower clean tech cost reductions lead to less aggressive renewable expansion, greater reliance on existing firm thermal capacity, and higher marginal costs."
+    ),
+    "LowRECost_HighGasPrice": (
+        "Combined boundary sensitivity pairing low renewable and battery capital costs (ATB Advanced) with high natural gas fuel prices. "
+        "Creates maximum economic divergence favoring clean energy deployment, battery storage expansion, and dramatic coal/gas displacement."
+    ),
+    "HighRECost_LowGasPrice": (
+        "Combined boundary sensitivity pairing conservative renewable technology costs (ATB Conservative) with low natural gas fuel prices. "
+        "Prolongs economic utilization of natural gas generation, depresses wholesale electricity prices, and minimizes clean energy buildout."
+    ),
     "LowCarbonConstraint": (
-        "Strict power sector emissions constraint targeting deep decarbonization (e.g., 95% emissions cuts by 2050). Models accelerated "
+        "Strict power sector emissions constraint targeting deep decarbonization (e.g., 95% emissions cuts by 2050 [MidCase95by2050]). Models accelerated "
         "fossil unit retirements, rapid deployment of solar, wind, and battery storage, and significantly lower grid marginal carbon rates."
     ),
+    "Decarb95by2035": (
+        "Accelerated deep decarbonization trajectory targeting 95% nationwide power sector CO₂ emissions reductions by 2035 (MidCase95by2035). "
+        "Requires aggressive near-term coal and gas retirements and mass deployment of clean firm capacity and storage."
+    ),
+    "Decarb100by2035": (
+        "Full 100% clean electricity standard / net-zero power sector target by 2035 (MidCase100by2035). "
+        "Simulates total phaseout of unabated fossil generation, deployment of long-duration energy storage and zero-carbon firm dispatchable resources."
+    ),
+}
+
+# Aliases for convenience and flexible user/data matching
+SCENARIO_DESCRIPTIONS["HighNaturalGasPrice"] = SCENARIO_DESCRIPTIONS["HighGasPrice"]
+SCENARIO_DESCRIPTIONS["LowNaturalGasPrice"] = SCENARIO_DESCRIPTIONS["LowGasPrice"]
+SCENARIO_DESCRIPTIONS["MidCase95by2050"] = SCENARIO_DESCRIPTIONS["LowCarbonConstraint"]
+SCENARIO_DESCRIPTIONS["MidCase95by2035"] = SCENARIO_DESCRIPTIONS["Decarb95by2035"]
+SCENARIO_DESCRIPTIONS["MidCase100by2035"] = SCENARIO_DESCRIPTIONS["Decarb100by2035"]
+
+SCENARIO_ALIASES = {
+    "MidCase": ["midcase", "mid_case", "reference", "baseline"],
+    "HighNGPrice": ["highngprice", "high_ng_price", "highgasprice", "highnaturalgasprice", "highnaturalgas", "highgas", "high_gas", "high_gas_price"],
+    "HighGasPrice": ["highngprice", "high_ng_price", "highgasprice", "highnaturalgasprice", "highnaturalgas", "highgas", "high_gas", "high_gas_price"],
+    "LowGasPrice": ["lowgasprice", "lownaturalgasprice", "lownaturalgas", "lowgas", "low_gas", "low_gas_price"],
+    "HighDemandGrowth": ["highdemandgrowth", "highdemand", "high_demand_growth", "high_demand"],
+    "LowDemandGrowth": ["lowdemandgrowth", "lowdemand", "low_demand_growth", "low_demand"],
+    "LowRECost": ["lowrecost", "lowre", "low_re_cost", "low_re"],
+    "HighRECost": ["highrecost", "highre", "high_re_cost", "high_re"],
+    "LowRECost_HighGasPrice": ["lowrecost_highgasprice", "lowrecosthighgasprice", "lowrehighgas"],
+    "HighRECost_LowGasPrice": ["highrecost_lowgasprice", "highrecostlowgasprice", "highrelowgas"],
+    "LowCarbonConstraint": ["lowcarbonconstraint", "midcase95by2050", "decarb95by2050", "95by2050", "midcase_95by2050"],
+    "Decarb95by2035": ["decarb95by2035", "midcase95by2035", "95by2035", "midcase_95by2035"],
+    "Decarb100by2035": ["decarb100by2035", "midcase100by2035", "100by2035", "cleanenergy2035", "midcase_100by2035"],
 }
 
 PLANNING_YEAR_OPTIONS = ["2025", "2030", "2035", "2040", "2045", "2050"]
@@ -72,7 +137,7 @@ ESCALATION_MODES = [
     ESCALATION_MODE_FLAT_RATE,
 ]
 DEFAULT_ESCALATION_MODE = ESCALATION_MODE_CAMBIUM_TRAJECTORY
-DEFAULT_CAMBIUM_MILESTONES = ["2025", "2030", "2035", "2045"]
+DEFAULT_CAMBIUM_MILESTONES = ["2025", "2030", "2035", "2040", "2045"]
 DEFAULT_CAPACITY_ESCALATION_RATE = 1.0  # % (annual inflation on gen, transmission & distribution replacement value)
 
 WEATHER_CASE_OPTIONS = [
@@ -472,14 +537,20 @@ EXAMPLE_BUILDINGS = [
 ]
 
 
+from serc_capacity_cost import (
+    STATE_UTILITY_BENCHMARKS,
+    get_state_capacity_benchmark,
+    refresh_capacity_benchmarks,
+)
+
 # ==============================================================================
 # GRID VALUATION SCALAR DEFAULTS
 # ==============================================================================
 
-DEFAULT_CAP_VALUE = 110.20       # $/kW-year  (Generation Capacity: NLR ATB 2024 CT Carrying Cost Benchmark: $1,100/kW * 8.2% FCR + $20/kW-yr FOM)
+DEFAULT_CAP_VALUE = 129.76       # $/kW-year  (Generation Capacity: SERC Regional SCCT Composite Benchmark: $1,080/kW * 9.7% LFCR + $25.00/kW-yr FOM)
 DEFAULT_TRANS_VALUE = 14.00      # $/kW-year  (Transmission Deferral: LBNL Southeast Regional Average Benchmark)
 DEFAULT_DIST_VALUE = 22.00       # $/kW-year  (Distribution Deferral: LBNL Southeast Regional Average Benchmark)
-DEFAULT_CARBON_TAX = 30.00       # $/metric ton CO₂
+DEFAULT_CARBON_TAX = 0.00        # $/metric ton CO₂ (Default 0 per Southeast cost-of-service utility standards; configurable in sidebar)
 
 # Scalar input ranges (min, max, step)
 CAP_VALUE_RANGE = (0.0, 1000.0, 5.00)
@@ -492,22 +563,33 @@ CARBON_TAX_RANGE = (0.0, 100.0, 5.00)
 # ==============================================================================
 
 SOUTHEAST_PEAKER_PRESETS = {
-    "NLR ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)": {
-        "description": "NLR Annual Technology Baseline (ATB 2024) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario, Regulated Utility Financing. (CAPEX: $1,100/kW, FCR: 8.20%, FOM: $20.00/kW-yr -> ECC: $110.20/kW-yr).",
-        "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
-        "capex_kw": 1100.0,
-        "fom_kw_yr": 20.00,
+    "SERC Regional SCCT Composite Benchmark (2024$ Real)": {
+        "description": "SERC Regional Capacity Benchmark: Levelized Fixed Revenue Requirement across Southeast IRPs (GA, AL, NC, SC, TN). (CAPEX: $1,080/kW, LFCR: 9.70%, FOM: $25.00/kW-yr -> ECC: $129.76/kW-yr).",
+        "source": "SERC Regional Avoided Capacity Model (LFRR composite across GPSC, NCUC, TVA dockets)",
+        "capex_kw": 1080.0,
+        "fom_kw_yr": 25.00,
+        "fcr": 0.097,
+        "wacc": 0.071,
+        "life": 30,
+        "tax_rate": 0.25,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "NLR / NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)": {
+        "description": "NLR / NREL Annual Technology Baseline (ATB 2025) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario, Regulated Utility Financing. (CAPEX: $1,105.80/kW, FCR: 8.20%, FOM: $26.60/kW-yr -> ECC: $117.28/kW-yr).",
+        "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data)",
+        "capex_kw": 1105.80,
+        "fom_kw_yr": 26.60,
         "fcr": 0.082,
-        "wacc": 0.070,
+        "wacc": 0.0716,
         "life": 30,
         "tax_rate": 0.257,
         "eas_offset_kw_yr": 0.0,
     },
-    "NLR ATB 2024: Natural Gas CT (Merchant / R&D Financing)": {
-        "description": "NLR ATB 2024 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (CAPEX: $1,100/kW, FCR: 10.20%, FOM: $20.00/kW-yr -> ECC: $132.20/kW-yr).",
-        "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
-        "capex_kw": 1100.0,
-        "fom_kw_yr": 20.00,
+    "NLR / NREL ATB 2025: Natural Gas CT (Merchant / R&D Financing)": {
+        "description": "NLR / NREL ATB 2025 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (CAPEX: $1,105.80/kW, FCR: 10.20%, FOM: $26.60/kW-yr -> ECC: $139.39/kW-yr).",
+        "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data)",
+        "capex_kw": 1105.80,
+        "fom_kw_yr": 26.60,
         "fcr": 0.102,
         "wacc": 0.085,
         "life": 25,
@@ -515,36 +597,36 @@ SOUTHEAST_PEAKER_PRESETS = {
         "eas_offset_kw_yr": 0.0,
     },
     "Southern Company / Georgia Power IRP SCCT Benchmark": {
-        "description": "Next planned F-Class simple cycle combustion turbine based on Southern Company 2022/2025 IRP dockets.",
-        "source": "Southern Company 2022/2025 Integrated Resource Plan (IRP) dockets",
-        "capex_kw": 1080.0,
-        "fom_kw_yr": 15.00,
-        "fcr": 0.084,
+        "description": "Next planned 2x GE 7HA.02 simple-cycle combustion turbine peaker based on Southern Company 2022/2025 IRP dockets.",
+        "source": "Southern Company 2022/2025 Integrated Resource Plan (IRP) dockets (GPSC Docket 44280 / APSC Docket 33201)",
+        "capex_kw": 1110.0,
+        "fom_kw_yr": 28.00,
+        "fcr": 0.102,
+        "wacc": 0.071,
+        "life": 30,
+        "tax_rate": 0.25,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "Duke Energy Carolinas 2024 IRP SCCT Benchmark": {
+        "description": "Next planned GE 7F.05 simple-cycle combustion turbine from Duke Energy 2024 Carolinas Resource Plan / Carbon Plan.",
+        "source": "Duke Energy Carolinas 2024 Integrated Resource Plan / Carbon Plan (NCUC Docket E-100 Sub 190)",
+        "capex_kw": 1075.0,
+        "fom_kw_yr": 25.00,
+        "fcr": 0.098,
         "wacc": 0.071,
         "life": 30,
         "tax_rate": 0.25,
         "eas_offset_kw_yr": 0.0,
     },
     "TVA Capacity Expansion SCCT Benchmark": {
-        "description": "TVA 2019/2024 IRP capacity expansion peaker proxy with federal financing.",
-        "source": "TVA 2019/2024 IRP capacity expansion peaker proxy",
-        "capex_kw": 1020.0,
-        "fom_kw_yr": 14.00,
-        "fcr": 0.079,
+        "description": "TVA 2019/2024 IRP capacity expansion peaker proxy with federal public power financing.",
+        "source": "TVA 2019/2024 IRP capacity expansion peaker proxy (Supply-Side Assessment)",
+        "capex_kw": 1035.0,
+        "fom_kw_yr": 23.00,
+        "fcr": 0.089,
         "wacc": 0.068,
         "life": 30,
         "tax_rate": 0.21,
-        "eas_offset_kw_yr": 0.0,
-    },
-    "Duke Energy Carolinas 2024 IRP SCCT Benchmark": {
-        "description": "Next planned GE 7F.05 simple-cycle combustion turbine from Duke Energy 2024 Carolinas Resource Plan / Carbon Plan.",
-        "source": "Duke Energy Carolinas 2024 Integrated Resource Plan / Carbon Plan (NCUC Docket E-100 Sub 190)",
-        "capex_kw": 1060.0,
-        "fom_kw_yr": 16.00,
-        "fcr": 0.081,
-        "wacc": 0.071,
-        "life": 30,
-        "tax_rate": 0.25,
         "eas_offset_kw_yr": 0.0,
     },
     "Entergy 2023/2024 IRP Peaker Benchmark": {
@@ -558,22 +640,11 @@ SOUTHEAST_PEAKER_PRESETS = {
         "tax_rate": 0.25,
         "eas_offset_kw_yr": 0.0,
     },
-    "Southeast Regional Composite SCCT Benchmark": {
-        "description": "Composite average simple-cycle combustion turbine carrying cost across Southeast utilities ($104.00/kW-yr).",
-        "source": "Composite Southeast Utility IRPs & NLR ATB 2024",
-        "capex_kw": 1060.0,
-        "fom_kw_yr": 16.00,
-        "fcr": 0.083,
-        "wacc": 0.071,
-        "life": 30,
-        "tax_rate": 0.25,
-        "eas_offset_kw_yr": 0.0,
-    },
-    "NLR ATB 2024: Aeroderivative CT": {
+    "NLR / NREL ATB 2025: Aeroderivative CT": {
         "description": "Fast-ramping aeroderivative peaker (e.g. LM6000) for winter morning cold snap / peak following.",
-        "source": "NLR ATB 2024 Natural Gas: Combustion Turbine (Aeroderivative)",
+        "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data)",
         "capex_kw": 1250.0,
-        "fom_kw_yr": 18.00,
+        "fom_kw_yr": 20.00,
         "fcr": 0.082,
         "wacc": 0.071,
         "life": 30,
@@ -582,9 +653,52 @@ SOUTHEAST_PEAKER_PRESETS = {
     },
 }
 
-# Backward compatibility aliases for legacy NREL preset keys
+# Aliases for 2025 variations
+SOUTHEAST_PEAKER_PRESETS["NLR ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
+SOUTHEAST_PEAKER_PRESETS["NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
+SOUTHEAST_PEAKER_PRESETS["NLR ATB 2025: Natural Gas CT (Merchant / R&D Financing)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT (Merchant / R&D Financing)"]
+SOUTHEAST_PEAKER_PRESETS["NREL ATB 2025: Natural Gas CT (Merchant / R&D Financing)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT (Merchant / R&D Financing)"]
+SOUTHEAST_PEAKER_PRESETS["NLR ATB 2025: Aeroderivative CT"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Aeroderivative CT"]
+SOUTHEAST_PEAKER_PRESETS["NREL ATB 2025: Aeroderivative CT"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Aeroderivative CT"]
+SOUTHEAST_PEAKER_PRESETS["Southeast Regional Composite SCCT Benchmark"] = SOUTHEAST_PEAKER_PRESETS["SERC Regional SCCT Composite Benchmark (2024$ Real)"]
+SOUTHEAST_PEAKER_PRESETS["Duke Energy Carolinas & Progress SCCT Benchmark"] = SOUTHEAST_PEAKER_PRESETS["Duke Energy Carolinas 2024 IRP SCCT Benchmark"]
+
+# Backward compatibility aliases for legacy 2024 preset keys
+SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)"] = {
+    "description": "NLR Annual Technology Baseline (ATB 2024) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario, Regulated Utility Financing. (CAPEX: $1,100/kW, FCR: 8.20%, FOM: $20.00/kW-yr -> ECC: $110.20/kW-yr).",
+    "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
+    "capex_kw": 1100.0,
+    "fom_kw_yr": 20.00,
+    "fcr": 0.082,
+    "wacc": 0.070,
+    "life": 30,
+    "tax_rate": 0.257,
+    "eas_offset_kw_yr": 0.0,
+}
 SOUTHEAST_PEAKER_PRESETS["NREL ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)"] = SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
+SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Natural Gas CT (Merchant / R&D Financing)"] = {
+    "description": "NLR ATB 2024 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (CAPEX: $1,100/kW, FCR: 10.20%, FOM: $20.00/kW-yr -> ECC: $132.20/kW-yr).",
+    "source": "[Data | Electricity | 2024 | ATB | NLR](https://atb.nlr.gov/electricity/2024/data)",
+    "capex_kw": 1100.0,
+    "fom_kw_yr": 20.00,
+    "fcr": 0.102,
+    "wacc": 0.085,
+    "life": 25,
+    "tax_rate": 0.257,
+    "eas_offset_kw_yr": 0.0,
+}
 SOUTHEAST_PEAKER_PRESETS["NREL ATB 2024: Natural Gas CT (Merchant / R&D Financing)"] = SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Natural Gas CT (Merchant / R&D Financing)"]
+SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Aeroderivative CT"] = {
+    "description": "Fast-ramping aeroderivative peaker (e.g. LM6000) for winter morning cold snap / peak following.",
+    "source": "NLR ATB 2024 Natural Gas: Combustion Turbine (Aeroderivative)",
+    "capex_kw": 1250.0,
+    "fom_kw_yr": 18.00,
+    "fcr": 0.082,
+    "wacc": 0.071,
+    "life": 30,
+    "tax_rate": 0.25,
+    "eas_offset_kw_yr": 0.0,
+}
 SOUTHEAST_PEAKER_PRESETS["NREL ATB 2024: Aeroderivative CT"] = SOUTHEAST_PEAKER_PRESETS["NLR ATB 2024: Aeroderivative CT"]
 
 SOUTHEAST_TD_PRESETS = {

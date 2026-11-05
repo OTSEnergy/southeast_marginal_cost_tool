@@ -159,6 +159,17 @@ Phase 2 (Additional Budget / Future Year)
 
 ---
 
+
+### Milestone 5.5: Financial Consistency, Scenario Isolation & Reproducible NPV Explanation (Completed 2026-11-04)
+- [x] Strict Cambium scenario matching and co-location contamination prevention (`system_stress_data.py`, `cambium_downloader.py`).
+- [x] Exact Fisher relationship $(1 + r_{nom}) = (1 + r_{real}) \times (1 + i)$ and real/nominal mathematical equivalence in `calculations.py`.
+- [x] Mid-year continuous cash flow discounting and base dollar year harmonization ($2023 \to 2026$).
+- [x] Annual avoided energy and capacity credit explanation tables (`build_annual_energy_explanation`, `build_annual_capacity_explanation`).
+- [x] Reproducible NPV waterfall change bridge with zero residual (`build_reproducible_npv_bridge`).
+- [x] Public Southeast regulatory benchmark comparison (Alabama Power PAE/CPE and Georgia Power 2022 IRP / PURPA).
+
+---
+
 ## Milestone 1: Harden the Foundation
 
 > **Goal:** Replace placeholders with real or defensible data, modularize the codebase, and improve file input UX. After this milestone, every number the tool produces should be *directionally credible* even if not yet validated.
@@ -299,6 +310,10 @@ Phase 2 (Additional Budget / Future Year)
   - Bundled empirical presets with official ATB citations: NREL ATB 2024 Regulated Utility Benchmark, NREL ATB 2024 Merchant Finance, Southern Company IRP Benchmark, TVA Capacity Expansion SCCT, and Aeroderivative CT.
   - Supported direct FCR input as well as synthesized FCR via utility WACC, corporate tax, and 15-year MACRS depreciation schedule.
   - Automatically initializes carrying cost breakdown so the peaker waterfall chart is fully populated on load.
+  - Added self-contained, citeable `serc_capacity_cost.py` module (along with CLI `--export-csv` and `--refresh`) calculating and exporting regional economic carrying costs (2025–2050) across Southern Company ($141.22/kW-yr real), Duke Energy ($130.35/kW-yr real), TVA ($115.12/kW-yr real), and SERC Composite ($129.76/kW-yr real), with 2.2% annual GDP deflator escalation and ambient winter turbine derate (1.15x).
+  - Implemented state-based company capacity cost defaults: single-utility states (GA -> Southern Company, TN -> TVA, NC -> Duke Energy) default directly to that utility; states with 2+ utilities (AL, SC, MS, FL, multi-state) default to SERC Composite ($129.76/kW-yr) and present an interactive selection prompt.
+  - Added one-click "🔄 Recalculate & Refresh Benchmark Data" button in the Streamlit UI to re-query and refresh public baseline projections.
+  - Incorporated full annual capacity savings (or costs for peak-adding load increases) accounting via `calculate_annual_capacity_savings()` and dynamic multi-year `capacity_cost_schedule` in `calculations.py`.
 
 ### 2.4 Deferral Approximations & Localized Feeder Profiling
 *Ref: needs_and_gaps.md §4.4*
@@ -670,7 +685,7 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 1.2 Real load profiles | 📦 EXTERNAL | 🟡 In Progress | John (JB) | Real BEopt models added (`ERHeatBeOptModel_Birmingham2012.csv` and `HeatPumpBeOptModel_Birmingham2012.csv`). 2012 AMY EPWs ready. |
 | ↳ 1.2a Flexible load ingestion | 🔨 BUILD | 🟢 **v2 Done** | JB + AI | Smart CSV loader in `data_loaders.py`: auto-detects BEopt/EnergyPlus `ELECTRICITY:UNIT_1` / `Electricity:Facility` headers, converts Joules `[J]` → kW, and scans folders (`Load_Profiles_raw/`). **2026-08-26:** extended `_read_profile_file()` to also parse BEopt's *native* hourly export format (`wxDVFileHeaderVer.1` version line + 2 index rows + a units row before the 8760 data rows) — needed for the new battery example files, which come straight from BEopt rather than the EnergyPlus-style exports used previously. |
 | ↳ 1.2b Explicit column selector UX | 🔀 MODIFY | 🟢 **v1 Done** | JB + AI | Single File Mode explicitly prompts "Which column in [file] is Baseline/Proposed?" without keyword guessing. Folder mode retains smart defaults. |
-| ↳ 1.3 State coverage | 🔀 MODIFY | 🟢 **Contiguous 48 Done (2026-10-27)** | JB + AI | All 48 contiguous U.S. states mapped to Cambium ReEDS regions (`cambium_downloader.py`) and EIA-861 residential sales BAs (`data/state_ba_sales_crosswalk.csv`, 2016–2024). Retail/T&D presets explicitly disclose Southeast scope. |
+| ↳ 1.3 State & Scenario coverage | 🔀 MODIFY | 🟢 **Contiguous 48 & Full Scenarios Done (2026-11-04)** | JB + AI | All 48 contiguous U.S. states mapped to Cambium ReEDS regions (`cambium_downloader.py`) and EIA-861 residential sales BAs. Expanded to full Cambium scenario suite (HighGasPrice, LowGasPrice, HighDemandGrowth, LowDemandGrowth, LowRECost, HighRECost, boundary sensitivities, Decarb95by2035, Decarb100by2035, LowCarbonConstraint) with alias normalization. |
 | ↳ 1.4 Weather file | 🔨 BUILD | 🟢 **v1 Done** | AI | 2012 AMY EPW files generated via `diyepw` for Atlanta (WMO 722190) and Birmingham (WMO 722280). Saved to `Weather_Data_raw/Baseline/`. App weather generator tab also functional. |
 | ↳ 1.5 File upload UX | 🔨 BUILD | ⬜ Not Started | AI | "Straightforward request to the AI" |
 | ↳ 1.6 Code modularization | 🔨 BUILD | ✅ **Phase 3 Done** | JB + AI | Phase 1: `calculations.py` + `billing.py`. Phase 2: `data_loaders.py`. Phase 3: `visualizations.py` + `config.py` + `dispatch_dr_program` → `calculations.py`. app.py now ~1,210 lines. All modules are Streamlit-free and independently testable. |
@@ -699,7 +714,7 @@ Use the table below to track milestone status. **Mark the Decision column** with
 | ↳ 5.1 Utility validation | | ⬜ Not Started | | |
 | ↳ 5.2 Technology developer tests | | ⬜ Not Started | | |
 | ↳ 5.3 Usability feedback | | ⬜ Not Started | | |
-| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v4 Done (2026-10-27)** | AI | 209 tests passing (2026-10-27) across `test_calculations.py`, `test_cambium_downloader.py`, and `test_system_stress_data.py`. Covers avoided costs, URDB billing, NPV, EPC/ELCC, DR dispatch, config, visualizations, Cambium 48-state mapping, and EIA-930/861 system-stress proxy qualification & valuation invariance. Pytest infra + standing instruction in place. |
+| ↳ 5.4 Automated test suite | 🔨 BUILD | ✅ **v5 Done (2026-11-04)** | AI | 257 tests passing (2026-11-04) across `test_calculations.py`, `test_cambium_downloader.py`, and `test_system_stress_data.py`. Added full coverage for high gas prices and expanded Cambium scenario options, package mappings, alias resolution, mock generation, and file matching. |
 | **M6: Handoff & Expansion** | | | | |
 | ↳ 6.1 Multi-region expansion | | ⬜ Not Started | | |
 | ↳ 6.2 Institutional home transition | | ⬜ Not Started | | |

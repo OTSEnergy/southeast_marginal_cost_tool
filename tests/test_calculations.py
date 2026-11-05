@@ -2127,9 +2127,65 @@ class TestSoutheastUtilityCapacityEngine:
         # Net = 100.0 - 10.0 = 90.0
         assert res["net_capacity_cost"] == 90.0
 
+    def test_serc_composite_default_carrying_cost_benchmark(self):
+        """
+        Verify the default SERC Regional SCCT Composite carrying cost formulation:
+            Gross ECC ($/kW-yr) = (CapEx * LFCR) + Fixed O&M
+        Using central SERC composite parameters (2024$ Real):
+            CapEx: $1,080 / kW
+            LFCR: 9.7% (0.097)
+            FOM: $25.00 / kW-yr
+            Annualized Capital Cost = $1,080 * 0.097 = $104.76 / kW-yr
+            Total Carrying Cost = $104.76 + $25.00 = $129.76 / kW-yr
+        """
+        from calculations import calculate_ct_carrying_cost
+        import config
+
+        serc_preset = config.SOUTHEAST_PEAKER_PRESETS["SERC Regional SCCT Composite Benchmark (2024$ Real)"]
+        capex = serc_preset["capex_kw"]
+        fom = serc_preset["fom_kw_yr"]
+        fcr = serc_preset["fcr"]
+        eas = serc_preset["eas_offset_kw_yr"]
+
+        assert capex == 1080.0
+        assert fom == 25.00
+        assert fcr == 0.097
+        assert eas == 0.0
+
+        res = calculate_ct_carrying_cost(capex, fom, fcr, eas_offset_kw_yr=eas)
+        assert pytest.approx(res["capital_recovery_annuity"], abs=1e-2) == 104.76
+        assert pytest.approx(res["fom_kw_yr"], abs=1e-2) == 25.00
+        assert pytest.approx(res["gross_carrying_cost"], abs=1e-2) == 129.76
+        assert pytest.approx(res["net_capacity_cost"], abs=1e-2) == 129.76
+        assert pytest.approx(config.DEFAULT_CAP_VALUE, abs=1e-2) == 129.76
+
+    def test_nrel_atb_2025_alternate_benchmark(self):
+        """
+        Verify the alternate NLR / NREL ATB 2025 Natural Gas CT benchmark:
+            Overnight CapEx: $1,105.80 / kW
+            FCR: 8.2% (0.082)
+            FOM: $26.60 / kW-yr
+            Total Carrying Cost = ($1,105.80 * 0.082) + $26.60 = $90.68 + $26.60 = $117.28 / kW-yr
+        """
+        from calculations import calculate_ct_carrying_cost
+        import config
+
+        atb_2025 = config.SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
+        capex = atb_2025["capex_kw"]
+        fom = atb_2025["fom_kw_yr"]
+        fcr = atb_2025["fcr"]
+
+        assert capex == 1105.80
+        assert fom == 26.60
+        assert fcr == 0.082
+
+        res = calculate_ct_carrying_cost(capex, fom, fcr)
+        assert pytest.approx(res["capital_recovery_annuity"], abs=1e-2) == 90.68
+        assert pytest.approx(res["gross_carrying_cost"], abs=1e-2) == 117.28
+
     def test_nrel_atb_ct_carrying_cost_benchmark(self):
         """
-        Verify the standard NREL ATB 2024 Natural Gas CT Carrying Cost formulation:
+        Verify legacy NREL ATB 2024 Natural Gas CT Carrying Cost formulation:
             Carrying Cost ($/kW-yr) = (CAPEX * FCR) + Fixed O&M
         Using central ATB moderate values:
             CAPEX: $1,100 / kW
@@ -2159,7 +2215,6 @@ class TestSoutheastUtilityCapacityEngine:
         assert pytest.approx(res["fom_kw_yr"], abs=1e-2) == 20.00
         assert pytest.approx(res["gross_carrying_cost"], abs=1e-2) == 110.20
         assert pytest.approx(res["net_capacity_cost"], abs=1e-2) == 110.20
-        assert pytest.approx(config.DEFAULT_CAP_VALUE, abs=1e-2) == 110.20
 
     def test_extract_nrel_atb_ct_parameters(self):
         """

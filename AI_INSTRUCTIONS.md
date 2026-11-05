@@ -9,7 +9,7 @@
 
 ## Living Documentation Maintenance
 
-Whenever code changes are made to any of the project's **source modules** — `app.py`, `calculations.py`, `billing.py`, `data_loaders.py`, `cambium_downloader.py`, `system_stress_data.py`, `visualizations.py`, or `config.py` — the following **living documents** in the `docs/` folder must be reviewed and updated as appropriate:
+Whenever code changes are made to any of the project's **source modules** — `app.py`, `calculations.py`, `billing.py`, `data_loaders.py`, `cambium_downloader.py`, `system_stress_data.py`, `serc_capacity_cost.py`, `visualizations.py`, or `config.py` — the following **living documents** in the `docs/` folder must be reviewed and updated as appropriate:
 
 ### Documents to Maintain
 
@@ -66,6 +66,7 @@ After processing annotations, update the progress tracking table, clear resolved
   - `data_loaders.py` — all file I/O: Cambium ingestion, CWFT, load profiles, weather, URDB API, mock generators
   - `cambium_downloader.py` — automated on-demand retrieval of NREL Cambium grid datasets via Scenario Viewer & S3 range requests (with contiguous 48-state ReEDS mapping)
   - `system_stress_data.py` — public-data system-stress capacity-credit proxy data layer (EIA-930 API v2 / bulk CSV ingestion, UTC-to-LST alignment, quality gates, atomic caching, and EIA-861 residential-sales state-to-BA portfolio crosswalk)
+  - `serc_capacity_cost.py` — regional avoided capacity cost engine implementing Levelized Fixed Revenue Requirement (LFRR) across Southeast IRPs (Southern Company, Duke Energy, TVA, SERC Composite, 2025–2050 projections, seasonal/ambient derates, state-based company defaults, multi-utility selection prompts, and background recalculate updater)
   - `visualizations.py` — Plotly chart builder functions (7 chart types, returns `go.Figure`)
   - `config.py` — default parameters, option lists, CSS styling, color palette, constants
 - **Stakeholders:** JB (John Bush, project lead), JH (Justin, utility-side partner), SC (cost-effectiveness reviewer), Al/Mitch (external reviewers).

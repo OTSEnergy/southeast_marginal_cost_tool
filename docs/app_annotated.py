@@ -1,5 +1,5 @@
 
-# Note: app.py synced at 3400 lines on 2026-10-28 (Multi-Year Cambium Milestone Ingestion & Hourly Interpolation).
+# Note: app.py synced at 3436 lines on 2026-11-04 (Cambium Scenario Isolation, Financial Consistency, and NPV Explanation Engine).
 """
 ================================================================================
 ⚡ ANNOTATED TOUR OF APP.PY: SOUTHEAST MARGINAL COST VALUATION ENGINE ⚡
@@ -1091,7 +1091,20 @@ st.sidebar.markdown(
 )
 
 st.sidebar.markdown("### 🌤️ Grid Weather & Scenario")
-scenario_options = ["HighDemandGrowth", "MidCase", "LowCarbonConstraint", "LowDemandGrowth"]
+scenario_options = [
+    "MidCase",
+    "HighGasPrice",
+    "LowGasPrice",
+    "HighDemandGrowth",
+    "LowDemandGrowth",
+    "LowRECost",
+    "HighRECost",
+    "LowRECost_HighGasPrice",
+    "HighRECost_LowGasPrice",
+    "LowCarbonConstraint",
+    "Decarb95by2035",
+    "Decarb100by2035",
+]
 selected_scenario = st.sidebar.selectbox("NLR Future Scenario", options=scenario_options, index=0)
 planning_year = st.sidebar.selectbox("NLR Planning Year", options=["2025", "2030", "2035", "2040", "2045", "2050"], index=1)
 weather_case = st.sidebar.selectbox("Grid Weather Case", options=["2012 (Cambium-aligned baseline)", "Extreme Winter", "Extreme Summer"], index=0)

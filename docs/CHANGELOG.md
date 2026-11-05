@@ -2,6 +2,173 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-11-04] — UI Polish: Streamlined Capacity Trajectory & Dropdown Benchmarks
+
+### Context
+Streamlined sidebar capacity cost UI per user requirements: eliminated the manual checkbox to apply capacity trajectories automatically, removed redundant NLR web caption beneath the numeric input, and positioned NLR / NREL ATB 2025 directly within the utility benchmark selection dropdown alongside Alabama Power, TVA, and SERC Composite.
+
+### Key Changes
+1. **Dismiss Utility Prompt on Selection & Clarified Hover Help (`app.py`)**:
+   - Suppressed blue `st.info` multi-utility prompt banner as soon as a user selects a specific utility (e.g. Alabama Power, TVA, or NLR) from the dropdown.
+   - Enhanced circle hover question mark tooltips (`help`) on utility selectbox and direct ECC input: explicitly details that the dollar figure shown is the **Year 1 baseline value** that increases over time across the planning horizon via the multi-year capacity trajectory (compounding at 2.2% annual GDP deflator inflation).
+2. **Carbon Penalty Default Set to $0/metric ton (`config.py`)**:
+   - Updated `DEFAULT_CARBON_TAX = 0.00` $/metric ton CO₂ to reflect standard Southeast cost-of-service utility valuation (configurable in sidebar slider 0–$100/ton).
+2. **Added 2040 to Default Cambium Milestones (`config.py` & `data_loaders.py`)**:
+   - Added `"2040"` to `DEFAULT_CAMBIUM_MILESTONES` (`["2025", "2030", "2035", "2040", "2045"]`).
+   - Hardened `load_cambium_milestones` to load non-empty milestone frames; uses discrete 2040 data when present and gracefully interpolates when downloading or running offline.
+2. **Automated Grid Energy Price Escalation & Decay (`app.py`)**:
+   - Removed manual UI widgets for "Grid Energy Price Escalation", "Escalation Methodology", "Cambium Milestone Years", "Capacity & T&D Cost Escalation (%)", and "Annual Efficiency Decay (%)".
+   - Model now executes hourly dynamic Cambium milestone interpolation (2025, 2030, 2035, 2045), 1.0% capacity/T&D escalation, and 1.0% annual efficiency decay automatically in background.
+2. **Removed Obsolete CWFT.csv Warning (`app.py`)**:
+   - Updated "Before you run" checklist from three items to two items (load profile CSV and weather year alignment).
+   - Removed requirement/warning to check `CWFT.csv`, reflecting dynamic generation of Capacity Worth Factors from state Cambium net-demand peaks.
+3. **Seamless Capacity Trajectory Automation (`app.py`)**:
+   - Removed the `"Apply Annual SERC Capacity Carrying Cost Trajectory Across Project Life"` checkbox; automatic trajectory application across project planning lifetime is now permanently active.
+2. **Fixed Streamlit Session State Collision on Number Input (`app.py`)**:
+   - Resolved `check_session_state_rules` warning (`The widget with key "direct_cap_value_input" was created with a default value but also had its value set via the Session State API`) by replacing programmatic `st.session_state` mutations with a scoped widget key (`f"direct_cap_{tuple(target_states)}_{selected_serc_utility}"`).
+3. **NLR / NREL Benchmark in Utility Dropdown Menu (`serc_capacity_cost.py` & `app.py`)**:
+   - Removed `. Alternate: [Data | Electricity | 2025 | ATB | NLR]` caption string beneath the numeric capacity input.
+   - Positioned `"NLR / NREL ATB 2025: Natural Gas CT Benchmark ($117.28/kW-yr)"` directly into the utility dropdown options across all Southeast state configurations.
+   - Connected dropdown selection for NLR ATB 2025 directly to peaker presets and waterfall calculations ($1,105.80/kW CapEx, 8.20% FCR, $26.60/kW-yr FOM).
+
+## [2026-11-04] — State-Based Capacity Cost Defaults, Multi-Utility Prompts, Recalculate Benchmark Updater, and Annual Capacity Accounting
+
+### Context
+Incorporated the SERC regional capacity valuation module into the core model calculations and UI to dynamically determine company capacity cost defaults by state, prompt users in multi-utility jurisdictions, provide a one-click recalculate button that refreshes public benchmark projections, and accurately account for annual capacity value savings (or costs for load additions).
+
+### Key Features & Enhancements
+1. **State-to-Utility Capacity Cost Defaults (`serc_capacity_cost.py` & `config.py`)**:
+   - Implemented `STATE_UTILITY_BENCHMARKS` and `get_state_capacity_benchmark(states)`.
+   - **Single-Utility States**:
+     * **Georgia (GA)**: Automatically defaults to **Southern Company (Georgia Power)** benchmark ($141.22/kW-yr; GPSC Docket 44280).
+     * **Tennessee (TN)**: Automatically defaults to **Tennessee Valley Authority (TVA)** benchmark ($115.12/kW-yr; Public Power debt structure).
+     * **North Carolina (NC)**: Automatically defaults to **Duke Energy Carolinas & Progress** benchmark ($130.35/kW-yr; NCUC Docket E-100 Sub 190).
+   - **States with 2 or More Utilities (or Multi-State Portfolios)**:
+     * **Alabama (AL)**: Served by Alabama Power (Southern Co) & TVA. Defaults to **SERC Weighted Composite** ($129.76/kW-yr) and presents an interactive prompt dropdown for the user to select Alabama Power ($141.22) or TVA ($115.12).
+     * **South Carolina (SC)**, **Mississippi (MS)**, **Florida (FL)**: Default to SERC Weighted Composite ($129.76/kW-yr) with prompt dropdown for specific utility selection.
+2. **One-Click Recalculate & Benchmark Data Refresh**:
+   - Added `refresh_capacity_benchmarks()` script that re-evaluates public NLR ATB 2025 and Southeast IRP baselines, re-exports 104 projection records to `data/serc_capacity_2025_2050.csv`, and updates in-memory parameters.
+   - Added a "🔄 Recalculate & Refresh Benchmark Data" button directly in the Streamlit capacity sidebar expander with interactive status notifications.
+   - CLI support: `python serc_capacity_cost.py --refresh`.
+3. **Annual Capacity Savings (or Costs) Accounting (`calculations.py`)**:
+   - Implemented `calculate_annual_capacity_savings(load_reduction_kw, cwft_array, cap_value, ...)` calculating coincident peak kW, accredited capacity kW, unit capacity costs ($/kW-yr), and annual dollar impacts.
+   - Properly handles directional sign: positive load reductions yield avoided capacity value savings; negative load reductions (e.g., electrification, heat pump winter peak additions, EV charging, data centers) yield **annual capacity costs**.
+   - Optional seasonal decomposition: calculates winter vs. summer capacity values adjusted for ambient turbine derate (1.15x winter ratio).
+4. **Dynamic Multi-Year Capacity Trajectory Integration**:
+   - Enhanced `calculate_multi_year_avoided_costs_and_npv` to support `capacity_cost_schedule: Optional[Dict[int, float]]`.
+   - Connected `SERCCapacityModel.get_projection()` to supply calendar-year capacity values across project lifetime (2025–2050) in both `current` and `financially_consistent` evaluation modes.
+   - Recorded `Unit_Capacity_Cost_per_kW_yr` in cash flow tables.
+5. **Resilient Environment Fallback & Dependency Decoupling**:
+   - Added standard-library dataclass fallback in `serc_capacity_cost.py` so the module functions seamlessly with or without `pydantic` installed in user virtual environments (`venv`).
+   - Added `pydantic>=2.0.0` to `requirements.txt`.
+   - Installed `pydantic` in repository `venv`.
+
+6. **Unit Tests & Verification**:
+   - Added 7 new unit tests in `tests/test_capacity_cost.py` covering single-utility defaults, 2+ utility prompt behavior, recalculate script execution, positive savings, negative capacity costs, seasonal derates, and multi-year schedule integration.
+   - Total test suite now stands at **303 of 303 passing tests** (`pytest`).
+
+## [2026-11-04] — Standalone SERC Regional Avoided Capacity Cost Module & Regulatory Projection Engine
+
+### Context
+Implemented a self-contained, citeable regional capacity cost module (src/serc_capacity_cost.py and root serc_capacity_cost.py) implementing the Levelized Fixed Revenue Requirement (LFRR) methodology approved across Southeast Integrated Resource Plans (IRPs) and state avoided-cost dockets (GPSC, APSC, NCUC, TVA) to calculate annual Economic Carrying Cost (ECC) / Cost of Capacity ($/kW-year) across planning years (2025–2050).
+
+### Key Features & Components
+1. **Pydantic Data Models**:
+   - `UtilityBenchmark`: Encapsulates empirical SCCT anchor parameters in 2024$ Real, with properties for `annual_capital_recovery_per_kw_yr` and `gross_ecc_per_kw_yr`.
+   - `CapacityCostProjection`: Standardized record for annual and seasonal capacity cost projections across planning years.
+2. **Empirical Utility Benchmarks (2024$ Real)**:
+   - **Southern Company** (Georgia Power / Alabama Power, GPSC Docket 44280 / APSC Docket 33201): 2x GE 7HA.02 SCCT, $1,110/kW CapEx, 10.20% LFCR, $28.00/kW-yr FOM -> **$141.22/kW-yr Gross ECC**.
+   - **Duke Energy Carolinas & Progress** (NCUC Docket E-100 Sub 190): Simple-Cycle F-Frame CT, $1,075/kW CapEx, 9.80% LFCR, $25.00/kW-yr FOM -> **$130.35/kW-yr Gross ECC**.
+   - **Tennessee Valley Authority (TVA)** (2019/2024 IRP Supply-Side Assessment): SCCT Peaker Addition, $1,035/kW CapEx, 8.90% LFCR (public power debt structure), $23.00/kW-yr FOM -> **$115.12/kW-yr Gross ECC**.
+   - **SERC Weighted Composite**: $1,080/kW CapEx, 9.70% LFCR, $25.00/kW-yr FOM -> **$129.76/kW-yr Gross ECC** (~$130/kW-yr baseline).
+3. **Escalation & Seasonal Derate Formulation**:
+   - **Nominal Compounding**: Annual general inflation compounding at 2.2% annual GDP deflator: $\text{Cost}_t = \text{Cost}_{2024} \times (1 + 0.022)^{t - 2024}$. In 2040 nominal dollars, SERC Composite reaches **$183.80/kW-yr** (Southern Company reaches **$200.04/kW-yr**).
+   - **Seasonal / Ambient Derate**: Adjusts for ambient turbine air density effects using 1.15x winter accreditation multiplier vs. summer nameplate.
+4. **CLI & CSV Export**:
+   - CLI command: `python serc_capacity_cost.py --export-csv data/serc_capacity_2025_2050.csv --currency nominal` generates 104 projection records (4 benchmarks × 26 years) and displays 2040 console summary.
+   - Formal legal and regulatory citation generator: `.get_formal_citation()`.
+5. **Tool Default & Preset Updates**:
+   - Made SERC Composite ($129.76/kW-yr) default CT ECC benchmark across `config.py`, `app.py`, `calculations.py`, and `data_loaders.py`, with NLR ATB 2025 ($117.28/kW-yr) selectable as alternate preset.
+6. **Unit Tests & Test Coverage**:
+   - Added `tests/test_capacity_cost.py` (19 passing unit tests) and added `pythonpath = .` to `pytest.ini`. Total project test suite stands at 296 of 296 passing tests (`pytest`).
+
+## [2026-11-04] — Financial Consistency, Scenario Isolation Fix, and Reproducible NPV Explanation Engine
+
+### Context
+Delivered a major upgrade to the Southeast Marginal Cost (SEMC) tool addressing Cambium scenario co-location defects, making financial real-versus-nominal treatment explicit, and establishing a fully reproducible, step-by-step explanation of utility project NPV across scenarios and public Southeast benchmarks.
+
+### Workstream 1: Correct Cambium Scenario Selection & Isolation
+- **Fixed Co-location Contamination**: Resolved a defect in `system_stress_data.py` (`load_cambium_net_demand_proxy_for_portfolio`) where file scanning searched only by balancing area and planning year without validating the selected scenario, causing co-located files to pick up the wrong scenario's capacity weights (+64.49 contamination for MidCase).
+- **Strict Metadata Verification**: Implemented `find_cambium_ba_file()` in `system_stress_data.py` requiring strict metadata header row 1 scenario matching, SHA-256 duplicate validation (conflicting duplicates fail with `ValueError`), and applied it to state and GEA paths.
+- **Enhanced Downloader**: Updated `cambium_downloader.py` archive IDs, scenario package mapping, and added `get_scenario_package_info()` to reject unsupported scenarios without silent fallbacks.
+- **Added Focused Tests**: Created `tests/test_scenario_selection.py` (6 unit tests) verifying mixed scenario handling, metadata precedence, duplicate handling, missing data detection, and unsupported scenario errors.
+
+### Workstream 2: Time and Calendar Alignment Audit
+- **Fixed Custom Timezone Handling**: Resolved issue where `custom_tz` was accepted in `load_cambium_net_demand_proxy_for_portfolio` but ignored in favor of `None`; now properly resolves timezone abbreviations (EST, CST, MST, PST) to UTC integer offsets.
+- **Calendar Alignment**: Verified standard 8,760-hour calendar convention ending Dec 31 23:00 with leap days cleanly removed.
+- **Added Focused Tests**: Created `tests/test_time_calendar_alignment.py` (4 unit tests) verifying EST-to-CST/MST hour shifts, custom timezone honoring, and retail demand charge timing.
+
+### Workstream 3: Explicit Financial Basis & Fisher Equivalence
+- **Exact Fisher Relationship**: Implemented $(1 + r_{nom}) = (1 + r_{real}) \times (1 + i)$ in `calculations.py`. Converting 7.0% nominal WACC at 2.0% inflation yields exact real discount rate $r_{real} = 4.90196\%$.
+- **Real vs Nominal Mathematical Equivalence**: Evaluated cash flows in constant base-year dollars ($2026$) discounted at $r_{real}$ or nominal calendar-year dollars discounted at $r_{nom}$, achieving exact mathematical equivalence ($< 10^{-11}$ difference across all streams).
+- **Discount Timing**: Added `discount_timing="mid_year"` option for continuous 8,760 operating cash flows, alongside standard `year_end`.
+- **Dollar-Year Base Harmonization**: Properly accounts for Cambium 2024's constant 2023$ base by inflating to project start-year dollars ($2026$).
+- **Added Focused Tests**: Created `tests/test_financial_consistency.py` (8 unit tests) verifying Fisher equivalence, mid-year timing relations, and legacy regression preservation.
+
+### Workstream 4: Annual Energy and Capacity Value Explanations
+- **Annual Avoided Energy Explanation**: Implemented `build_annual_energy_explanation()` in `calculations.py` exporting annual baseline/proposed kWh, load reductions, weighted $/MWh avoided value, dollar basis, degradation, undiscounted avoided cost, discount factors, and PVs. Gracefully handles zero/near-zero reduction by setting $/MWh to NaN and flagging the limitation.
+- **Annual Capacity Value Explanation**: Implemented `build_annual_capacity_explanation()` in `calculations.py` breaking down physical credited kW (1.947 kW generation, 0.305 kW transmission, 0.305 kW distribution for Birmingham heat pump conversion), unit prices ($110.20, $14.00, $22.00), reserve margins, and annual cash flows.
+
+### Workstream 5: Reproducible NPV Change Waterfall Bridge
+- **Deterministic Waterfall Bridge**: Implemented `build_reproducible_npv_bridge()` in `calculations.py` tracing:
+  1. Baseline Reference (Current Method: -$3,373.98)
+  2. Dollar-Basis Harmonization (Real 2023$ -> 2026$: +$73.09)
+  3. Real Discount Rate via Fisher (7.0% -> 4.90%: -$429.51)
+  4. Real Escalation Harmonization (+$529.06)
+  5. Mid-Year Continuous Discounting (-$63.00 -> Final Consistent MidCase: -$3,264.34)
+  6. Scenario Sensitivities: High Demand Growth (-$3,183.11), High Natural Gas (-$3,056.66), High RE Cost (-$3,227.48), GA Grid Sensitivity (-$2,987.17).
+  - Reconciles with exact zero residual ($0.000000).
+
+### Workstream 6: Scenarios and Public Regulatory Benchmarking
+- **Regulatory Grounding**: Benchmarked Cambium avoided energy against Alabama Power Rate PAE (APSC Docket 18005: 3.45¢–5.47¢/kWh), Rate CPE (Docket U-5213), and Georgia Power 2022 IRP (Docket 44160: 3.00¢–4.20¢/kWh), demonstrating close alignment with SEMC modeled values.
+- **Automated Audit Runner**: Created `audit_runner.py` exporting full CSV and JSON reports to `audit_results/` and conversation artifacts.
+- **Test Suite Status**: 275 of 275 tests passing (`python -m pytest`).
+
+## [2026-11-04] — Expanded Cambium Scenario Suite & High Gas Price Options
+
+### Context
+Updated the valuation engine to incorporate the full suite of NREL/NLR Cambium scenarios, specifically adding high natural gas price sensitivities (`HighGasPrice` / `HighNaturalGasPrice`) along with all core, sensitivity, and decarbonization pathways modeled in Cambium 2024, 2023, and 2022:
+- High natural gas prices increase gas-fired marginal heat rate costs and wholesale energy prices, which heavily impacts avoided cost economics and benefits of efficiency/storage.
+- Low natural gas prices capture cheap gas sensitivities, decreasing wholesale avoided costs and moderating clean energy buildout.
+- Low and high renewable/battery costs (`LowRECost`, `HighRECost`) bound technology cost trajectory uncertainties (ATB Advanced vs Conservative).
+- Accelerated decarbonization policy constraints (`Decarb95by2035`, `Decarb100by2035`, `LowCarbonConstraint` [95by2050]) model severe emission rate declines and high zero-carbon firm capacity values.
+- Combined boundary sensitivities (`LowRECost_HighGasPrice`, `HighRECost_LowGasPrice`) evaluate compound macroeconomic effects.
+
+### Changes Made
+- **`config.py`**:
+  - Expanded `SCENARIO_OPTIONS` to 12 scenarios: `MidCase`, `HighGasPrice`, `LowGasPrice`, `HighDemandGrowth`, `LowDemandGrowth`, `LowRECost`, `HighRECost`, `LowRECost_HighGasPrice`, `HighRECost_LowGasPrice`, `LowCarbonConstraint`, `Decarb95by2035`, `Decarb100by2035`.
+  - Added comprehensive `SCENARIO_DESCRIPTIONS` for all scenarios with detailed macroeconomic, fuel price, and grid buildout assumptions.
+  - Added `SCENARIO_ALIASES` mapping to normalize aliases (`HighNaturalGasPrice`, `HighGas`, `LowNaturalGasPrice`, `MidCase95by2050`, `MidCase95by2035`, `MidCase100by2035`, etc.).
+- **`cambium_downloader.py`**:
+  - Expanded `SCENARIO_PACKAGE_MAP` with complete project UUIDs, file IDs, scenario strings, and Cambium releases for all options and aliases.
+  - Added `scenario_matches(file_scenario, target_scenario)` and `filename_matches_scenario(filename, target_scenario)` helper functions with alias support and delimiter stripping.
+  - Updated `check_missing_cambium_data()` to use robust alias matching.
+- **`data_loaders.py`**:
+  - Updated `generate_mock_state_file(filepath, state_code, scenario)` with tailored wholesale energy and emissions ranges for high gas, low gas, low/high RE costs, and decarb pathways.
+  - Updated `file_matches_scenario()` and `load_cambium_data()` to support alias normalization.
+- **`app.py`**:
+  - Converted hardcoded sidebar Future Scenario Guide (`<details>`) and Scenario Manager expander (`tab_scenarios`) into dynamic generators iterating over all scenarios and descriptions.
+  - Synced at line count 3,434 lines.
+- **`tests/test_cambium_downloader.py`**:
+  - Added `TestCambiumScenarioSuite` testing options presence, package map schema, alias matching, filename matching, and mock generator price/carbon distributions.
+  - Test suite grew from 252 to 257 passing unit & integration tests (`python -m pytest`).
+- **Living Documentation**:
+  - Updated `docs/glossary.md` with full scenario descriptions.
+  - Updated `docs/needs_and_gaps.md` under section 3.3.
+  - Updated `docs/app_code_tour.md` in Chapter 7.
+  - Updated `docs/app_annotated.py` scenario options and line sync note.
+  - Updated `docs/roadmap.md` progress tracking table (Milestones 1.3 & 5.4).
+
 ## [2026-10-28] — Multi-Year Cambium Milestone Ingestion & Hourly Dynamic Interpolation
 
 ### Context

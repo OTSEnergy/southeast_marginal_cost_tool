@@ -173,6 +173,16 @@ $$\text{Total Avoided Cost} = \text{Wholesale Energy} + \text{Gen Capacity} + \t
 
 ---
 
+### 5. Multi-Year Financial Consistency & NPV Bridge Engine (`calculations.py`)
+Provides dynamic multi-year valuation across measure lifetimes (e.g. 15 operating years, 2026–2040) with mathematically rigorous financial treatment:
+*   **Exact Fisher Relationship**: Unifies nominal discount rates (e.g., 7.0% utility WACC) and real discount rates via $(1 + r_{nom}) = (1 + r_{real}) \times (1 + i)$. At 2.0% inflation, $r_{real} = 4.90196\%$.
+*   **Real vs Nominal Mathematical Equivalence**: Evaluates cash flows in either constant base-year dollars (e.g. Real 2026$) discounted at $r_{real}$ or nominal calendar-year dollars discounted at $r_{nom}$, guaranteeing identical NPV results to within floating-point precision ($< 10^{-11}$).
+*   **Discount Timing Options**: Supports standard year-end discounting ($\tau = t$) and continuous mid-year discounting ($\tau = t - 0.5$) for continuous 8,760 operating cash flows.
+*   **Annual Energy & Capacity Explanation Tables**: `build_annual_energy_explanation` exports annual load reductions, $/MWh avoided value (handling zero-reduction limits cleanly), and PVs; `build_annual_capacity_explanation` separates physical credited kW (winter/summer/blended generation, transmission, and distribution) from financial multipliers.
+*   **Reproducible NPV Waterfall Bridge**: `build_reproducible_npv_bridge` traces the exact sequential attribution from baseline current-method NPV to data isolation, dollar-basis harmonization, Fisher real discount rate, price escalation harmonization, mid-year timing, and scenario sensitivities with exactly zero residual ($0.000000).
+
+---
+
 ## Chapter 5: The Retail Bill Calculation Engine — `billing.py` (bill) + `calculations.py` (DR dispatch)
 
 ### How `calculate_urdb_bill()` Works
@@ -209,7 +219,7 @@ Interfaces with Pacific Northwest National Laboratory's (PNNL) `diyepw` Python t
 > `st.sidebar.expander(...)` sections (previously a flat list of markdown headers).
 > Line numbers below are approximate and will drift as the file changes.
 
-*   **Grid Scenario & Region** *(expanded by default)*: NREL Cambium grid projection (HighDemandGrowth, MidCase, LowCarbonConstraint, LowDemandGrowth), planning horizon (2025–2050), weather case, target Southeast states (AL, GA, FL, TN, MS, NC, SC), and Avoided Emissions Valuation (Carbon Penalty $/metric ton CO₂).
+*   **Grid Scenario & Region** *(expanded by default)*: NREL Cambium grid projection (MidCase, HighGasPrice, LowGasPrice, HighDemandGrowth, LowDemandGrowth, LowRECost, HighRECost, LowRECost_HighGasPrice, HighRECost_LowGasPrice, LowCarbonConstraint, Decarb95by2035, Decarb100by2035), planning horizon (2025–2050), weather case, target Southeast states (AL, GA, FL, TN, MS, NC, SC), Avoided Emissions Valuation (Carbon Penalty $/metric ton CO₂), and dynamic Future Scenario Guide with documentation linking.
 *   **Demand Response (Optional)** *(collapsed by default)*: DR mode toggle plus hours/season/max-hours-per-day/capacity inputs.
 *   **Building / Technology & Load Data** *(expanded by default)*: Describes the technology/measure being evaluated and is where the 8760-hour load data comes in. Includes the new **Example Building Library** picker (select a pre-configured example instead of your own data — see Chapter 8 note below) and, when no example is selected, the original Load Profiles Source picker (folder / synthetic / custom path) plus baseline/proposed column selection. Weather Alignment Metadata (load/Cambium/CWFT weather years) now lives at the bottom of this same section, and is auto-locked (disabled, pre-filled) when an example is selected.
 *   **Total Economic Carrying Cost of a CT (ECC of a CT)** *(collapsed by default)*: Avoided generation capacity valuation. Defaults to the **Direct IRP Scaler ($/kW-year)** pre-populated with the calculated NREL Annual Technology Baseline (ATB 2024) Simple-Cycle Combustion Turbine benchmark (`($1,100/kW CAPEX × 8.20% FCR) + $20.00/kW-yr FOM = $110.20/kW-yr`), while allowing the user to switch to the **Carrying cost of a CT Builder** for custom plant, financing, and WACC/MACRS depreciation parameters or utility presets.

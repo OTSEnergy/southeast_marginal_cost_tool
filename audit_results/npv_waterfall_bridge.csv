@@ -1,0 +1,10 @@
+Step_Number,Description,Factor_Category,Delta_NPV,Intermediate_NPV,Residual
+0,Baseline Reference (Current Method),Baseline Reference,0.0,-3373.9826819963764,0.0
+1,Dollar-Basis Harmonization (Energy Real 2023$ -> 2026$),Dollar Basis,73.0861278367171,-3300.8965541596594,0.0
+2,Discount Rate Basis (Nominal 7.0% WACC -> Exact Fisher Real 4.90196%),Discount Rate,-429.5094485605391,-3730.4060027201986,0.0
+3,Escalation Harmonization (Nominal 2.0% Retail -> 0.0% Real; 1.0% Cap -> -0.98% Real),Price Escalation,529.0645055539267,-3201.341497166272,0.0
+4,Discount Timing (Continuous Operating Cash Flows: Year-End -> Mid-Year),Discount Timing,-62.995600945253045,-3264.337098111525,0.0
+5,Forecast Sensitivity: HighDemandGrowth (under Financially Consistent Basis),Forecast Scenario,81.23117160563697,-3183.105926505888,0.0
+6,Forecast Sensitivity: HighNGPrice (under Financially Consistent Basis),Forecast Scenario,207.67553648929197,-3056.661561622233,0.0
+7,Forecast Sensitivity: HighRECost (under Financially Consistent Basis),Forecast Scenario,36.855966022228586,-3227.4811320892964,0.0
+8,Forecast Sensitivity: Georgia_Grid_MidCase (under Financially Consistent Basis),Forecast Scenario,277.16393066508,-2987.173167446445,0.0
