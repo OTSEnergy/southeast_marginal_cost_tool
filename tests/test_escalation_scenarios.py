@@ -107,7 +107,7 @@ class TestEscalationScenarioConfig:
 
     def test_high_scenario_adders_are_positive(self):
         adders = get_escalation_scenario_adders(ESCALATION_SCENARIO_HIGH)
-        assert adders["capacity_adder"] == 1.5
+        assert adders["capacity_adder"] == 5.0
         assert adders["td_adder"] == 1.8
         assert adders["carbon_adder"] == 2.5
         assert adders["retail_adder"] == 1.5

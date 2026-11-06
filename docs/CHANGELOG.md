@@ -2,6 +2,54 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-11-05] — Capacity Valuation Integrity, Financial Consistency & Data Lineage Refactoring
+
+### Context
+Addressed critical audit feedback identifying that:
+1. User-selected capacity values (`cap_value`, custom CT Builder edits, and "NLR / NREL ATB 2025") were bypassed by the schedule generator in favor of hardcoded benchmarks or composite fallback ($135.53 vs $117.28).
+2. The production multi-year NPV pipeline defaulted to legacy unadjusted 2023$ wholesale energy prices discounted at nominal WACC alongside nominal escalated capacity.
+3. The capacity trajectory conflated generic 2.2% GDP inflation with CT technology cost forecasting and ignored the configured replacement escalation.
+4. Regulatory docket citations (GPSC Docket 44280 rate case vs 44160 IRP) and NREL ATB financing lineages were unclarified.
+5. Ambient turbine derate (1.15x winter ratio) artificially inflated annual capacity value by 7.5% under unnormalized 50/50 weighting.
+
+### Key Changes
+1. **User Capacity Pass-Through & NREL ATB Benchmark (`serc_capacity_cost.py`, `src/serc_capacity_cost.py`, `app.py`)**:
+   - Added canonical `"NREL ATB 2025"` and related aliases to `SERCCapacityModel.BENCHMARKS` and `ALIAS_MAP` ($1,105.80/kW CAPEX, 0.0820 FCR, $26.60/kW-yr FOM -> $117.28/kW-yr).
+   - Added `base_cost_override` parameter to `SERCCapacityModel.get_projection()`: anchors Year 1 directly to user-entered `cap_value` or custom CT Builder values.
+   - Updated `app.py` schedule generation and `render_annual_trajectory_popover_content` to pass `base_cost_override=cap_value`, ensuring table values match displayed inputs.
+   - Replaced silent `except Exception: pass` blocks in schedule generation with visible user-facing warnings.
+2. **Production Financial Consistency & Basis Harmonization (`app.py`, `calculations.py`)**:
+   - Wired production call to `calculate_multi_year_avoided_costs_and_npv()` with `financial_method="financially_consistent"`, `valuation_basis="real"` (default: Constant Start Year 2026$), `base_dollar_year=2023`, and exact Fisher equation discounting: $(1 + r_{nom}) = (1 + r_{real})(1 + i)$.
+   - Added user controls in sidebar expander `"⚖️ Financial Methodology & Dollar Basis"` allowing toggle between Real Dollars, Nominal Dollars, and Legacy Current Method, plus Mid-Year vs Year-End timing.
+3. **Seasonal Derate Normalization (`serc_capacity_cost.py`, `calculations.py`)**:
+   - Added `normalize_to_annual: bool = True` in `calculate_seasonal_capacity_value()`: normalizes seasonal values so that $w_w V_w + w_s V_s = \text{Annual Gross ECC}$ ($69.41 + $60.35 = $129.76 under 50/50 split), preserving relative 1.15:1.00 ratio without value inflation.
+   - Removed ungrounded `* 1.15` fallback multiplier in `calculate_annual_capacity_savings()`.
+4. **Data Lineage, Provenance & Accurate Citations (`config.py`, `serc_capacity_cost.py`, `app.py`)**:
+   - Clarified Georgia Power dockets: distinguished GPSC Docket 44160 (2022 IRP capacity approval) from Docket 44280 (2022 Base Rate Case).
+   - Documented NREL ATB 2025 financing lineage: clarified that native ATB conventional gas models commercial merchant financing, and the 8.20% FCR represents synthesized regulated utility financing.
+   - Documented SERC Regional Weighted Composite subregion weights (~35% Southern Co, ~30% Duke Carolinas, ~25% TVA, ~10% other SERC).
+   - Retitled button from "🔄 Recalculate & Refresh Benchmark Data" to "📥 Export Benchmark Trajectory CSV" with accurate tooltip stating it exports documented reference tables.
+5. **Tab 5 Scenario Manager Integrations (`app.py`, `visualizations.py`)**:
+   - Added interactive **Reproducible Multi-Year NPV Waterfall Bridge** chart (`build_npv_waterfall_bridge_chart`) and step attribution table isolating Deflator, Real/Nominal Fisher discounting, and Discount Timing adjustments with verified $0.00 residual.
+   - Added behind-the-scenes **CT Ambient Derate & Seasonal Capacity Credit** metrics card and narrative proving normalized 100% budget alignment ($69.41/kW-yr winter + $60.35/kW-yr summer = $129.76/kW-yr gross ECC).
+6. **NREL ATB Annual CT Capital Cost Index Tracking (`serc_capacity_cost.py`, `src/serc_capacity_cost.py`)**:
+   - Added `NREL_ATB_CT_CAPITAL_COST_INDEX` mapping (2024=1.0000, 2030=0.9934, 2040=0.9820, 2050=0.9700) reflecting NREL ATB Gas CT Moderate overnight capital cost trajectory.
+   - Integrated `apply_atb_tech_index: bool = True` in `get_projection()`: capital recovery tracks underlying ATB technology cost index in real terms while user growth adders compound on top.
+7. **Multi-Year Valuation Default & Single-Year Screening Control (`app.py`)**:
+   - Multi-year valuation analysis (`enable_multi_year`) is enabled by default (`value=True`), tracking multi-year Cambium hourly wholesale trajectories, dynamic CT carrying cost schedules, and lifetime discounted NPV.
+   - Added explicit explanation for single-year screening: unchecking runs a fast single representative horizon snapshot with flat scalar escalation, bypassing multi-year compounding and lifetime discounting.
+8. **Public Source Verification of T&D Escalation Ranges (`config.py`)**:
+   - Verified and documented public empirical citations for T&D escalation ranges in `config.py`: Handy-Whitman Index of Public Utility Construction Costs (South Atlantic Division, Station Equipment/Overhead Lines), LBNL/Brattle Utility Capex Empirical Reports, and EEI Capital Survey.
+10. **UI Cleanup & Label Clarity (`app.py`, `config.py`)**:
+    - Removed redundant top-level `"📥 Export Benchmark Trajectory CSV"` button from the Capacity sidebar panel. Active annual unit value trajectories are viewed directly on-screen and downloaded via the `"📈 View Annual Carrying Cost Trajectory Table"` popover.
+    - Removed misleading `"CT Ambient Derate & Seasonal Capacity Credit"` card from Tab 5 ("Scenario Manager") to prevent confusion regarding seasonal capacity valuation; year-round EE/DR programs receive full annual capacity credit ($/kW-yr) across all hourly CWFT peak hours rather than being discounted to seasonal halves.
+    - Calibrated **High Escalation** capacity growth adder from +1.5%/yr to **+5.0%/yr** per user guidance, reflecting severe gas turbine procurement backlogs, OEM production constraints, and surging data center demand premiums.
+    - Relabeled headline metric cards from ambiguous `"Net Valuation NPV"` / `"Lifetime Net Valuation NPV"` to **`"Utility Net NPV"`** / **`"Lifetime Utility Net NPV"`** to prevent confusion with Total Resource Cost (TRC) net benefits.
+11. **Test Suite Verification (`tests/test_capacity_cost.py`, `tests/test_escalation_scenarios.py`)**:
+   - Added unit test `test_atb_capital_cost_index_tracking` verifying real capital recovery curve tracking from 129.76 to 126.62 in 2050.
+   - 323 of 323 test cases passing.
+
+
 ## [2026-11-05] — Non-Cambium Cost Escalation Scenarios (Base, High, Low, Custom) with Incremental Adders
 
 ### Context

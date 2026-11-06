@@ -202,11 +202,33 @@ class TestNominalInflationCompounding:
             assert values[i + 1] > values[i]
 
     def test_real_currency_remains_constant(self):
-        """Verify that real_2024 currency projection is invariant across years."""
-        df = self.model.get_projection(start_year=2025, end_year=2050, currency="real_2024", utility="SERC Weighted Composite")
+        """Verify that real_2024 currency projection is invariant when apply_atb_tech_index=False."""
+        df = self.model.get_projection(
+            start_year=2025,
+            end_year=2050,
+            currency="real_2024",
+            utility="SERC Weighted Composite",
+            apply_atb_tech_index=False,
+        )
         values = df["gross_ecc_per_kw_yr"].values
         assert pytest.approx(values[0], abs=1e-4) == 129.76
         assert pytest.approx(values[-1], abs=1e-4) == 129.76
+
+    def test_atb_capital_cost_index_tracking(self):
+        """Verify that real_2024 projection tracks NREL ATB annual capital cost index curve."""
+        df = self.model.get_projection(
+            start_year=2024,
+            end_year=2050,
+            currency="real_2024",
+            utility="SERC Weighted Composite",
+            apply_atb_tech_index=True,
+        )
+        # Year 2024 baseline Gross ECC = $129.76/kW-yr
+        assert pytest.approx(df.iloc[0]["gross_ecc_per_kw_yr"], abs=1e-2) == 129.76
+        # Year 2050 reflects NREL ATB 0.9700 capital cost index: 104.76 * 0.97 + 25.00 = 126.62
+        assert pytest.approx(df.iloc[-1]["gross_ecc_per_kw_yr"], abs=1e-2) == 126.62
+        # Monotonically declining real capital cost due to ATB tech learning
+        assert df.iloc[-1]["gross_ecc_per_kw_yr"] < df.iloc[0]["gross_ecc_per_kw_yr"]
 
 
 class TestSeasonalAccreditationAdjustment:
@@ -217,39 +239,69 @@ class TestSeasonalAccreditationAdjustment:
 
     def test_seasonal_capacity_derate_115_ratio(self):
         """
-        Verify that winter capacity value reflects 1.15x ambient air density accreditation:
+        Verify that winter capacity value reflects 1.15x ambient air density ratio
+        while normalizing to Gross ECC to prevent artificial capacity value inflation:
             Gross ECC = $129.76
             winter_weight = 0.50, summer_weight = 0.50
             winter_ratio = 1.15, summer_ratio = 1.00
-            Winter seasonal value = 129.76 * 0.50 * 1.15 = $74.612/kW-season
-            Summer seasonal value = 129.76 * 0.50 * 1.00 = $64.880/kW-season
+            Mean multiplier = 0.5*1.15 + 0.5*1.00 = 1.075
+            Normalized winter value = 129.76 * 0.50 * (1.15 / 1.075) = $69.41/kW-season
+            Normalized summer value = 129.76 * 0.50 * (1.00 / 1.075) = $60.35/kW-season
+            Sum: $69.41 + $60.35 = $129.76 (Exact Gross ECC match)
         """
         gross_ecc = 129.76
-        res = self.model.calculate_seasonal_capacity_value(
+        res_norm = self.model.calculate_seasonal_capacity_value(
             gross_ecc,
             winter_accreditation_ratio=1.15,
             summer_accreditation_ratio=1.00,
             winter_weight=0.50,
             summer_weight=0.50,
+            normalize_to_annual=True,
         )
-        assert pytest.approx(res["winter_capacity_value_per_kw_season"], abs=1e-2) == 74.61
-        assert pytest.approx(res["summer_capacity_value_per_kw_season"], abs=1e-2) == 64.88
-        assert res["winter_capacity_value_per_kw_season"] > res["summer_capacity_value_per_kw_season"]
+        assert pytest.approx(res_norm["winter_capacity_value_per_kw_season"], abs=1e-2) == 69.41
+        assert pytest.approx(res_norm["summer_capacity_value_per_kw_season"], abs=1e-2) == 60.35
+        assert pytest.approx(res_norm["winter_capacity_value_per_kw_season"] + res_norm["summer_capacity_value_per_kw_season"], abs=1e-3) == gross_ecc
+        assert res_norm["winter_capacity_value_per_kw_season"] > res_norm["summer_capacity_value_per_kw_season"]
+
+        # Raw unnormalized display-only mode
+        res_raw = self.model.calculate_seasonal_capacity_value(
+            gross_ecc,
+            winter_accreditation_ratio=1.15,
+            summer_accreditation_ratio=1.00,
+            winter_weight=0.50,
+            summer_weight=0.50,
+            normalize_to_annual=False,
+        )
+        assert pytest.approx(res_raw["winter_capacity_value_per_kw_season"], abs=1e-2) == 74.61
+        assert pytest.approx(res_raw["summer_capacity_value_per_kw_season"], abs=1e-2) == 64.88
 
     def test_custom_seasonal_allocation_weights(self):
         """Test custom seasonal risk splits (e.g., 80% winter / 20% summer Southeast net peak)."""
         gross_ecc = 100.0
-        res = self.model.calculate_seasonal_capacity_value(
+        res_norm = self.model.calculate_seasonal_capacity_value(
             gross_ecc,
             winter_accreditation_ratio=1.15,
             summer_accreditation_ratio=1.00,
             winter_weight=0.80,
             summer_weight=0.20,
+            normalize_to_annual=True,
         )
-        # 100 * 0.80 * 1.15 = 92.0
-        # 100 * 0.20 * 1.00 = 20.0
-        assert pytest.approx(res["winter_capacity_value_per_kw_season"], abs=1e-3) == 92.0
-        assert pytest.approx(res["summer_capacity_value_per_kw_season"], abs=1e-3) == 20.0
+        # 100 * 0.80 * (1.15 / 1.12) = 82.143
+        # 100 * 0.20 * (1.00 / 1.12) = 17.857
+        assert pytest.approx(res_norm["winter_capacity_value_per_kw_season"], abs=1e-2) == 82.14
+        assert pytest.approx(res_norm["summer_capacity_value_per_kw_season"], abs=1e-2) == 17.86
+        assert pytest.approx(res_norm["winter_capacity_value_per_kw_season"] + res_norm["summer_capacity_value_per_kw_season"], abs=1e-3) == gross_ecc
+
+        res_raw = self.model.calculate_seasonal_capacity_value(
+            gross_ecc,
+            winter_accreditation_ratio=1.15,
+            summer_accreditation_ratio=1.00,
+            winter_weight=0.80,
+            summer_weight=0.20,
+            normalize_to_annual=False,
+        )
+        assert pytest.approx(res_raw["winter_capacity_value_per_kw_season"], abs=1e-3) == 92.0
+        assert pytest.approx(res_raw["summer_capacity_value_per_kw_season"], abs=1e-3) == 20.0
 
 
 class TestPydanticValidation:
@@ -311,8 +363,8 @@ class TestDataFrameProjectionsAndCLI:
             include_seasonal=True,
         )
         assert isinstance(df, pd.DataFrame)
-        # 4 utilities * 26 years = 104 rows
-        assert len(df) == 4 * 26
+        # 5 utilities * 26 years = 130 rows
+        assert len(df) == 5 * 26
 
         expected_columns = [
             "year",
@@ -363,7 +415,7 @@ class TestDataFrameProjectionsAndCLI:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             assert os.path.exists(csv_path)
             exported_df = pd.read_csv(csv_path)
-            assert len(exported_df) == 4 * (2030 - 2025 + 1)
+            assert len(exported_df) == 5 * (2030 - 2025 + 1)
             assert "Exported" in result.stdout
             assert "YEAR 2030 (NOMINAL)" in result.stdout
 
@@ -437,12 +489,54 @@ class TestStateCapacityBenchmarkDefaults:
             test_csv = os.path.join(tmpdir, "refreshed_capacity.csv")
             res = refresh_capacity_benchmarks(export_csv_path=test_csv, annual_inflation_rate=0.022)
             assert res["status"] == "success"
-            assert res["records_generated"] == 104
+            assert res["records_generated"] == 130
             assert os.path.exists(test_csv)
             # Verify Southern Company in updated benchmarks
             so_bm = res["benchmarks"]["Southern Company"]
             assert pytest.approx(so_bm["gross_ecc_real_2024"], abs=1e-2) == 141.22
             assert pytest.approx(so_bm["gross_ecc_nominal_2040"], abs=1e-2) == 200.04
+            # Verify NREL ATB 2025 in updated benchmarks
+            atb_bm = res["benchmarks"]["NREL ATB 2025"]
+            assert pytest.approx(atb_bm["gross_ecc_real_2024"], abs=1e-2) == 117.28
+
+    def test_nrel_atb_2025_benchmark_recognized_and_projected(self):
+        """Verify NREL ATB 2025 benchmark math and alias recognition."""
+        model = SERCCapacityModel()
+        bm = model.get_benchmark("NREL ATB 2025")
+        assert bm.installed_capex_per_kw == 1105.80
+        assert bm.levelized_fcr == 0.0820
+        assert bm.fom_per_kw_yr == 26.60
+        assert pytest.approx(bm.gross_ecc_per_kw_yr, abs=1e-2) == 117.28
+        # Alias test
+        assert model.resolve_utility_name("NLR / NREL ATB 2025") == "NREL ATB 2025"
+        assert model.resolve_utility_name("atb 2025") == "NREL ATB 2025"
+
+    def test_user_edited_cap_value_propagates_to_schedule(self):
+        """Verify custom cap_value override anchors Year 1 without reverting to benchmark."""
+        model = SERCCapacityModel()
+        custom_val = 95.00
+        df = model.get_projection(
+            start_year=2026,
+            end_year=2030,
+            utility="Southern Company",
+            currency="real_2024",
+            base_cost_override=custom_val,
+        )
+        # Year 1 strictly anchors to user input
+        assert pytest.approx(df["gross_ecc_per_kw_yr"].iloc[0], abs=1e-2) == custom_val
+        # Future years gracefully track NREL ATB capital cost curve (e.g. 94.67 in 2030)
+        assert pytest.approx(df["gross_ecc_per_kw_yr"].iloc[-1], abs=1e-2) == 94.67
+
+        # Without tech index, remains completely flat
+        df_flat = model.get_projection(
+            start_year=2026,
+            end_year=2030,
+            utility="Southern Company",
+            currency="real_2024",
+            base_cost_override=custom_val,
+            apply_atb_tech_index=False,
+        )
+        assert pytest.approx(df_flat["gross_ecc_per_kw_yr"].iloc[-1], abs=1e-2) == custom_val
 
 
 class TestAnnualCapacitySavingsAndMultiYearIntegration:

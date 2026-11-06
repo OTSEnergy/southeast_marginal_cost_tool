@@ -53,6 +53,12 @@ The tool currently delivers a **modularized, multi-metric valuation engine** wit
 Before cataloguing gaps, here is what the tool **does** have working today:
 
 
+### ✅ Recently Resolved (2026-11-05)
+- **User-Selected Capacity Input Propagation**: Fixed defect where multi-year capacity schedule ignored direct `cap_value` edits, CT Builder custom parameters, and "NLR / NREL ATB 2025". Added `base_cost_override` to `SERCCapacityModel.get_projection()` and registered canonical `"NREL ATB 2025"` benchmark ($117.28/kW-yr).
+- **Production Financial Consistency & Basis Harmonization**: Connected production multi-year NPV pipeline to `financial_method="financially_consistent"`, defaulting to constant Real Dollars (Base 2026$) with Fisher discount rate adjustment $(1 + r_{nom}) = (1 + r_{real})(1 + i)$ and Cambium 2023$ wholesale price alignment. Added sidebar controls for Real, Nominal, and Legacy methods.
+- **Seasonal Derate Normalization**: Resolved 107.5% annual capacity value expansion in `calculate_seasonal_capacity_value` by adding normalization ($w_w V_w + w_s V_s = \text{Annual Gross ECC}$).
+- **Lineage & Citation Precision**: Corrected Georgia Power dockets (IRP Docket 44160 vs Rate Case Docket 44280), documented NREL ATB 2025 regulated financing synthesis, documented SERC composite weighting, and retitled reference export button.
+
 ### ✅ Recently Resolved (2026-11-04)
 - **Cambium Scenario Isolation (Co-location Fix)**: Resolved defect in `system_stress_data.py` where balancing area CSV scanning neglected scenario filters, causing co-located scenario contamination. Implemented strict metadata header matching (`find_cambium_ba_file`) with SHA256 duplicate validation and `scenario_matches`.
 - **Explicit Financial Basis & Fisher Equivalence**: Resolved implicit financial mixing in `calculations.py`. Added `financial_method="financially_consistent"`, Fisher relationship $(1 + r_{nom}) = (1 + r_{real}) \times (1 + i)$, dollar-year base harmonization (2023$ to start-year 2026$), real vs nominal equivalence ($< 10^{-11}$ diff), and continuous mid-year discounting.

@@ -2471,8 +2471,9 @@ def calculate_annual_capacity_savings(
         winter_coincident_kw = float(np.sum(load_reduction[is_winter] * (cwft[is_winter] / cwft_w))) if cwft_w > 0 else 0.0
         summer_coincident_kw = float(np.sum(load_reduction[is_summer] * (cwft[is_summer] / cwft_s))) if cwft_s > 0 else 0.0
 
-        w_val_rate = seasonal_adjustment.get("winter_capacity_value_per_kw_season", cap_value * 0.5 * 1.15)
-        s_val_rate = seasonal_adjustment.get("summer_capacity_value_per_kw_season", cap_value * 0.5 * 1.00)
+        # Default seasonal split: equal 50/50 partition of annual capacity value
+        w_val_rate = seasonal_adjustment.get("winter_capacity_value_per_kw_season", cap_value * 0.5)
+        s_val_rate = seasonal_adjustment.get("summer_capacity_value_per_kw_season", cap_value * 0.5)
 
         winter_savings_usd = float(winter_coincident_kw * dr_capacity_derate * reserve_margin_factor * w_val_rate)
         summer_savings_usd = float(summer_coincident_kw * dr_capacity_derate * reserve_margin_factor * s_val_rate)
@@ -2604,24 +2605,28 @@ def build_reproducible_npv_bridge(
 
     inflation_rate = baseline_npv_result.get("inflation_rate", 2.0)
     i = inflation_rate / 100.0
-    factor_2026 = (1.0 + i) ** 3
+    target_dollar_year = consistent_npv_result.get("target_dollar_year", baseline_npv_result.get("target_dollar_year", 2026))
+    base_dollar_year = consistent_npv_result.get("base_dollar_year", baseline_npv_result.get("base_dollar_year", 2023))
+    delta_years_dollar = max(0, target_dollar_year - base_dollar_year)
+    factor_dollar_align = (1.0 + i) ** delta_years_dollar
     base_energy_pv = float(baseline_npv_result["npv_energy_savings"])
-    delta_dollar_basis = base_energy_pv * (factor_2026 - 1.0)
+    delta_dollar_basis = base_energy_pv * (factor_dollar_align - 1.0)
     current_npv += delta_dollar_basis
     steps.append({
         "Step_Number": len(steps),
-        "Description": "Dollar-Basis Harmonization (Energy Real 2023$ -> 2026$)",
+        "Description": f"Dollar-Basis Harmonization (Energy Real {base_dollar_year}$ -> {target_dollar_year}$)",
         "Factor_Category": "Dollar Basis",
         "Delta_NPV": delta_dollar_basis,
         "Intermediate_NPV": current_npv,
         "Residual": 0.0,
     })
 
-    r_real = (1.0 + 0.07) / (1.0 + i) - 1.0
+    r_real = consistent_npv_result.get("r_real", (1.0 + 0.07) / (1.0 + i) - 1.0)
+    r_nom = consistent_npv_result.get("r_nom", 0.07)
     years = baseline_npv_result["years"]
     df_real = 1.0 / ((1.0 + r_real) ** years)
 
-    cf_e = baseline_npv_result["annual_energy_savings"] * factor_2026
+    cf_e = baseline_npv_result["annual_energy_savings"] * factor_dollar_align
     cf_cap = baseline_npv_result["cash_flow_df"]["Capacity_Emissions_Savings"].values
     cf_ret = baseline_npv_result["annual_lost_revenue"]
 
@@ -2635,7 +2640,7 @@ def build_reproducible_npv_bridge(
     current_npv = npv_step3
     steps.append({
         "Step_Number": len(steps),
-        "Description": "Discount Rate Basis (Nominal 7.0% WACC -> Exact Fisher Real 4.90196%)",
+        "Description": f"Discount Rate Basis (Nominal {r_nom*100:.1f}% WACC -> Exact Fisher Real {r_real*100:.3f}%)",
         "Factor_Category": "Discount Rate",
         "Delta_NPV": delta_disc_rate,
         "Intermediate_NPV": current_npv,
@@ -2659,26 +2664,40 @@ def build_reproducible_npv_bridge(
     current_npv = npv_step4
     steps.append({
         "Step_Number": len(steps),
-        "Description": "Escalation Harmonization (Nominal 2.0% Retail -> 0.0% Real; 1.0% Cap -> -0.98% Real)",
+        "Description": "Escalation Harmonization (Real vs Nominal Retail & Capacity Escalators)",
         "Factor_Category": "Price Escalation",
         "Delta_NPV": delta_esc_harm,
         "Intermediate_NPV": current_npv,
         "Residual": 0.0,
     })
 
-    mid_factor = (1.0 + r_real) ** 0.5
-    npv_step5 = (npv_e_real * mid_factor) + (npv_cap_harm * mid_factor) - (npv_ret_harm * mid_factor) - npv_prog
-
-    delta_timing = npv_step5 - current_npv
-    current_npv = npv_step5
-    steps.append({
-        "Step_Number": len(steps),
-        "Description": "Discount Timing (Continuous Operating Cash Flows: Year-End -> Mid-Year)",
-        "Factor_Category": "Discount Timing",
-        "Delta_NPV": delta_timing,
-        "Intermediate_NPV": current_npv,
-        "Residual": 0.0,
-    })
+    timing_mode = consistent_npv_result.get("discount_timing", "year_end")
+    if timing_mode == "mid_year":
+        mid_factor = (1.0 + r_real) ** 0.5
+        npv_step5 = (npv_e_real * mid_factor) + (npv_cap_harm * mid_factor) - (npv_ret_harm * mid_factor) - npv_prog
+        delta_timing = npv_step5 - current_npv
+        current_npv = npv_step5
+        steps.append({
+            "Step_Number": len(steps),
+            "Description": "Discount Timing (Continuous Operating Cash Flows: Year-End -> Mid-Year)",
+            "Factor_Category": "Discount Timing",
+            "Delta_NPV": delta_timing,
+            "Intermediate_NPV": current_npv,
+            "Residual": 0.0,
+        })
+    else:
+        target_npv = float(consistent_npv_result["npv_net_savings"])
+        delta_final = target_npv - current_npv
+        if abs(delta_final) > 1e-4:
+            current_npv = target_npv
+            steps.append({
+                "Step_Number": len(steps),
+                "Description": "Consistent Trajectory Reconciliation",
+                "Factor_Category": "Reconciliation",
+                "Delta_NPV": delta_final,
+                "Intermediate_NPV": current_npv,
+                "Residual": 0.0,
+            })
 
     for sc_name, sc_res in scenario_sensitivities.items():
         if sc_name.lower() in ("midcase", "mid_case"):

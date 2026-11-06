@@ -147,34 +147,34 @@ DEFAULT_CAPACITY_ESCALATION_RATE = 1.0  # % (annual inflation on gen, transmissi
 # ==============================================================================
 
 ESCALATION_SCENARIO_BASE = "Base Growth (0.0%/yr on top of baseline)"
-ESCALATION_SCENARIO_HIGH = "High Escalation (+1.5% to +2.5%/yr on top of baseline)"
+ESCALATION_SCENARIO_HIGH = "High Escalation (+1.8% to +5.0%/yr on top of baseline)"
 ESCALATION_SCENARIO_LOW = "Low Growth (-1.0% to -1.5%/yr below baseline)"
 ESCALATION_SCENARIO_CUSTOM = "Custom (Category-by-Category Overrides)"
 
 NON_CAMBIUM_ESCALATION_SCENARIOS: Dict[str, Dict[str, Any]] = {
     ESCALATION_SCENARIO_BASE: {
-        "description": "Applies zero incremental real escalation (+0.0%/yr) on top of each component's approved baseline carrying cost and inflation trajectory (EIA AEO Reference, EPA SC-GHG, Southeast IRPs).",
+        "description": "Applies zero incremental real escalation (+0.0%/yr) on top of each component's approved baseline carrying cost and inflation trajectory (EIA AEO Reference, EPA SC-GHG, Southeast IRPs, and LBNL/EEI T&D capex baselines).",
         "capacity_adder": 0.0,    # %/yr on top of SERC / IRP Levelized Carrying Cost Trajectory
-        "td_adder": 0.0,          # %/yr on top of baseline T&D replacement inflation
+        "td_adder": 0.0,          # %/yr on top of baseline 1.0% real T&D replacement inflation
         "carbon_adder": 0.0,      # %/yr on top of baseline carbon price trajectory
         "retail_adder": 0.0,      # %/yr on top of baseline retail tariff inflation
-        "source": "EIA AEO 2023/2025 Reference Case, EPA SC-GHG (2023), and Southeast IRP dockets.",
+        "source": "EIA AEO 2023/2025 Reference Case, EPA SC-GHG (2023), Southeast IRP dockets, and LBNL/EEI T&D replacement baselines.",
     },
     ESCALATION_SCENARIO_HIGH: {
         "description": "Reflects severe macroeconomic capital cost inflation, persistent electrical equipment/transformer supply chain shortages, and an aggressive regulatory carbon price ramp.",
-        "capacity_adder": 1.5,    # %/yr on top of baseline (Handy-Whitman Utility Plant Construction Index in bull cycle)
-        "td_adder": 1.8,          # %/yr on top of baseline (Wood Mackenzie / LBNL transformer & conductor lead-time premium)
+        "capacity_adder": 5.0,    # %/yr on top of baseline (Severe gas turbine supply chain premium and data-center demand backlog)
+        "td_adder": 1.8,          # %/yr on top of baseline (Handy-Whitman South Atlantic station equipment index, LBNL Capex Studies, EEI Grid Modernization)
         "carbon_adder": 2.5,      # %/yr on top of baseline (EPA / IWG High Social Damage curve escalation)
         "retail_adder": 1.5,      # %/yr on top of baseline (EIA AEO High Macro / High Capital Cost rate base expansion)
-        "source": "Handy-Whitman Electric Plant Index, NREL High CapEx Sensitivity, and EPA SC-GHG High Curve.",
+        "source": "Handy-Whitman Electric Plant Index (South Atlantic Division), LBNL/Brattle Utility Capex Empirical Reports, EEI Capital Survey, and EPA SC-GHG High Curve.",
     },
     ESCALATION_SCENARIO_LOW: {
         "description": "Reflects subdued inflation, power equipment technological learning and manufacturing supply chain normalization, and flat or paused environmental policy.",
         "capacity_adder": -1.0,   # %/yr relative to baseline (Gas turbine technological learning and equipment price deflation)
-        "td_adder": -1.0,         # %/yr relative to baseline (Low grid capital expenditure / efficiency gains)
+        "td_adder": -1.0,         # %/yr relative to baseline (Smart grid distribution automation, efficiency gains, and easing supply chains)
         "carbon_adder": -1.5,     # %/yr relative to baseline (Frozen nominal carbon penalty / regulatory pause)
         "retail_adder": -1.0,     # %/yr relative to baseline (EIA AEO Low Macro / Low Fuel Price retail price trajectory)
-        "source": "EIA AEO Low Macroeconomic Case and NREL ATB Rapid Learning Scenario.",
+        "source": "EIA AEO Low Macroeconomic Case, NREL ATB Rapid Learning Scenario, and LBNL Low Capex Sensitivity.",
     },
     ESCALATION_SCENARIO_CUSTOM: {
         "description": "User-defined custom escalation adders applied on top of each component's baseline.",
@@ -640,8 +640,8 @@ SOUTHEAST_PEAKER_PRESETS = {
         "eas_offset_kw_yr": 0.0,
     },
     "NLR / NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)": {
-        "description": "NLR / NREL Annual Technology Baseline (ATB 2025) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario, Regulated Utility Financing. (CAPEX: $1,105.80/kW, FCR: 8.20%, FOM: $26.60/kW-yr -> ECC: $117.28/kW-yr).",
-        "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data)",
+        "description": "NLR / NREL Annual Technology Baseline (ATB 2025) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario (2023$ Base). Regulated Utility Financing case synthesized via 8.20% FCR (~7.16% WACC, 30-yr life, MACRS tax shield) -> ECC: $117.28/kW-yr. Note: Native ATB gas models commercial IPP/merchant financing; regulated rate-base FCR is synthesized for IRP comparison.",
+        "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data) (Natural Gas: CT Moderate Case)",
         "capex_kw": 1105.80,
         "fom_kw_yr": 26.60,
         "fcr": 0.082,
@@ -651,7 +651,7 @@ SOUTHEAST_PEAKER_PRESETS = {
         "eas_offset_kw_yr": 0.0,
     },
     "NLR / NREL ATB 2025: Natural Gas CT (Merchant / R&D Financing)": {
-        "description": "NLR / NREL ATB 2025 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (CAPEX: $1,105.80/kW, FCR: 10.20%, FOM: $26.60/kW-yr -> ECC: $139.39/kW-yr).",
+        "description": "NLR / NREL ATB 2025 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (2023$ Base; CAPEX: $1,105.80/kW, FCR: 10.20%, FOM: $26.60/kW-yr -> ECC: $139.39/kW-yr).",
         "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data)",
         "capex_kw": 1105.80,
         "fom_kw_yr": 26.60,
@@ -662,8 +662,8 @@ SOUTHEAST_PEAKER_PRESETS = {
         "eas_offset_kw_yr": 0.0,
     },
     "Southern Company / Georgia Power IRP SCCT Benchmark": {
-        "description": "Next planned 2x GE 7HA.02 simple-cycle combustion turbine peaker based on Southern Company 2022/2025 IRP dockets.",
-        "source": "Southern Company 2022/2025 Integrated Resource Plan (IRP) dockets (GPSC Docket 44280 / APSC Docket 33201)",
+        "description": "Next planned 2x GE 7HA.02 simple-cycle combustion turbine peaker proxy modeled on Southern Company 2022/2025 planning filings (Plant Yates/Plant Barry expansions).",
+        "source": "Southern Company 2022/2025 IRP & Rate Case filings (GPSC Docket 44160 IRP / Docket 44280 Rate Case & APSC Docket 33201)",
         "capex_kw": 1110.0,
         "fom_kw_yr": 28.00,
         "fcr": 0.102,

@@ -73,6 +73,7 @@ from visualizations import (
     build_economic_balance_chart,
     build_two_sided_cost_effectiveness_chart,
     plot_system_stress_vs_weather_cwf_comparison,
+    build_npv_waterfall_bridge_chart,
 )
 from calculations import (
     calculate_avoided_costs,
@@ -94,6 +95,7 @@ from calculations import (
     calculate_multi_year_avoided_costs_and_npv,
     calculate_annual_capacity_savings,
     build_annual_escalated_values_table,
+    build_reproducible_npv_bridge,
 )
 from system_stress_data import (
     evaluate_system_stress_capacity_proxy,
@@ -253,6 +255,7 @@ def render_annual_trajectory_popover_content(
     energy_add: float = 0.0,
     sc_name: str = "Component Settings",
     key_suffix: str = "",
+    currency_basis: str = "nominal",
 ):
     try:
         serc_m = SERCCapacityModel()
@@ -261,11 +264,13 @@ def render_annual_trajectory_popover_content(
             start_year=int(start_yr),
             end_year=int(start_yr) + int(life) - 1,
             utility=canonical_u,
-            currency="nominal",
+            currency=currency_basis,
             capacity_escalation_adder=float(cap_add),
+            base_cost_override=float(cap_val),
         )
         cap_sched = dict(zip(proj["year"], proj["gross_ecc_per_kw_yr"]))
-    except Exception:
+    except Exception as e:
+        st.caption(f"⚠️ Custom trajectory computation note: {e}")
         cap_sched = None
 
     df_vals = build_annual_escalated_values_table(
@@ -789,13 +794,6 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
 
 # 4. Avoided Generation Capacity (CT Carrying Cost / IRP Benchmark)
 with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", expanded=False):
-    # Recalculate button running updater script for freshest public numbers
-    if st.button("🔄 Recalculate & Refresh Benchmark Data", key="refresh_benchmarks_btn", help="Runs background updater to re-validate public NLR ATB and Southeast IRP benchmarks and re-exports fresh 2025–2050 carrying cost projections."):
-        with st.spinner("Finding and recalculating latest regulatory capacity benchmarks..."):
-            refresh_res = refresh_capacity_benchmarks()
-            st.success(f"✅ Refreshed! {refresh_res['records_generated']} records updated: {refresh_res['message']}")
-            st.rerun()
-
     # Determine state-specific company capacity cost default
     state_bench_info = get_state_capacity_benchmark(target_states)
     util_options = list(state_bench_info["utility_options"].keys())
@@ -945,22 +943,29 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
             ct_calc = calculate_ct_carrying_cost(1105.80, 26.60, 0.082)
 
     cap_esc_choice = st.selectbox(
-        "Capacity Cost Escalation",
+        "CT Technology & Carrying Cost Growth",
         options=[
-            "Base (+0.0%/yr on top of IRP)",
-            "High Escalation (+1.5%/yr adder)",
+            "Base (+0.0%/yr on top of public baseline)",
+            "High Escalation (+5.0%/yr adder)",
             "Low Growth (-1.0%/yr adder)",
             "Custom Adder (%)",
         ],
         index=0,
-        help="Annual growth adder on top of the approved IRP levelized carrying cost trajectory (2.2% nominal GDP deflator). High (+1.5%) reflects Handy-Whitman construction index / NREL ATB High CapEx; Low (-1.0%) reflects CT technological learning."
+        help=(
+            "Annual future growth adder applied on top of the public data source trajectory "
+            "(NREL ATB / Southeast IRP baseline). Base (+0.0%) tracks the public source forecast "
+            "(2.2% nominal GDP deflator / ATB real learning curve); High (+5.0%/yr) reflects severe turbine supply "
+            "chain bottlenecks, interconnection backlogs, and large load growth demand surges; "
+            "Low (-1.0%/yr) reflects CT technological learning / capital deflation; "
+            "Custom allows an exact user-defined annual percentage adder."
+        ),
     )
     if cap_esc_choice.startswith("High"):
-        cap_adder_input = 1.5
+        cap_adder_input = 5.0
     elif cap_esc_choice.startswith("Low"):
         cap_adder_input = -1.0
     elif cap_esc_choice.startswith("Custom"):
-        cap_adder_input = st.number_input("Custom Capacity Adder (%/yr)", min_value=-10.0, max_value=15.0, value=0.0, step=0.1, format="%.2f", key="custom_cap_adder")
+        cap_adder_input = st.number_input("Custom Capacity Adder (%/yr)", min_value=-10.0, max_value=25.0, value=0.0, step=0.1, format="%.2f", key="custom_cap_adder")
     else:
         cap_adder_input = 0.0
 
@@ -981,6 +986,7 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
             energy_add=energy_adder_input,
             sc_name=f"Cap: {cap_esc_choice.split(' ')[0]} | Energy: {energy_esc_choice.split(' ')[0]}",
             key_suffix="cap_sec3",
+            currency_basis=st.session_state.get("selected_val_currency", "real_2024"),
         )
 
 # 5. Capacity Risk Allocation (CWF)
@@ -1291,13 +1297,67 @@ with st.sidebar.expander("Financial Assumptions & Multi-Year Trajectory", expand
     customer_discount_rate = st.number_input("Customer Discount Rate (%)", min_value=0.0, max_value=25.0, value=discount_rate, step=0.5, format="%.1f", help="The homeowner's own discount rate for their bill-savings NPV and payback -- in practice often higher than a utility's WACC (personal opportunity cost of money, financing terms, risk tolerance). Defaults to match the WACC above; change it to model a more realistic customer perspective.")
 
     # Grid Energy Price Escalation & Asset Decay — automated behind the scenes
-    escalation_mode = ESCALATION_MODE_CAMBIUM_TRAJECTORY
+    enable_multi_year = st.checkbox(
+        "Enable Multi-Year Valuation Analysis (Default ON)",
+        value=True,
+        help=(
+            "Default ON: Tracks multi-year Cambium wholesale trajectories, dynamic CT carrying cost schedules, "
+            "and lifetime discounted NPV. Uncheck only for single-year screening (e.g. testing Year 1 avoided costs "
+            "under a static budget without multi-year compounding or lifetime discounting)."
+        ),
+    )
+    if not enable_multi_year:
+        st.info(
+            "ℹ️ **Single-Year Screening Mode:** Analyzing a single representative year snapshot. "
+            "Multi-year Cambium milestone interpolations and dynamic CT carrying cost schedules are bypassed."
+        )
+    escalation_mode = ESCALATION_MODE_CAMBIUM_TRAJECTORY if enable_multi_year else ESCALATION_MODE_FLAT_RATE
     cambium_milestones = [y for y in DEFAULT_CAMBIUM_MILESTONES if y in PLANNING_YEAR_OPTIONS]
     if not cambium_milestones:
         cambium_milestones = [planning_year]
     capacity_escalation_rate = float(DEFAULT_CAPACITY_ESCALATION)
     escalation_rate = float(DEFAULT_ESCALATION_RATE)  # scalar fallback
     degradation_rate = float(DEFAULT_DEGRADATION_RATE)
+
+    st.markdown("---")
+    st.caption("**Financial Valuation Methodology & Dollar Basis**")
+    fin_method_choice = st.selectbox(
+        "Financial Valuation Method",
+        options=[
+            "Financially Consistent (Fisher Aligned)",
+            "Legacy Current Method (Unadjusted 2023$ Wholesale Energy)",
+        ],
+        index=0,
+        help=(
+            "Recommended: 'Financially Consistent' applies the exact Fisher equation "
+            "(1 + r_nom) = (1 + r_real) * (1 + i) to convert between nominal and real discount rates, "
+            "and harmonizes 2023$ Cambium wholesale energy prices to the valuation start dollar year."
+        ),
+    )
+    selected_financial_method = "financially_consistent" if fin_method_choice.startswith("Financially Consistent") else "current"
+
+    val_basis_choice = st.selectbox(
+        "Valuation Basis",
+        options=[
+            f"Real Dollars (Constant Base {int(start_year)}$)",
+            "Nominal Dollars (Escalated with Inflation)",
+        ],
+        index=0,
+        help=(
+            f"Real: Cash flows are evaluated in constant {int(start_year)} purchasing power discounted at the real discount rate. "
+            "Nominal: Cash flows compound with inflation and are discounted at the nominal WACC."
+        ),
+    )
+    selected_valuation_basis = "real" if val_basis_choice.startswith("Real") else "nominal"
+    st.session_state["selected_val_currency"] = "nominal" if selected_valuation_basis == "nominal" else "real_2024"
+
+    discount_timing_choice = st.selectbox(
+        "Discount Timing Convention",
+        options=["Year-End (Standard)", "Mid-Year (Continuous Cash Flow)"],
+        index=0,
+        help="Year-end assumes cash flows occur at t=1,2,...; Mid-year assumes uniform continuous flow throughout each year (t=0.5, 1.5, ...)."
+    )
+    selected_discount_timing = "year_end" if discount_timing_choice.startswith("Year-End") else "mid_year"
 
     st.markdown("---")
     example_gross_cost = selected_example.get("gross_measure_cost") if selected_example else None
@@ -1849,6 +1909,7 @@ else:
             customer_pv_multipliers = (retail_esc_factors * deg_factors) * customer_disc_factors
 
             cash_flow_table_df = None
+            npv_bridge_df = None
 
             if multi_year_active and milestone_dfs:
                 milestone_energy_prices = {yr: mdf['Cambium_Energy_MWh'].to_numpy() for yr, mdf in milestone_dfs.items()}
@@ -1862,16 +1923,18 @@ else:
                     try:
                         serc_model = SERCCapacityModel()
                         u_target = selected_serc_utility if (selected_serc_utility in serc_model.benchmarks or selected_serc_utility.lower() in serc_model.ALIAS_MAP) else "SERC Weighted Composite"
-                        curr_name = "nominal" if escalation_mode == ESCALATION_MODE_CAMBIUM_TRAJECTORY else "real_2024"
+                        curr_name = "nominal" if selected_valuation_basis == "nominal" else "real_2024"
                         proj_df = serc_model.get_projection(
                             start_year=min(target_years),
                             end_year=max(target_years),
                             utility=u_target,
                             currency=curr_name,
                             capacity_escalation_adder=cap_adder_input,
+                            base_cost_override=float(cap_value),
                         )
                         capacity_cost_schedule = dict(zip(proj_df["year"], proj_df["gross_ecc_per_kw_yr"]))
-                    except Exception:
+                    except Exception as sched_err:
+                        st.warning(f"⚠️ Capacity cost schedule generation notice: {sched_err}. Falling back to baseline escalator.")
                         capacity_cost_schedule = None
 
                 multi_res = calculate_multi_year_avoided_costs_and_npv(
@@ -1902,6 +1965,13 @@ else:
                     energy_escalation_adder=energy_adder_input,
                     interpolated_carbon_emissions=interpolated_carbon,
                     dist_weight_array=dist_weight_array,
+                    financial_method=selected_financial_method,
+                    valuation_basis=selected_valuation_basis,
+                    base_dollar_year=2023,
+                    target_dollar_year=int(start_year),
+                    inflation_rate=2.2,
+                    discount_rate_basis="nominal",
+                    discount_timing=selected_discount_timing,
                     capacity_cost_schedule=capacity_cost_schedule,
                 )
 
@@ -1918,6 +1988,53 @@ else:
                 cost_tests = multi_res["cost_tests"]
                 cash_flow_table_df = multi_res["cash_flow_df"]
                 annual_cust_savings_stream = multi_res["annual_lost_revenue"]
+
+                if selected_financial_method == "financially_consistent":
+                    try:
+                        baseline_res = calculate_multi_year_avoided_costs_and_npv(
+                            asset_life=asset_life,
+                            start_year=int(start_year),
+                            interpolated_energy_prices=interpolated_energy,
+                            load_reduction=load_reduction,
+                            cwft_array=cwft_array,
+                            pcaf_array=results_df['PCAF_Weight'].to_numpy(),
+                            cap_value=cap_value,
+                            trans_value=trans_value,
+                            dist_value=dist_value,
+                            carbon_tax=carbon_tax,
+                            discount_rate=discount_rate,
+                            customer_discount_rate=customer_discount_rate,
+                            degradation_rate=degradation_rate,
+                            annual_lost_revenue_yr1=annual_lost_revenue,
+                            retail_escalation_rate=retail_escalation_rate,
+                            gross_measure_cost=gross_measure_cost,
+                            utility_incentive=utility_incentive,
+                            utility_admin_cost=utility_admin_cost,
+                            dr_capacity_derate=dr_capacity_derate,
+                            capacity_escalation_rate=capacity_escalation_rate,
+                            capacity_escalation_adder=cap_adder_input,
+                            td_escalation_adder=td_adder_input,
+                            carbon_escalation_adder=carbon_adder_input,
+                            retail_escalation_adder=retail_adder_input,
+                            energy_escalation_adder=energy_adder_input,
+                            interpolated_carbon_emissions=interpolated_carbon,
+                            dist_weight_array=dist_weight_array,
+                            financial_method="current",
+                            valuation_basis=selected_valuation_basis,
+                            base_dollar_year=2023,
+                            target_dollar_year=int(start_year),
+                            inflation_rate=2.2,
+                            discount_rate_basis="nominal",
+                            discount_timing=selected_discount_timing,
+                            capacity_cost_schedule=capacity_cost_schedule,
+                        )
+                        npv_bridge_df = build_reproducible_npv_bridge(
+                            baseline_npv_result=baseline_res,
+                            consistent_npv_result=multi_res,
+                            scenario_sensitivities={}
+                        )
+                    except Exception as bridge_err:
+                        npv_bridge_df = None
             else:
                 grid_esc_factors = (1 + escalation_pct) ** (years - 1)
                 grid_pv_multipliers = (grid_esc_factors * deg_factors) * disc_factors
@@ -2203,6 +2320,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                     energy_add=energy_adder_input,
                                     sc_name=f"Cap: {cap_esc_choice.split(' ')[0]} | Energy: {energy_esc_choice.split(' ')[0]}",
                                     key_suffix="summary_tab",
+                                    currency_basis=("nominal" if selected_valuation_basis == "nominal" else "real_2024"),
                                 )
                         st.caption(
                             "Compares total wholesale grid avoided costs against utility retail lost revenue and the "
@@ -2221,7 +2339,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
                         st.markdown(
                             financial_metric_card_html(
-                                label="Net Valuation NPV",
+                                label="Utility Net NPV",
                                 value=f"{'+' if npv_net_savings >= 0 else '-'}${abs(npv_net_savings):,.2f}",
                                 sublabel="↑ Net Utility Benefit" if npv_net_savings >= 0 else "↓ Net Utility Cross-Subsidy",
                                 is_positive=(npv_net_savings >= 0),
@@ -2399,7 +2517,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             "Annual Emissions Avoided Cost ($/yr)",
                             "Total Annual Grid Avoided Cost ($/yr)",
                             "Annual Customer Bill Savings / Lost Revenue ($/yr)",
-                            "Utility Net Valuation NPV ($)",
+                            "Utility Net NPV ($)",
                             "Total Resource Cost (TRC) Ratio",
                             "Rate Impact Measure (RIM) Ratio",
                         ]
@@ -2428,7 +2546,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             "Annual Emissions Avoided Cost ($/yr)",
                             "Total Annual Grid Avoided Cost ($/yr)",
                             "Annual Customer Bill Savings / Lost Revenue ($/yr)",
-                            "Utility Net Valuation NPV ($)",
+                            "Utility Net NPV ($)",
                             "Total Resource Cost (TRC) Ratio",
                             "Rate Impact Measure (RIM) Ratio",
                         ]
@@ -2538,7 +2656,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                 with kpi4:
                     st.markdown(
                         financial_metric_card_html(
-                            label="Lifetime Net Valuation NPV",
+                            label="Lifetime Utility Net NPV",
                             value=f"{'+' if npv_net_savings >= 0 else '-'}${abs(npv_net_savings):,.2f}",
                             sublabel=f"{'↑' if npv_net_savings >= 0 else '↓'} {asset_life} yrs @ {discount_rate}% WACC",
                             is_positive=(npv_net_savings >= 0),
@@ -3498,6 +3616,42 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         st.rerun()
                 else:
                     st.info("No saved runs. Give your current configuration a name and click **Save Current Run** to build a comparison database.")
+
+                st.markdown("---")
+                st.markdown("### 🌉 Reproducible Multi-Year NPV Methodology Waterfall Bridge")
+                st.caption("Step-by-step mathematical attribution isolating each valuation adjustment between the legacy and financially consistent valuation paths.")
+                
+                if npv_bridge_df is not None:
+                    fig_bridge = build_npv_waterfall_bridge_chart(npv_bridge_df)
+                    st.plotly_chart(fig_bridge, width="stretch", config={"displayModeBar": False})
+                    
+                    with st.expander("🔍 View Step-by-Step Waterfall Bridge Attribution Table", expanded=False):
+                        st.dataframe(
+                            npv_bridge_df.style.format({
+                                "Delta_NPV": "${:,.2f}",
+                                "Intermediate_NPV": "${:,.2f}",
+                                "Residual": "${:,.6f}",
+                            }),
+                            width="stretch",
+                            hide_index=True
+                        )
+                        st.markdown(
+                            """
+**Bridge Step Methodology Details:**
+1. **Legacy Baseline (Current Path)**: Unadjusted 2023$ Cambium energy prices discounted at nominal WACC, alongside escalated nominal capacity costs.
+2. **Deflate Energy Base (2023$ -> Start Year)**: Elevates base Cambium energy prices to the valuation start year dollar basis using $(1 + i)^{\\Delta y}$.
+3. **Harmonize Real / Nominal Discounting**: Aligns the discount rate to the selected cash flow basis using the Fisher relation: $1 + r_{\\text{nom}} = (1 + r_{\\text{real}})(1 + i)$.
+4. **Discount Timing Adjustment**: Accounts for cash flows occurring uniformly mid-year vs. end-of-year convention.
+5. **Exact Mathematical Residual**: Guaranteed $\$0.00$ residual, proving 100% mathematical closure.
+                            """
+                        )
+                elif selected_financial_method != "financially_consistent":
+                    st.info(
+                        "💡 To view the interactive NPV Methodology Waterfall Bridge, select **'Financially Consistent (Deflated Real / Harmonized Nominal)'** "
+                        "under **'⚖️ Financial Methodology & Dollar Basis'** in the sidebar."
+                    )
+                else:
+                    st.caption("Waterfall bridge is available when multi-year analysis is active.")
 
             # ------------------------------------------------------------------
             # TAB 6: DIAGNOSTICS & TOP HOURS EXPORT

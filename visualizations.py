@@ -1909,3 +1909,86 @@ def plot_system_stress_vs_weather_cwf_comparison(
     fig.update_xaxes(title_text="Month", row=1, col=1)
     fig.update_xaxes(title_text="Hour of Day (0–23 LST)", dtick=3, row=1, col=2)
     return fig
+
+
+def build_npv_waterfall_bridge_chart(bridge_df: pd.DataFrame) -> go.Figure:
+    """
+    Build a horizontal waterfall attribution chart from a reproducible NPV bridge DataFrame.
+    Step 0 is 'absolute' (Baseline Current Method). Intermediate steps are 'relative' (Delta NPV).
+    Final step is 'total' (Financially Consistent Net NPV).
+
+    Parameters
+    ----------
+    bridge_df : pd.DataFrame
+        DataFrame produced by calculations.build_reproducible_npv_bridge().
+
+    Returns
+    -------
+    go.Figure
+        Plotly waterfall chart.
+    """
+    if bridge_df is None or len(bridge_df) == 0:
+        return go.Figure()
+
+    y_labels = []
+    x_deltas = []
+    measures = []
+    text_labels = []
+
+    for idx, row in bridge_df.iterrows():
+        cat = str(row.get("Factor_Category", f"Step {idx}"))
+        delta = float(row.get("Delta_NPV", 0.0))
+        intermediate = float(row.get("Intermediate_NPV", 0.0))
+
+        if idx == 0:
+            y_labels.append("Baseline Reference<br>(Current Method)")
+            x_deltas.append(intermediate)
+            measures.append("absolute")
+            text_labels.append(f"${intermediate:,.2f}")
+        else:
+            y_labels.append(cat)
+            x_deltas.append(delta)
+            measures.append("relative")
+            text_labels.append(f"{'+' if delta >= 0 else '-'}${abs(delta):,.2f}")
+
+    # Add final summary total bar
+    y_labels.append("<b>Consistent Net NPV</b><br>(Reconciled)")
+    final_npv = float(bridge_df["Intermediate_NPV"].iloc[-1])
+    x_deltas.append(final_npv)
+    measures.append("total")
+    text_labels.append(f"${final_npv:,.2f}")
+
+    fig = go.Figure(go.Waterfall(
+        name="NPV Attribution",
+        orientation="h",
+        measure=measures,
+        y=y_labels,
+        x=x_deltas,
+        text=text_labels,
+        textposition="outside",
+        cliponaxis=False,
+        decreasing={"marker": {"color": "#F43F5E"}},
+        increasing={"marker": {"color": "#10B981"}},
+        totals={"marker": {"color": "#0284C7" if final_npv >= 0 else "#E11D48"}},
+        connector={"line": {"color": "#94A3B8", "width": 1.5, "dash": "dot"}},
+        hovertemplate="<b>%{y}</b><br>Impact: %{text}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        template="plotly_white",
+        height=max(280, 48 * len(y_labels)),
+        margin=dict(l=190, r=90, t=20, b=30),
+        xaxis=dict(
+            title="Net Present Value ($)",
+            showgrid=True,
+            gridcolor="#F1F5F9",
+            zeroline=True,
+            zerolinecolor="#94A3B8",
+        ),
+        yaxis=dict(
+            autorange="reversed",
+            showgrid=False,
+        ),
+    )
+    return fig
+

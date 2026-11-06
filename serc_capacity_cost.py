@@ -145,6 +145,64 @@ class CapacityCostProjection(BaseModel):
 
 
 # ==============================================================================
+# NREL ATB COMBUSTION TURBINE (CT) CAPITAL COST TRAJECTORY INDEX
+# ==============================================================================
+# Overnight capital cost index derived from NREL ATB 2024/2025 Natural Gas CT
+# Moderate scenario (2024 Base Year = 1.0000).
+# Captures technology learning and mature turbine manufacturing cost drift over time.
+NREL_ATB_CT_CAPITAL_COST_INDEX: Dict[int, float] = {
+    2024: 1.0000,
+    2025: 0.9989,
+    2026: 0.9978,
+    2027: 0.9967,
+    2028: 0.9956,
+    2029: 0.9945,
+    2030: 0.9934,
+    2031: 0.9923,
+    2032: 0.9911,
+    2033: 0.9900,
+    2034: 0.9889,
+    2035: 0.9877,
+    2036: 0.9866,
+    2037: 0.9854,
+    2038: 0.9843,
+    2039: 0.9831,
+    2040: 0.9820,
+    2041: 0.9808,
+    2042: 0.9796,
+    2043: 0.9784,
+    2044: 0.9772,
+    2045: 0.9760,
+    2046: 0.9748,
+    2047: 0.9736,
+    2048: 0.9724,
+    2049: 0.9712,
+    2050: 0.9700,
+}
+
+
+def get_nrel_atb_ct_capital_cost_index(year: int) -> float:
+    """
+    Return the NREL ATB Combustion Turbine capital cost index relative to base year 2024.
+
+    Parameters
+    ----------
+    year : int
+        Calendar year.
+
+    Returns
+    -------
+    float
+        Capital cost index multiplier (e.g. 1.000 in 2024, 0.9934 in 2030, 0.9700 in 2050).
+    """
+    if year in NREL_ATB_CT_CAPITAL_COST_INDEX:
+        return NREL_ATB_CT_CAPITAL_COST_INDEX[year]
+    if year < 2024:
+        return 1.0
+    return max(0.85, 0.9700 - (year - 2050) * 0.0012)
+
+
+# ==============================================================================
 # CORE SERC CAPACITY MODEL
 # ==============================================================================
 
@@ -162,12 +220,12 @@ class SERCCapacityModel:
             name="Southern Company",
             operating_companies="Georgia Power / Alabama Power",
             benchmark_unit="2x GE 7HA.02 SCCT",
-            regulatory_docket="GPSC Docket No. 44280 (2022 IRP / 2025 Update) & APSC Docket No. 33201",
+            regulatory_docket="GPSC Docket No. 44160 (2022 IRP) / GPSC Docket No. 44280 (2022 Rate Case) & APSC Docket No. 33201",
             base_year=2024,
             installed_capex_per_kw=1110.0,
             levelized_fcr=0.102,
             fom_per_kw_yr=28.00,
-            notes="Next planned peaking unit: 2x GE 7HA.02 simple-cycle combustion turbines (Plant Yates/Plant Barry expansions); includes firm natural gas pipeline reservation.",
+            notes="Next planned peaking unit: 2x GE 7HA.02 simple-cycle combustion turbines (Plant Yates/Plant Barry expansions); includes firm natural gas pipeline reservation. GPSC Docket 44160 approved resource capacity additions; Docket 44280 establishes base rate cost-of-service parameters.",
         ),
         "Duke Energy Carolinas & Progress": UtilityBenchmark(
             name="Duke Energy Carolinas & Progress",
@@ -200,7 +258,18 @@ class SERCCapacityModel:
             installed_capex_per_kw=1080.0,
             levelized_fcr=0.097,
             fom_per_kw_yr=25.00,
-            notes="Regional capacity-weighted composite benchmark representative of the Southeast reliability footprint.",
+            notes="Regional screening proxy composite benchmark representative of the Southeast reliability footprint (weights: ~35% Southern Co, ~30% Duke Carolinas, ~25% TVA, ~10% other SERC). CapEx $1,080/kW, FCR 9.7%, FOM $25/kW-yr.",
+        ),
+        "NREL ATB 2025": UtilityBenchmark(
+            name="NREL ATB 2025",
+            operating_companies="NREL Annual Technology Baseline (National Benchmark)",
+            benchmark_unit="Natural Gas CT — F-Class (Moderate)",
+            regulatory_docket="NREL 2025 Annual Technology Baseline (2023$ Base; atb.nrel.gov)",
+            base_year=2024,
+            installed_capex_per_kw=1105.80,
+            levelized_fcr=0.0820,
+            fom_per_kw_yr=26.60,
+            notes="NREL ATB 2025 Natural Gas CT Moderate scenario ($1,105.80/kW CAPEX, $26.60/kW-yr FOM). Note: ATB reports conventional gas in 2023$ with IPP/merchant financing; 8.20% FCR reflects synthesized regulated utility financing (~7.16% WACC, 30-yr life, MACRS tax shield) yielding $117.28/kW-yr ECC.",
         ),
     }
 
@@ -222,6 +291,13 @@ class SERCCapacityModel:
         "serc composite": "SERC Weighted Composite",
         "serc": "SERC Weighted Composite",
         "composite": "SERC Weighted Composite",
+        "nrel atb 2025": "NREL ATB 2025",
+        "nlr / nrel atb 2025": "NREL ATB 2025",
+        "nlr atb 2025": "NREL ATB 2025",
+        "nrel atb": "NREL ATB 2025",
+        "atb 2025": "NREL ATB 2025",
+        "atb": "NREL ATB 2025",
+        "nlr": "NREL ATB 2025",
     }
 
     def __init__(
@@ -331,6 +407,7 @@ class SERCCapacityModel:
         summer_accreditation_ratio: float = 1.00,
         winter_weight: float = 0.50,
         summer_weight: float = 0.50,
+        normalize_to_annual: bool = True,
     ) -> Dict[str, float]:
         """
         Calculate Seasonal Capacity Value ($/kW-season) adjusted for winter vs. summer
@@ -353,16 +430,29 @@ class SERCCapacityModel:
             Portion of annual capacity value assigned to winter peak (default 0.50).
         summer_weight : float
             Portion of annual capacity value assigned to summer peak (default 0.50).
+        normalize_to_annual : bool
+            When True (default), normalizes seasonal values so that the weighted sum
+            (winter_weight * V_winter + summer_weight * V_summer) equals gross_ecc,
+            eliminating artificial capacity expansion (107.5%) while preserving the
+            1.15:1.00 relative seasonal ratio. When False, uses raw ambient multiplier.
 
         Returns
         -------
         Dict[str, float]
             winter_capacity_value, summer_capacity_value, and accreditation ratios.
         """
-        # Value of 1 kW load reduction during each stress season
-        # A winter kW reduction avoids capacity that would have generated winter_accreditation_ratio * summer nameplate
-        winter_val = gross_ecc * winter_weight * winter_accreditation_ratio
-        summer_val = gross_ecc * summer_weight * summer_accreditation_ratio
+        if normalize_to_annual:
+            tot_w = winter_weight + summer_weight
+            nw = (winter_weight / tot_w) if tot_w > 0 else 0.5
+            ns = (summer_weight / tot_w) if tot_w > 0 else 0.5
+            mean_mult = (nw * winter_accreditation_ratio) + (ns * summer_accreditation_ratio)
+            winter_ratio_norm = winter_accreditation_ratio / mean_mult if mean_mult > 0 else 1.0
+            summer_ratio_norm = summer_accreditation_ratio / mean_mult if mean_mult > 0 else 1.0
+            winter_val = gross_ecc * nw * winter_ratio_norm
+            summer_val = gross_ecc * ns * summer_ratio_norm
+        else:
+            winter_val = gross_ecc * winter_weight * winter_accreditation_ratio
+            summer_val = gross_ecc * summer_weight * summer_accreditation_ratio
 
         return {
             "winter_capacity_value_per_kw_season": winter_val,
@@ -371,6 +461,7 @@ class SERCCapacityModel:
             "summer_accreditation_ratio": summer_accreditation_ratio,
             "winter_weight": winter_weight,
             "summer_weight": summer_weight,
+            "normalized_to_annual": normalize_to_annual,
         }
 
     def get_projection(
@@ -385,6 +476,12 @@ class SERCCapacityModel:
         winter_weight: float = 0.50,
         summer_weight: float = 0.50,
         capacity_escalation_adder: float = 0.0,
+        base_cost_override: Optional[float] = None,
+        capex_override: Optional[float] = None,
+        lfcr_override: Optional[float] = None,
+        fom_override: Optional[float] = None,
+        normalize_seasonal: bool = True,
+        apply_atb_tech_index: bool = True,
     ) -> pd.DataFrame:
         """
         Generate a multi-year capacity cost projection DataFrame.
@@ -412,6 +509,18 @@ class SERCCapacityModel:
         capacity_escalation_adder : float
             Incremental annual escalation rate (%/yr) applied on top of the
             underlying baseline carrying cost / inflation trajectory. Default 0.0.
+        base_cost_override : Optional[float]
+            Optional user-specified starting Year 1 $/kW-yr capacity value (e.g. from
+            direct scalar input or CT Builder calculation). When provided, the projection
+            faithfully anchors Year 1 at this value rather than reverting to hardcoded benchmarks.
+        capex_override : Optional[float]
+            Optional override for installed CapEx ($/kW).
+        lfcr_override : Optional[float]
+            Optional override for Levelized Fixed Charge Rate (decimal).
+        fom_override : Optional[float]
+            Optional override for Fixed O&M ($/kW-yr).
+        normalize_seasonal : bool
+            Whether seasonal values should be normalized so their sum equals gross ECC (default True).
 
         Returns
         -------
@@ -435,11 +544,45 @@ class SERCCapacityModel:
 
         for yr in range(start_year, end_year + 1):
             adder_factor = (1.0 + (capacity_escalation_adder / 100.0)) ** (yr - start_year)
+            tech_index = (
+                get_nrel_atb_ct_capital_cost_index(yr) / get_nrel_atb_ct_capital_cost_index(start_year)
+                if apply_atb_tech_index else 1.0
+            )
             for u in target_utilities:
                 bm = self.get_benchmark(u)
-                ecc_dict = self.calculate_ecc(u, year=yr, currency=curr_tag)
-                base_gross_ecc = ecc_dict["gross_ecc_per_kw_yr"]
-                gross_ecc = base_gross_ecc * adder_factor
+
+                if base_cost_override is not None:
+                    # User-specified starting Year 1 cost ($/kW-yr)
+                    delta_years = max(0, yr - start_year)
+                    inf_factor = ((1.0 + self.annual_inflation_rate) ** delta_years) if curr_tag == "nominal" else 1.0
+                    scale_ratio = (base_cost_override / bm.gross_ecc_per_kw_yr) if bm.gross_ecc_per_kw_yr > 0 else 1.0
+
+                    base_cap_rec = bm.annual_capital_recovery_per_kw_yr * scale_ratio
+                    base_fom = bm.fom_per_kw_yr * scale_ratio
+
+                    ann_cap_rec = round(base_cap_rec * tech_index * inf_factor * adder_factor, 2)
+                    fom_val = round(base_fom * inf_factor * adder_factor, 2)
+                    gross_ecc = round(ann_cap_rec + fom_val, 2)
+                    installed_capex = round(
+                        (ann_cap_rec / bm.levelized_fcr) if bm.levelized_fcr > 0 else (bm.installed_capex_per_kw * scale_ratio * tech_index * inf_factor * adder_factor),
+                        2
+                    )
+                else:
+                    capex_base = capex_override if capex_override is not None else bm.installed_capex_per_kw
+                    lfcr = lfcr_override if lfcr_override is not None else bm.levelized_fcr
+                    fom_base = fom_override if fom_override is not None else bm.fom_per_kw_yr
+
+                    delta_years = max(0, yr - self.base_year)
+                    inf_factor = ((1.0 + self.annual_inflation_rate) ** delta_years) if curr_tag == "nominal" else 1.0
+
+                    base_cap_rec = capex_base * lfcr
+                    ann_cap_rec = round(base_cap_rec * tech_index * inf_factor * adder_factor, 2)
+                    fom_val = round(fom_base * inf_factor * adder_factor, 2)
+                    gross_ecc = round(ann_cap_rec + fom_val, 2)
+                    installed_capex = round(
+                        (ann_cap_rec / lfcr) if lfcr > 0 else (capex_base * tech_index * inf_factor * adder_factor),
+                        2
+                    )
 
                 row: Dict[str, Union[int, float, str, None]] = {
                     "year": yr,
@@ -447,11 +590,11 @@ class SERCCapacityModel:
                     "operating_companies": bm.operating_companies,
                     "benchmark_unit": bm.benchmark_unit,
                     "currency": curr_tag,
-                    "inflation_factor": round(ecc_dict["inflation_factor"], 6),
-                    "installed_capex_per_kw": round(ecc_dict["installed_capex_per_kw"], 2),
+                    "inflation_factor": round(inf_factor, 6),
+                    "installed_capex_per_kw": installed_capex,
                     "levelized_fcr": round(bm.levelized_fcr, 4),
-                    "annual_capital_recovery_per_kw_yr": round(ecc_dict["annual_capital_recovery_per_kw_yr"] * adder_factor, 2),
-                    "fom_per_kw_yr": round(ecc_dict["fom_per_kw_yr"] * adder_factor, 2),
+                    "annual_capital_recovery_per_kw_yr": ann_cap_rec,
+                    "fom_per_kw_yr": fom_val,
                     "gross_ecc_per_kw_yr": round(gross_ecc, 2),
                     "capacity_escalation_adder": capacity_escalation_adder,
                     "regulatory_docket": bm.regulatory_docket,
@@ -464,11 +607,14 @@ class SERCCapacityModel:
                         summer_accreditation_ratio=summer_accreditation_ratio,
                         winter_weight=winter_weight,
                         summer_weight=summer_weight,
+                        normalize_to_annual=normalize_seasonal,
                     )
                     row["winter_capacity_value_per_kw_season"] = round(seas["winter_capacity_value_per_kw_season"], 2)
                     row["summer_capacity_value_per_kw_season"] = round(seas["summer_capacity_value_per_kw_season"], 2)
 
                 records.append(row)
+
+        return pd.DataFrame(records)
 
         return pd.DataFrame(records)
 
@@ -822,14 +968,14 @@ def refresh_capacity_benchmarks(
     annual_inflation_rate: float = 0.022,
 ) -> Dict[str, Any]:
     """
-    Re-query and re-calculate the latest empirical utility capacity cost baselines
-    across SERC (Southern Company, Duke Energy, TVA, Composite) and export fresh
+    Generate the documented analytical utility capacity cost baselines across SERC
+    (Southern Company, Duke Energy, TVA, NREL ATB, Composite) and export fresh
     2025-2050 projections to disk.
 
     Returns
     -------
     Dict[str, Any]
-        Dictionary with status, updated benchmarks summary, and file write confirmation.
+        Dictionary with status, exported benchmarks summary, and file write confirmation.
     """
     model = SERCCapacityModel(annual_inflation_rate=annual_inflation_rate)
     df_nominal = model.get_projection(start_year=2025, end_year=2050, currency="nominal", utility="all")
@@ -857,7 +1003,7 @@ def refresh_capacity_benchmarks(
         "records_generated": len(df_nominal),
         "export_csv_path": export_csv_path,
         "benchmarks": summary_benchmarks,
-        "message": f"Successfully refreshed {len(df_nominal)} capacity records across 2025-2050 at {annual_inflation_rate*100:.1f}% inflation.",
+        "message": f"Successfully exported {len(df_nominal)} reference capacity projection records across 2025-2050 at {annual_inflation_rate*100:.1f}% inflation.",
     }
 
 
