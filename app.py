@@ -922,19 +922,20 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         builder_capex = None
         builder_fcr = None
         builder_fom = None
+        start_year_curr = int(st.session_state.get("start_year_input", DEFAULT_START_YEAR))
         val_basis_saved = st.session_state.get("selected_val_currency", "real")
         is_real = (val_basis_saved != "nominal")
-        if is_real and int(start_year) > 2024:
-            real_cap_mult = (1.0 + 0.022) ** (int(start_year) - 2024)
+        if is_real and start_year_curr > 2024:
+            real_cap_mult = (1.0 + 0.022) ** (start_year_curr - 2024)
             default_cap_display = round(float(active_def_cap_val) * real_cap_mult, 2)
-            caption_str = f"Active Benchmark: **{selected_serc_utility}** (${active_def_cap_val:,.2f}/kW-yr in 2024$ Real → **${default_cap_display:,.2f}/kW-yr** in {start_year}$ Constant)."
-            input_label = f"Total Economic Carrying Cost of a CT ($/kW-year in {start_year}$ Constant)"
+            caption_str = f"Active Benchmark: **{selected_serc_utility}** (${active_def_cap_val:,.2f}/kW-yr in 2024$ Real → **${default_cap_display:,.2f}/kW-yr** in {start_year_curr}$ Constant)."
+            input_label = f"Total Economic Carrying Cost of a CT ($/kW-year in {start_year_curr}$ Constant)"
         else:
             default_cap_display = float(active_def_cap_val)
             caption_str = f"Active Benchmark: **{selected_serc_utility}** (${active_def_cap_val:,.2f}/kW-yr)."
             input_label = "Total Economic Carrying Cost of a CT ($/kW-year)"
 
-        cap_input_key = f"direct_cap_{tuple(target_states)}_{selected_serc_utility}_{val_basis_saved}_{start_year}"
+        cap_input_key = f"direct_cap_{tuple(target_states)}_{selected_serc_utility}_{val_basis_saved}_{start_year_curr}"
         cap_value = st.number_input(
             input_label,
             min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1],
