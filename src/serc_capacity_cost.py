@@ -16,7 +16,7 @@ Regulatory & Analytical Framework:
        - Installed CapEx: $1,110/kW (overnight + interconnection)
        - Approved LFCR: 10.20%
        - Fixed O&M + Gas Transport Reservation: $28.00/kW-yr
-       - Docket: GPSC Docket No. 44280 / APSC Docket No. 33201
+       - Docket: GPSC Docket No. 44160 (2022 IRP) / Docket No. 44280 (2022 Rate Case) & APSC Docket No. 32953 / Docket No. 18117
        
     2. Duke Energy Carolinas & Progress:
        - Benchmark Unit: Simple-Cycle F-Frame CT
@@ -34,7 +34,8 @@ Regulatory & Analytical Framework:
        
     4. SERC Weighted Composite:
        - Installed CapEx: $1,080/kW | LFCR: 9.70% | FOM: $25.00/kW-yr
-       - Capacity-weighted regional benchmark across Southeast states.
+       - Capacity-weighted regional benchmark across Southeast states:
+         0.35 * $141.22 + 0.30 * $130.35 + 0.25 * $115.12 + 0.10 * $124.50 = $129.76/kW-yr.
 
 Annual Carrying Cost Formulation:
     Annual Capital Recovery ($/kW-yr) = Installed_CapEx * LFCR
@@ -145,39 +146,72 @@ class CapacityCostProjection(BaseModel):
 
 
 # ==============================================================================
-# NREL ATB COMBUSTION TURBINE (CT) CAPITAL COST TRAJECTORY INDEX
+# NREL ATB COMBUSTION TURBINE (CT) CAPITAL COST & FOM TRAJECTORY INDICES
 # ==============================================================================
-# Overnight capital cost index derived from NREL ATB 2024/2025 Natural Gas CT
-# Moderate scenario (2024 Base Year = 1.0000).
+# Overnight capital cost index derived from NREL ATB 2025 Natural Gas CT
+# Moderate scenario (2024 Base Year = 1.0000, 2025 = 1.0000, 2030 = 0.9560,
+# 2040 = 0.9070, 2050 = 0.8440).
 # Captures technology learning and mature turbine manufacturing cost drift over time.
 NREL_ATB_CT_CAPITAL_COST_INDEX: Dict[int, float] = {
     2024: 1.0000,
-    2025: 0.9989,
-    2026: 0.9978,
-    2027: 0.9967,
-    2028: 0.9956,
-    2029: 0.9945,
-    2030: 0.9934,
-    2031: 0.9923,
-    2032: 0.9911,
-    2033: 0.9900,
-    2034: 0.9889,
-    2035: 0.9877,
-    2036: 0.9866,
-    2037: 0.9854,
-    2038: 0.9843,
-    2039: 0.9831,
-    2040: 0.9820,
-    2041: 0.9808,
-    2042: 0.9796,
-    2043: 0.9784,
-    2044: 0.9772,
-    2045: 0.9760,
-    2046: 0.9748,
-    2047: 0.9736,
-    2048: 0.9724,
-    2049: 0.9712,
-    2050: 0.9700,
+    2025: 1.0000,
+    2026: 0.9912,
+    2027: 0.9824,
+    2028: 0.9736,
+    2029: 0.9648,
+    2030: 0.9560,
+    2031: 0.9511,
+    2032: 0.9462,
+    2033: 0.9413,
+    2034: 0.9364,
+    2035: 0.9315,
+    2036: 0.9266,
+    2037: 0.9217,
+    2038: 0.9168,
+    2039: 0.9119,
+    2040: 0.9070,
+    2041: 0.9007,
+    2042: 0.8944,
+    2043: 0.8881,
+    2044: 0.8818,
+    2045: 0.8755,
+    2046: 0.8692,
+    2047: 0.8629,
+    2048: 0.8566,
+    2049: 0.8503,
+    2050: 0.8440,
+}
+
+# Fixed O&M index derived from NREL ATB 2025 Natural Gas CT Moderate scenario
+# ($26.60/kW-yr in 2024/2025 -> $25.73/kW-yr in 2030 -> $24.86/kW-yr in 2040 -> $23.83/kW-yr in 2050).
+NREL_ATB_CT_FOM_INDEX: Dict[int, float] = {
+    2024: 1.0000,
+    2025: 1.0000,
+    2026: 0.9935,
+    2027: 0.9869,
+    2028: 0.9804,
+    2029: 0.9738,
+    2030: 0.9673,
+    2031: 0.9640,
+    2032: 0.9608,
+    2033: 0.9575,
+    2034: 0.9542,
+    2035: 0.9509,
+    2036: 0.9477,
+    2037: 0.9444,
+    2038: 0.9411,
+    2039: 0.9379,
+    2040: 0.9346,
+    2041: 0.9307,
+    2042: 0.9269,
+    2043: 0.9230,
+    2044: 0.9191,
+    2045: 0.9152,
+    2046: 0.9114,
+    2047: 0.9075,
+    2048: 0.9036,
+    2049: 0.8998,
+    2050: 0.8959,
 }
 
 
@@ -193,13 +227,34 @@ def get_nrel_atb_ct_capital_cost_index(year: int) -> float:
     Returns
     -------
     float
-        Capital cost index multiplier (e.g. 1.000 in 2024, 0.9934 in 2030, 0.9700 in 2050).
+        Capital cost index multiplier (e.g. 1.000 in 2024/2025, 0.9560 in 2030, 0.9070 in 2040, 0.8440 in 2050).
     """
     if year in NREL_ATB_CT_CAPITAL_COST_INDEX:
         return NREL_ATB_CT_CAPITAL_COST_INDEX[year]
     if year < 2024:
         return 1.0
-    return max(0.85, 0.9700 - (year - 2050) * 0.0012)
+    return max(0.70, 0.8440 - (year - 2050) * 0.0063)
+
+
+def get_nrel_atb_ct_fom_index(year: int) -> float:
+    """
+    Return the NREL ATB Combustion Turbine Fixed O&M index relative to base year 2024.
+
+    Parameters
+    ----------
+    year : int
+        Calendar year.
+
+    Returns
+    -------
+    float
+        Fixed O&M index multiplier (e.g. 1.000 in 2024/2025, 0.9673 in 2030, 0.9346 in 2040, 0.8959 in 2050).
+    """
+    if year in NREL_ATB_CT_FOM_INDEX:
+        return NREL_ATB_CT_FOM_INDEX[year]
+    if year < 2024:
+        return 1.0
+    return max(0.70, 0.8959 - (year - 2050) * 0.0039)
 
 
 # ==============================================================================
@@ -220,12 +275,12 @@ class SERCCapacityModel:
             name="Southern Company",
             operating_companies="Georgia Power / Alabama Power",
             benchmark_unit="2x GE 7HA.02 SCCT",
-            regulatory_docket="GPSC Docket No. 44160 (2022 IRP) / GPSC Docket No. 44280 (2022 Rate Case) & APSC Docket No. 33201",
+            regulatory_docket="GPSC Docket No. 44160 (2022 IRP) / GPSC Docket No. 44280 (2022 Rate Case) & APSC Docket No. 32953 / Docket No. 18117",
             base_year=2024,
             installed_capex_per_kw=1110.0,
             levelized_fcr=0.102,
             fom_per_kw_yr=28.00,
-            notes="Next planned peaking unit: 2x GE 7HA.02 simple-cycle combustion turbines (Plant Yates/Plant Barry expansions); includes firm natural gas pipeline reservation. GPSC Docket 44160 approved resource capacity additions; Docket 44280 establishes base rate cost-of-service parameters.",
+            notes="Next planned peaking unit: 2x GE 7HA.02 simple-cycle combustion turbines (Plant Yates/Plant Barry expansions); includes firm natural gas pipeline reservation. GPSC Docket 44160 approved resource capacity additions; Docket 44280 establishes base rate cost-of-service parameters; APSC Docket 32953 approved Plant Barry Unit 8 CT expansion and Docket 18117 governs Rate RSE capacity cost recovery.",
         ),
         "Duke Energy Carolinas & Progress": UtilityBenchmark(
             name="Duke Energy Carolinas & Progress",
@@ -258,7 +313,7 @@ class SERCCapacityModel:
             installed_capex_per_kw=1080.0,
             levelized_fcr=0.097,
             fom_per_kw_yr=25.00,
-            notes="Regional screening proxy composite benchmark representative of the Southeast reliability footprint (weights: ~35% Southern Co, ~30% Duke Carolinas, ~25% TVA, ~10% other SERC). CapEx $1,080/kW, FCR 9.7%, FOM $25/kW-yr.",
+            notes="Regional screening proxy composite benchmark representative of the Southeast reliability footprint (weights: ~35% Southern Co [$141.22], ~30% Duke Carolinas [$130.35], ~25% TVA [$115.12], ~10% other SERC [$124.50] -> CapEx $1,080/kW, LFCR 9.70%, FOM $25.00/kW-yr -> Gross ECC $129.76/kW-yr).",
         ),
         "NREL ATB 2025": UtilityBenchmark(
             name="NREL ATB 2025",
@@ -269,7 +324,7 @@ class SERCCapacityModel:
             installed_capex_per_kw=1105.80,
             levelized_fcr=0.0820,
             fom_per_kw_yr=26.60,
-            notes="NREL ATB 2025 Natural Gas CT Moderate scenario ($1,105.80/kW CAPEX, $26.60/kW-yr FOM). Note: ATB reports conventional gas in 2023$ with IPP/merchant financing; 8.20% FCR reflects synthesized regulated utility financing (~7.16% WACC, 30-yr life, MACRS tax shield) yielding $117.28/kW-yr ECC.",
+            notes="NREL ATB 2025 Natural Gas CT Moderate scenario ($1,105.80/kW Overnight Capital Cost [OCC] in 2023$, excluding IDC; $26.60/kW-yr FOM). Note: ATB reports conventional gas in 2023$ with IPP/merchant financing; 8.20% FCR reflects synthesized public power / constant-dollar financing (6.07% WACC, 30-yr life) yielding $117.28/kW-yr ECC, while 7.16% IOU WACC yields 9.29% FCR ($129.38/kW-yr ECC). Total CAPEX with IDC is $1,328.85/kW.",
         ),
     }
 
@@ -528,12 +583,17 @@ class SERCCapacityModel:
             Structured projection table with annual and seasonal metrics.
         """
         currency_norm = currency.lower().strip()
-        if currency_norm in ["real", "real_2024", "2024", "2024$"]:
+        if currency_norm in ["real_2024", "2024", "2024$"]:
             curr_tag = "real_2024"
+            real_align_factor = 1.0
+        elif currency_norm in ["real", "real_constant", "real_start_year"]:
+            curr_tag = "real"
+            real_align_factor = ((1.0 + self.annual_inflation_rate) ** (start_year - self.base_year)) if start_year > self.base_year else 1.0
         elif currency_norm in ["nominal", "nominal$", "nom"]:
             curr_tag = "nominal"
+            real_align_factor = 1.0
         else:
-            raise ValueError(f"currency must be 'real_2024' or 'nominal'; received '{currency}'")
+            raise ValueError(f"currency must be 'real_2024', 'real', or 'nominal'; received '{currency}'")
 
         if utility is None or utility.lower() in ["all", "all_utilities", "all_benchmarks"]:
             target_utilities = list(self.benchmarks.keys())
@@ -548,11 +608,37 @@ class SERCCapacityModel:
                 get_nrel_atb_ct_capital_cost_index(yr) / get_nrel_atb_ct_capital_cost_index(start_year)
                 if apply_atb_tech_index else 1.0
             )
+            fom_index = (
+                get_nrel_atb_ct_fom_index(yr) / get_nrel_atb_ct_fom_index(start_year)
+                if apply_atb_tech_index else 1.0
+            )
             for u in target_utilities:
                 bm = self.get_benchmark(u)
 
-                if base_cost_override is not None:
-                    # User-specified starting Year 1 cost ($/kW-yr)
+                # Check if custom CT Builder / component overrides were passed
+                has_component_overrides = (capex_override is not None or lfcr_override is not None or fom_override is not None)
+
+                if has_component_overrides:
+                    # Explicit CT Builder components preserve full composition over lifetime
+                    capex_base = capex_override if capex_override is not None else (bm.installed_capex_per_kw * real_align_factor)
+                    lfcr = lfcr_override if lfcr_override is not None else bm.levelized_fcr
+                    fom_base = fom_override if fom_override is not None else (bm.fom_per_kw_yr * real_align_factor)
+
+                    delta_years = max(0, yr - start_year)
+                    inf_factor = ((1.0 + self.annual_inflation_rate) ** delta_years) if curr_tag == "nominal" else 1.0
+
+                    base_cap_rec = capex_base * lfcr
+                    ann_cap_rec = round(base_cap_rec * tech_index * inf_factor * adder_factor, 2)
+                    fom_val = round(fom_base * fom_index * inf_factor * adder_factor, 2)
+                    gross_ecc = round(ann_cap_rec + fom_val, 2)
+                    installed_capex = round(
+                        (ann_cap_rec / lfcr) if lfcr > 0 else (capex_base * tech_index * inf_factor * adder_factor),
+                        2
+                    )
+                    used_lfcr = lfcr
+
+                elif base_cost_override is not None:
+                    # User-specified starting Year 1 cost ($/kW-yr) from Direct IRP Scaler
                     delta_years = max(0, yr - start_year)
                     inf_factor = ((1.0 + self.annual_inflation_rate) ** delta_years) if curr_tag == "nominal" else 1.0
                     scale_ratio = (base_cost_override / bm.gross_ecc_per_kw_yr) if bm.gross_ecc_per_kw_yr > 0 else 1.0
@@ -561,28 +647,36 @@ class SERCCapacityModel:
                     base_fom = bm.fom_per_kw_yr * scale_ratio
 
                     ann_cap_rec = round(base_cap_rec * tech_index * inf_factor * adder_factor, 2)
-                    fom_val = round(base_fom * inf_factor * adder_factor, 2)
+                    fom_val = round(base_fom * fom_index * inf_factor * adder_factor, 2)
                     gross_ecc = round(ann_cap_rec + fom_val, 2)
                     installed_capex = round(
                         (ann_cap_rec / bm.levelized_fcr) if bm.levelized_fcr > 0 else (bm.installed_capex_per_kw * scale_ratio * tech_index * inf_factor * adder_factor),
                         2
                     )
-                else:
-                    capex_base = capex_override if capex_override is not None else bm.installed_capex_per_kw
-                    lfcr = lfcr_override if lfcr_override is not None else bm.levelized_fcr
-                    fom_base = fom_override if fom_override is not None else bm.fom_per_kw_yr
+                    used_lfcr = bm.levelized_fcr
 
-                    delta_years = max(0, yr - self.base_year)
-                    inf_factor = ((1.0 + self.annual_inflation_rate) ** delta_years) if curr_tag == "nominal" else 1.0
+                else:
+                    # Default benchmark trajectory
+                    capex_base = bm.installed_capex_per_kw * real_align_factor
+                    lfcr = bm.levelized_fcr
+                    fom_base = bm.fom_per_kw_yr * real_align_factor
+
+                    if curr_tag == "nominal":
+                        delta_years = max(0, yr - self.base_year)
+                        inf_factor = (1.0 + self.annual_inflation_rate) ** delta_years
+                    else:
+                        delta_years = 0
+                        inf_factor = 1.0
 
                     base_cap_rec = capex_base * lfcr
                     ann_cap_rec = round(base_cap_rec * tech_index * inf_factor * adder_factor, 2)
-                    fom_val = round(fom_base * inf_factor * adder_factor, 2)
+                    fom_val = round(fom_base * fom_index * inf_factor * adder_factor, 2)
                     gross_ecc = round(ann_cap_rec + fom_val, 2)
                     installed_capex = round(
                         (ann_cap_rec / lfcr) if lfcr > 0 else (capex_base * tech_index * inf_factor * adder_factor),
                         2
                     )
+                    used_lfcr = lfcr
 
                 row: Dict[str, Union[int, float, str, None]] = {
                     "year": yr,
@@ -592,7 +686,7 @@ class SERCCapacityModel:
                     "currency": curr_tag,
                     "inflation_factor": round(inf_factor, 6),
                     "installed_capex_per_kw": installed_capex,
-                    "levelized_fcr": round(bm.levelized_fcr, 4),
+                    "levelized_fcr": round(used_lfcr, 4),
                     "annual_capital_recovery_per_kw_yr": ann_cap_rec,
                     "fom_per_kw_yr": fom_val,
                     "gross_ecc_per_kw_yr": round(gross_ecc, 2),
@@ -613,8 +707,6 @@ class SERCCapacityModel:
                     row["summer_capacity_value_per_kw_season"] = round(seas["summer_capacity_value_per_kw_season"], 2)
 
                 records.append(row)
-
-        return pd.DataFrame(records)
 
         return pd.DataFrame(records)
 

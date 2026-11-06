@@ -908,6 +908,10 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
 
         ct_calc = calculate_ct_carrying_cost(ct_capex, ct_fom, fcr, eas_offset_kw_yr=ct_eas)
         cap_value = ct_calc["net_capacity_cost"]
+        builder_capex = ct_capex
+        builder_fcr = fcr
+        builder_fom = ct_fom
+
         st.metric(
             label="Calculated Avoided Capacity",
             value=f"${cap_value:,.2f}/kW-yr",
@@ -915,21 +919,36 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         )
         st.caption(f"Active Benchmark: **{selected_serc_utility}** (${cap_value:,.2f}/kW-yr).")
     else:
-        cap_input_key = f"direct_cap_{tuple(target_states)}_{selected_serc_utility}"
+        builder_capex = None
+        builder_fcr = None
+        builder_fom = None
+        val_basis_saved = st.session_state.get("selected_val_currency", "real")
+        is_real = (val_basis_saved != "nominal")
+        if is_real and int(start_year) > 2024:
+            real_cap_mult = (1.0 + 0.022) ** (int(start_year) - 2024)
+            default_cap_display = round(float(active_def_cap_val) * real_cap_mult, 2)
+            caption_str = f"Active Benchmark: **{selected_serc_utility}** (${active_def_cap_val:,.2f}/kW-yr in 2024$ Real → **${default_cap_display:,.2f}/kW-yr** in {start_year}$ Constant)."
+            input_label = f"Total Economic Carrying Cost of a CT ($/kW-year in {start_year}$ Constant)"
+        else:
+            default_cap_display = float(active_def_cap_val)
+            caption_str = f"Active Benchmark: **{selected_serc_utility}** (${active_def_cap_val:,.2f}/kW-yr)."
+            input_label = "Total Economic Carrying Cost of a CT ($/kW-year)"
+
+        cap_input_key = f"direct_cap_{tuple(target_states)}_{selected_serc_utility}_{val_basis_saved}_{start_year}"
         cap_value = st.number_input(
-            "Total Economic Carrying Cost of a CT ($/kW-year)",
+            input_label,
             min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1],
-            value=float(active_def_cap_val),
+            value=default_cap_display,
             step=CAP_VALUE_RANGE[2], format="%.2f",
             key=cap_input_key,
             help=(
                 f"Commission-approved avoided generation capacity credit from utility IRP or PURPA docket. "
-                f"Note: This input is the Year 1 starting value (${active_def_cap_val:,.2f}/kW-yr for {selected_serc_utility}) "
+                f"Note: This input is the Year 1 starting value (${default_cap_display:,.2f}/kW-yr for {selected_serc_utility}) "
                 f"that increases over time across the asset lifetime via the multi-year capacity trajectory "
                 f"(escalating at 2.2% annual inflation / replacement cost escalation across future planning years)."
             )
         )
-        st.caption(f"Active Benchmark: **{selected_serc_utility}** (${active_def_cap_val:,.2f}/kW-yr).")
+        st.caption(caption_str)
         # Populate benchmark breakdown for waterfall visualization
         if abs(cap_value - DEFAULT_CAP_VALUE) < 1e-4:
             ct_calc = calculate_ct_carrying_cost(1080.0, 25.00, 0.097)
@@ -986,7 +1005,7 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
             energy_add=energy_adder_input,
             sc_name=f"Cap: {cap_esc_choice.split(' ')[0]} | Energy: {energy_esc_choice.split(' ')[0]}",
             key_suffix="cap_sec3",
-            currency_basis=st.session_state.get("selected_val_currency", "real_2024"),
+            currency_basis=st.session_state.get("selected_val_currency", "real"),
         )
 
 # 5. Capacity Risk Allocation (CWF)
@@ -1349,7 +1368,7 @@ with st.sidebar.expander("Financial Assumptions & Multi-Year Trajectory", expand
         ),
     )
     selected_valuation_basis = "real" if val_basis_choice.startswith("Real") else "nominal"
-    st.session_state["selected_val_currency"] = "nominal" if selected_valuation_basis == "nominal" else "real_2024"
+    st.session_state["selected_val_currency"] = "nominal" if selected_valuation_basis == "nominal" else "real"
 
     discount_timing_choice = st.selectbox(
         "Discount Timing Convention",
@@ -1923,7 +1942,7 @@ else:
                     try:
                         serc_model = SERCCapacityModel()
                         u_target = selected_serc_utility if (selected_serc_utility in serc_model.benchmarks or selected_serc_utility.lower() in serc_model.ALIAS_MAP) else "SERC Weighted Composite"
-                        curr_name = "nominal" if selected_valuation_basis == "nominal" else "real_2024"
+                        curr_name = "nominal" if selected_valuation_basis == "nominal" else "real"
                         proj_df = serc_model.get_projection(
                             start_year=min(target_years),
                             end_year=max(target_years),
@@ -1931,6 +1950,9 @@ else:
                             currency=curr_name,
                             capacity_escalation_adder=cap_adder_input,
                             base_cost_override=float(cap_value),
+                            capex_override=builder_capex,
+                            lfcr_override=builder_fcr,
+                            fom_override=builder_fom,
                         )
                         capacity_cost_schedule = dict(zip(proj_df["year"], proj_df["gross_ecc_per_kw_yr"]))
                     except Exception as sched_err:
@@ -2320,7 +2342,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                     energy_add=energy_adder_input,
                                     sc_name=f"Cap: {cap_esc_choice.split(' ')[0]} | Energy: {energy_esc_choice.split(' ')[0]}",
                                     key_suffix="summary_tab",
-                                    currency_basis=("nominal" if selected_valuation_basis == "nominal" else "real_2024"),
+                                    currency_basis=("nominal" if selected_valuation_basis == "nominal" else "real"),
                                 )
                         st.caption(
                             "Compares total wholesale grid avoided costs against utility retail lost revenue and the "

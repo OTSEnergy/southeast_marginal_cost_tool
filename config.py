@@ -629,8 +629,8 @@ CARBON_TAX_RANGE = (0.0, 100.0, 5.00)
 
 SOUTHEAST_PEAKER_PRESETS = {
     "SERC Regional SCCT Composite Benchmark (2024$ Real)": {
-        "description": "SERC Regional Capacity Benchmark: Levelized Fixed Revenue Requirement across Southeast IRPs (GA, AL, NC, SC, TN). (CAPEX: $1,080/kW, LFCR: 9.70%, FOM: $25.00/kW-yr -> ECC: $129.76/kW-yr).",
-        "source": "SERC Regional Avoided Capacity Model (LFRR composite across GPSC, NCUC, TVA dockets)",
+        "description": "SERC Regional Capacity Benchmark: Levelized Fixed Revenue Requirement across Southeast IRPs (GA, AL, NC, SC, TN). Weights: ~35% Southern Co, ~30% Duke Carolinas, ~25% TVA, ~10% Other SERC. (CAPEX: $1,080/kW, LFCR: 9.70%, FOM: $25.00/kW-yr -> ECC: $129.76/kW-yr).",
+        "source": "SERC Regional Avoided Capacity Model (LFRR composite across GPSC, NCUC, TVA dockets: 0.35*141.22 + 0.30*130.35 + 0.25*115.12 + 0.10*124.50 = $129.76/kW-yr)",
         "capex_kw": 1080.0,
         "fom_kw_yr": 25.00,
         "fcr": 0.097,
@@ -640,18 +640,40 @@ SOUTHEAST_PEAKER_PRESETS = {
         "eas_offset_kw_yr": 0.0,
     },
     "NLR / NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)": {
-        "description": "NLR / NREL Annual Technology Baseline (ATB 2025) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario (2023$ Base). Regulated Utility Financing case synthesized via 8.20% FCR (~7.16% WACC, 30-yr life, MACRS tax shield) -> ECC: $117.28/kW-yr. Note: Native ATB gas models commercial IPP/merchant financing; regulated rate-base FCR is synthesized for IRP comparison.",
-        "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data) (Natural Gas: CT Moderate Case)",
+        "description": "NLR / NREL Annual Technology Baseline (ATB 2025) Natural Gas: Combustion Turbine (CT) — Utility-scale F-Class, Moderate Scenario (2023$ Base). Overnight Capital Cost (OCC): $1,105.80/kW (excludes construction financing / IDC). Regulated Utility Financing case synthesized via 8.20% FCR (corresponds to 6.07% public power / constant-dollar WACC, 30-yr life, 25.7% tax; or 9.29% FCR under 7.16% IOU WACC) -> ECC: $117.28/kW-yr. Note: Native ATB gas models commercial IPP/merchant financing; regulated rate-base FCR is synthesized for IRP comparison.",
+        "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data) (Natural Gas: CT Moderate Case Overnight Capital Cost)",
         "capex_kw": 1105.80,
         "fom_kw_yr": 26.60,
         "fcr": 0.082,
+        "wacc": 0.0607,
+        "life": 30,
+        "tax_rate": 0.257,
+        "eas_offset_kw_yr": 0.0,
+    },
+    "NLR / NREL ATB 2025: Natural Gas CT (Moderate / Regulated IOU WACC 7.16% -> 9.29% FCR)": {
+        "description": "NLR / NREL ATB 2025 Natural Gas CT Moderate Case with full investor-owned utility (IOU) financing (Overnight Capital Cost [OCC]: $1,105.80/kW, 7.16% WACC, 30-yr life, 25.7% tax rate, 15-yr MACRS depreciation shield -> 9.29% FCR, FOM: $26.60/kW-yr -> ECC: $129.38/kW-yr).",
+        "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data) & App Synthesized WACC/MACRS Calculator",
+        "capex_kw": 1105.80,
+        "fom_kw_yr": 26.60,
+        "fcr": 0.0929,
         "wacc": 0.0716,
         "life": 30,
         "tax_rate": 0.257,
         "eas_offset_kw_yr": 0.0,
     },
+    "NLR / NREL ATB 2025: Natural Gas CT Total CAPEX with IDC ($1,328.85/kW)": {
+        "description": "NLR / NREL ATB 2025 Natural Gas CT Moderate Case using full CAPEX with Interest During Construction (IDC) / construction financing charges (Total CAPEX: $1,328.85/kW in 2023$, FCR: 8.20%, FOM: $26.60/kW-yr -> ECC: $135.57/kW-yr; at 9.29% IOU FCR -> ECC: $150.05/kW-yr).",
+        "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data) (Moderate F-Frame CAPEX with IDC)",
+        "capex_kw": 1328.85,
+        "fom_kw_yr": 26.60,
+        "fcr": 0.0820,
+        "wacc": 0.0607,
+        "life": 30,
+        "tax_rate": 0.257,
+        "eas_offset_kw_yr": 0.0,
+    },
     "NLR / NREL ATB 2025: Natural Gas CT (Merchant / R&D Financing)": {
-        "description": "NLR / NREL ATB 2025 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (2023$ Base; CAPEX: $1,105.80/kW, FCR: 10.20%, FOM: $26.60/kW-yr -> ECC: $139.39/kW-yr).",
+        "description": "NLR / NREL ATB 2025 Natural Gas CT with independent power producer (IPP) / merchant commercial financing (2023$ Base; Overnight Capital Cost [OCC]: $1,105.80/kW, FCR: 10.20%, FOM: $26.60/kW-yr -> ECC: $139.39/kW-yr).",
         "source": "[Data | Electricity | 2025 | ATB | NLR](https://atb.nlr.gov/electricity/2025/data)",
         "capex_kw": 1105.80,
         "fom_kw_yr": 26.60,
@@ -663,7 +685,7 @@ SOUTHEAST_PEAKER_PRESETS = {
     },
     "Southern Company / Georgia Power IRP SCCT Benchmark": {
         "description": "Next planned 2x GE 7HA.02 simple-cycle combustion turbine peaker proxy modeled on Southern Company 2022/2025 planning filings (Plant Yates/Plant Barry expansions).",
-        "source": "Southern Company 2022/2025 IRP & Rate Case filings (GPSC Docket 44160 IRP / Docket 44280 Rate Case & APSC Docket 33201)",
+        "source": "Southern Company 2022/2025 IRP & Rate Case filings (GPSC Docket No. 44160 2022 IRP / Docket No. 44280 2022 Rate Case & APSC Docket No. 32953 / Docket No. 18117)",
         "capex_kw": 1110.0,
         "fom_kw_yr": 28.00,
         "fcr": 0.102,
@@ -674,7 +696,7 @@ SOUTHEAST_PEAKER_PRESETS = {
     },
     "Duke Energy Carolinas 2024 IRP SCCT Benchmark": {
         "description": "Next planned GE 7F.05 simple-cycle combustion turbine from Duke Energy 2024 Carolinas Resource Plan / Carbon Plan.",
-        "source": "Duke Energy Carolinas 2024 Integrated Resource Plan / Carbon Plan (NCUC Docket E-100 Sub 190)",
+        "source": "Duke Energy Carolinas 2024 Integrated Resource Plan / Carbon Plan (NCUC Docket No. E-100 Sub 190)",
         "capex_kw": 1075.0,
         "fom_kw_yr": 25.00,
         "fcr": 0.098,
@@ -721,6 +743,8 @@ SOUTHEAST_PEAKER_PRESETS = {
 # Aliases for 2025 variations
 SOUTHEAST_PEAKER_PRESETS["NLR ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
 SOUTHEAST_PEAKER_PRESETS["NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT Benchmark (Moderate / Regulated Utility)"]
+SOUTHEAST_PEAKER_PRESETS["NLR ATB 2025: Natural Gas CT Total CAPEX with IDC ($1,328.85/kW)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT Total CAPEX with IDC ($1,328.85/kW)"]
+SOUTHEAST_PEAKER_PRESETS["NREL ATB 2025: Natural Gas CT Total CAPEX with IDC ($1,328.85/kW)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT Total CAPEX with IDC ($1,328.85/kW)"]
 SOUTHEAST_PEAKER_PRESETS["NLR ATB 2025: Natural Gas CT (Merchant / R&D Financing)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT (Merchant / R&D Financing)"]
 SOUTHEAST_PEAKER_PRESETS["NREL ATB 2025: Natural Gas CT (Merchant / R&D Financing)"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Natural Gas CT (Merchant / R&D Financing)"]
 SOUTHEAST_PEAKER_PRESETS["NLR ATB 2025: Aeroderivative CT"] = SOUTHEAST_PEAKER_PRESETS["NLR / NREL ATB 2025: Aeroderivative CT"]

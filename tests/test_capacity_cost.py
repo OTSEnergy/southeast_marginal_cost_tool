@@ -35,6 +35,7 @@ from serc_capacity_cost import (
 from calculations import (
     calculate_annual_capacity_savings,
     calculate_multi_year_avoided_costs_and_npv,
+    calculate_regulated_fcr,
 )
 
 
@@ -225,10 +226,34 @@ class TestNominalInflationCompounding:
         )
         # Year 2024 baseline Gross ECC = $129.76/kW-yr
         assert pytest.approx(df.iloc[0]["gross_ecc_per_kw_yr"], abs=1e-2) == 129.76
-        # Year 2050 reflects NREL ATB 0.9700 capital cost index: 104.76 * 0.97 + 25.00 = 126.62
-        assert pytest.approx(df.iloc[-1]["gross_ecc_per_kw_yr"], abs=1e-2) == 126.62
+        # Year 2050 reflects NREL ATB Moderate F-Frame 0.8440 OCC index and 0.8959 FOM index:
+        # Cap recovery: 1080 * 0.097 * 0.8440 = 88.42
+        # FOM: 25.00 * 0.8959 = 22.40
+        # Total Gross ECC = 88.42 + 22.40 = 110.82
+        assert pytest.approx(df.iloc[-1]["gross_ecc_per_kw_yr"], abs=1e-2) == 110.82
         # Monotonically declining real capital cost due to ATB tech learning
         assert df.iloc[-1]["gross_ecc_per_kw_yr"] < df.iloc[0]["gross_ecc_per_kw_yr"]
+
+    def test_atb_moderate_ct_cost_trajectory_matches_audit_figures(self):
+        """
+        Verify that for NREL ATB 2025 starting at $117.28/kW-yr ($1,105.80 OCC, 8.2% FCR, $26.60 FOM):
+        In 2040: Cap recovery = 1105.80 * 0.9070 * 0.0820 = 82.24, FOM = 26.60 * 0.9346 = 24.86 -> $107.10/kW-yr.
+        In 2050: Cap recovery = 1105.80 * 0.8440 * 0.0820 = 76.53, FOM = 26.60 * 0.8959 = 23.83 -> $100.36/kW-yr.
+        """
+        df = self.model.get_projection(
+            start_year=2024,
+            end_year=2050,
+            currency="real_2024",
+            utility="NREL ATB 2025",
+            apply_atb_tech_index=True,
+        )
+        row_2024 = df[df["year"] == 2024].iloc[0]
+        row_2040 = df[df["year"] == 2040].iloc[0]
+        row_2050 = df[df["year"] == 2050].iloc[0]
+
+        assert pytest.approx(row_2024["gross_ecc_per_kw_yr"], abs=1e-2) == 117.28
+        assert pytest.approx(row_2040["gross_ecc_per_kw_yr"], abs=0.05) == 107.10
+        assert pytest.approx(row_2050["gross_ecc_per_kw_yr"], abs=0.05) == 100.36
 
 
 class TestSeasonalAccreditationAdjustment:
@@ -386,10 +411,11 @@ class TestDataFrameProjectionsAndCLI:
             assert col in df.columns, f"Missing column: {col}"
 
     def test_formal_citation_contains_key_regulatory_dockets(self):
-        """Verify that get_formal_citation() includes GPSC, NCUC, and TVA references."""
+        """Verify that get_formal_citation() includes GPSC, APSC, NCUC, and TVA references."""
         citation = self.model.get_formal_citation()
         assert "GPSC Docket No. 44280" in citation
-        assert "APSC Docket No. 33201" in citation
+        assert "APSC Docket No. 32953" in citation
+        assert "Docket No. 18117" in citation
         assert "NCUC Docket No. E-100 Sub 190" in citation
         assert "TVA" in citation
         assert "Levelized Fixed Revenue Requirement" in citation
@@ -524,8 +550,8 @@ class TestStateCapacityBenchmarkDefaults:
         )
         # Year 1 strictly anchors to user input
         assert pytest.approx(df["gross_ecc_per_kw_yr"].iloc[0], abs=1e-2) == custom_val
-        # Future years gracefully track NREL ATB capital cost curve (e.g. 94.67 in 2030)
-        assert pytest.approx(df["gross_ecc_per_kw_yr"].iloc[-1], abs=1e-2) == 94.67
+        # Future years track NREL ATB Moderate F-Frame curve (91.80 in 2030)
+        assert pytest.approx(df["gross_ecc_per_kw_yr"].iloc[-1], abs=1e-2) == 91.80
 
         # Without tech index, remains completely flat
         df_flat = model.get_projection(
@@ -537,6 +563,68 @@ class TestStateCapacityBenchmarkDefaults:
             apply_atb_tech_index=False,
         )
         assert pytest.approx(df_flat["gross_ecc_per_kw_yr"].iloc[-1], abs=1e-2) == custom_val
+
+    def test_ct_builder_components_preserved_in_schedule(self):
+        """
+        Verify that passing explicit capex, fcr, and fom overrides preserves the CT Builder's
+        cost composition over the lifetime rather than decomposing using benchmark ratios.
+        """
+        model = SERCCapacityModel()
+        # Custom CT Builder: $1,200/kW CapEx, 10.0% FCR ($120/kW-yr Cap Rec), $30/kW-yr FOM -> $150/kW-yr Year 1
+        df = model.get_projection(
+            start_year=2025,
+            end_year=2035,
+            utility="Southern Company",
+            currency="real_2024",
+            capex_override=1200.0,
+            lfcr_override=0.10,
+            fom_override=30.0,
+            apply_atb_tech_index=True,
+        )
+        # Year 1 check
+        assert pytest.approx(df["gross_ecc_per_kw_yr"].iloc[0], abs=1e-2) == 150.00
+        assert pytest.approx(df["annual_capital_recovery_per_kw_yr"].iloc[0], abs=1e-2) == 120.00
+        assert pytest.approx(df["fom_per_kw_yr"].iloc[0], abs=1e-2) == 30.00
+        assert pytest.approx(df["levelized_fcr"].iloc[0], abs=1e-4) == 0.10
+
+        # Year 2030 check:
+        # ATB OCC index 2030 = 0.9560 -> Cap Rec = round(120 * 0.9560, 2) = 114.72
+        # ATB FOM index 2030 = 0.9673 -> FOM = round(30 * 0.9673, 2) = 29.02
+        # Gross ECC = 114.72 + 29.02 = 143.74
+        row_2030 = df[df["year"] == 2030].iloc[0]
+        assert pytest.approx(row_2030["annual_capital_recovery_per_kw_yr"], abs=1e-2) == 114.72
+        assert pytest.approx(row_2030["fom_per_kw_yr"], abs=1e-2) == 29.02
+        assert pytest.approx(row_2030["gross_ecc_per_kw_yr"], abs=1e-2) == 143.74
+        assert pytest.approx(row_2030["levelized_fcr"], abs=1e-4) == 0.10
+
+    def test_fcr_reconciliation_math(self):
+        """
+        Verify that calculate_regulated_fcr reconciles stated inputs:
+        - 6.07% WACC, 30-yr life, 25.7% tax -> 8.20% FCR (matches 8.20% ATB Regulated case)
+        - 7.16% WACC, 30-yr life, 25.7% tax -> 9.29% FCR (matches 9.29% synthesized IOU case)
+        """
+        fcr_820 = calculate_regulated_fcr(wacc=0.0607, economic_life=30, tax_rate=0.257)
+        assert pytest.approx(fcr_820, abs=1e-3) == 0.0820
+
+        fcr_929 = calculate_regulated_fcr(wacc=0.0716, economic_life=30, tax_rate=0.257)
+        assert pytest.approx(fcr_929, abs=1e-3) == 0.0929
+
+    def test_real_start_year_dollar_harmonization(self):
+        """
+        Verify that currency='real' converts base 2024$ figures to start-year constant dollars,
+        ensuring alignment with Cambium energy elevated from 2023$ to start-year basis.
+        """
+        model = SERCCapacityModel()
+        # 2026 start year: 2 years of 2.2% inflation = 1.022^2 = 1.044484
+        df_2026 = model.get_projection(
+            start_year=2026,
+            end_year=2030,
+            utility="SERC Weighted Composite",
+            currency="real",
+            apply_atb_tech_index=False,
+        )
+        expected_2026_val = round(129.76 * (1.022 ** 2), 2)  # $135.53/kW-yr
+        assert pytest.approx(df_2026["gross_ecc_per_kw_yr"].iloc[0], abs=1e-2) == expected_2026_val
 
 
 class TestAnnualCapacitySavingsAndMultiYearIntegration:

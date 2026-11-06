@@ -2,6 +2,40 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-11-06] — Capacity Valuation, Technology Forecasting & Financial Consistency Audit Resolution
+
+### Context
+Resolved 7 audit findings regarding Combustion Turbine (CT) capacity valuation, NREL ATB Moderate F-Frame cost path alignment, regulated FCR reproducibility, CT Builder component persistence, start-year real-dollar harmonization, and regulatory docket citations:
+1. **Finding 1 (High — ATB OCC vs. CAPEX)**: Clarified that $1,105.80/kW in NREL 2025 ATB Moderate F-Frame data is Overnight Capital Cost (OCC) in 2023$ Base Year, excluding Interest During Construction (IDC). Added explicit preset for Total CAPEX with IDC ($1,328.85/kW).
+2. **Finding 2 (High — ATB CT Trajectory Matching)**: Replaced flattened capital cost index with official published NREL ATB 2025 Moderate F-Frame OCC ratios (1.0000 in 2024/2025, 0.9560 in 2030, 0.9070 in 2040, 0.8440 in 2050) and added matching ATB FOM index ratios (1.0000 in 2024/2025, 0.9673 in 2030, 0.9346 in 2040, 0.8959 in 2050). Produces exact published audit values ($107.10/kW-yr in 2040 and $100.36/kW-yr in 2050 from $117.28/kW-yr starting ECC).
+3. **Finding 3 (High — Regulated FCR Reproducibility)**: Reconciled stated financial inputs with mathematical outputs. Documented that 8.20% FCR corresponds to 6.07% public power / constant-dollar WACC (or low-cost debt), while 7.16% IOU WACC with 15-yr MACRS and 25.7% tax yields 9.29% FCR ($129.38/kW-yr Gross ECC). Provided presets for both cases.
+4. **Finding 4 (High — CT Builder Component Integrity)**: Enhanced `serc_capacity_cost.py` and `app.py` so that custom CapEx, FCR, and FOM overrides from CT Builder pass directly into `get_projection()`, preserving individual component trajectories rather than decomposing through utility benchmark ratios.
+5. **Finding 5 (High — Start-Year Real-Dollar Harmonization)**: Harmonized capacity valuation currency basis with Cambium wholesale energy. In constant real valuation, 2024$ benchmark capacity costs are converted to Start-Year constant dollars (e.g. 2026$) via $(1 + i)^{\text{start\_year} - 2024}$, ensuring wholesale energy and capacity share identical purchasing power bases.
+6. **Finding 6 (Medium — Regulatory Docket Citations)**: Replaced erroneous citation of Alabama PSC Docket 33201 (unrelated tree complaint) with true capacity proceedings: APSC Docket 32953 (Plant Barry Unit 8 expansion CCN) and Docket 18117 (Rate RSE). Clarified Georgia PSC Docket 44160 (2022 IRP) / 44280 (2022 Rate Case) and NCUC Docket E-100 Sub 190.
+7. **Finding 7 (Medium — SERC Composite & Escalation Provenance)**: Documented exact SERC Composite weighting formula (35% Southern Co, 30% Duke Carolinas, 25% TVA, 10% other SERC -> $129.76/kW-yr Gross ECC), EIA AEO GDP deflator provenance for 2.2% inflation, and IEEE/ASME gas turbine ambient mass flow physics for 1.15x winter derate.
+
+### Key Changes
+- **`config.py`**:
+  * Updated `SOUTHEAST_PEAKER_PRESETS`: relabeled $1,105.80/kW as Overnight Capital Cost (OCC) in 2023$, updated WACC/FCR notes, and added Total CAPEX with IDC ($1,328.85/kW) preset and 9.29% IOU FCR preset.
+  * Corrected Alabama Power citation from APSC Docket 33201 to APSC Docket 32953 & Docket 18117.
+  * Documented exact SERC composite weighting formula.
+- **`serc_capacity_cost.py` & `src/serc_capacity_cost.py`**:
+  * Updated `NREL_ATB_CT_CAPITAL_COST_INDEX` to official published milestone ratios (0.9070 in 2040, 0.8440 in 2050).
+  * Added `NREL_ATB_CT_FOM_INDEX` ($26.60 in 2024/2025 -> $24.86 in 2040 -> $23.83 in 2050).
+  * In `get_projection()`: implemented priority handling for `capex_override`, `lfcr_override`, and `fom_override` to preserve CT Builder composition; added `"real"` currency conversion for Start-Year dollar harmonization; ensured `levelized_fcr` column reflects actual FCR used.
+  * Updated `get_formal_citation()` and `BENCHMARKS` with APSC Docket 32953/18117 and SERC composite weights.
+- **`app.py`**:
+  * In CT Builder mode: extracted `builder_capex`, `builder_fcr`, and `builder_fom` and passed them into `get_projection()`.
+  * In Direct IRP mode: dynamically harmonized default capacity value and input label to Start-Year constant dollars when `selected_valuation_basis == 'real'`.
+  * Passed `currency='real'` (or `'nominal'`) consistently across all trajectory generation calls.
+- **`tests/test_capacity_cost.py`**:
+  * Updated `test_atb_capital_cost_index_tracking` and `test_formal_citation_contains_key_regulatory_dockets`.
+  * Added `test_atb_moderate_ct_cost_trajectory_matches_audit_figures` (verifies $107.10 in 2040 and $100.36 in 2050).
+  * Added `test_ct_builder_components_preserved_in_schedule` (verifies custom CT Builder composition preservation).
+  * Added `test_fcr_reconciliation_math` (verifies 6.07% -> 8.20% and 7.16% -> 9.29% FCR).
+  * Added `test_real_start_year_dollar_harmonization` (verifies 2024$ to 2026$ elevation).
+  * 327/327 tests passing.
+
 ## [2026-11-05] — Capacity Valuation Integrity, Financial Consistency & Data Lineage Refactoring
 
 ### Context
