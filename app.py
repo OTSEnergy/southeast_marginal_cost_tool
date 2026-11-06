@@ -234,6 +234,12 @@ from cambium_downloader import (
 # data_loaders.py is Streamlit-free, so we wrap the import here.
 load_and_aggregate_data = st.cache_data(load_and_aggregate_data)
 load_wmo_station_lookup = st.cache_data(load_wmo_station_lookup)
+load_cambium_milestones = st.cache_data(load_cambium_milestones)
+load_cambium_net_demand_stress_weights = st.cache_data(load_cambium_net_demand_stress_weights)
+load_load_profiles_from_csv = st.cache_data(load_load_profiles_from_csv)
+load_cwft_file = st.cache_data(load_cwft_file)
+check_missing_cambium_milestones = st.cache_data(check_missing_cambium_milestones)
+check_missing_cambium_data = st.cache_data(check_missing_cambium_data)
 
 
 
@@ -796,7 +802,7 @@ with st.sidebar.expander("Building / Technology & Load Data", expanded=True):
 with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", expanded=False):
     # Determine state-specific company capacity cost default
     state_bench_info = get_state_capacity_benchmark(target_states)
-    util_options = list(state_bench_info["utility_options"].keys())
+    util_options = list(state_bench_info["utility_options"].keys()) + ["Custom Value"]
     
     # Track utility choice across runs to dismiss prompt once chosen
     curr_util_selection = st.session_state.get("serc_state_utility_dropdown")
@@ -815,7 +821,8 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         dropdown_help = (
             "Select operating utility or benchmark. Note: The dollar amount shown (e.g. $141.22/kW-yr for Alabama Power) "
             "is the Year 1 starting baseline value that increases over time across the project planning horizon, "
-            "escalating at 2.2% annual inflation (or 1.0% real replacement escalation) across future years."
+            "escalating at 2.2% annual inflation (or 1.0% real replacement escalation) across future years. "
+            "Select 'Custom Value' to manually enter a custom $/kW-year value."
         )
     else:
         st.caption(f"📍 **State Default Applied:** {state_bench_info['state_summary']}")
@@ -823,7 +830,8 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         dropdown_help = (
             f"Defaulted to {state_bench_info['default_utility']} benchmark. Note: The dollar amount shown is the "
             f"Year 1 starting baseline value that increases over time across the project planning horizon "
-            f"(escalating annually at 2.2% inflation / capital cost escalation)."
+            f"(escalating annually at 2.2% inflation / capital cost escalation). "
+            f"Select 'Custom Value' to manually enter a custom $/kW-year value."
         )
 
     selected_util_label = st.selectbox(
@@ -833,10 +841,16 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         key="serc_state_utility_dropdown",
         help=dropdown_help,
     )
-    chosen_entry = state_bench_info["utility_options"][selected_util_label]
-    active_def_cap_val = chosen_entry["cap_value"]
-    active_def_preset = chosen_entry["preset"]
-    selected_serc_utility = chosen_entry["utility"]
+    if selected_util_label == "Custom Value":
+        active_def_cap_val = st.session_state.get("_last_utility_cap_val", state_bench_info.get("default_cap_value", DEFAULT_CAP_VALUE))
+        active_def_preset = "SERC Regional Peaker Composite"
+        selected_serc_utility = "Custom Value"
+    else:
+        chosen_entry = state_bench_info["utility_options"][selected_util_label]
+        active_def_cap_val = chosen_entry["cap_value"]
+        active_def_preset = chosen_entry["preset"]
+        selected_serc_utility = chosen_entry["utility"]
+        st.session_state["_last_utility_cap_val"] = active_def_cap_val
 
     cap_mode = st.radio(
         "Capacity Valuation Method",
@@ -917,7 +931,7 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
             value=f"${cap_value:,.2f}/kW-yr",
             delta=f"FCR: {fcr*100:.2f}% | Cap Recovery: ${ct_calc['capital_recovery_annuity']:,.2f} | FOM: ${ct_calc['fom_kw_yr']:,.2f}"
         )
-        st.caption(f"Active Benchmark: **{selected_serc_utility}** (${cap_value:,.2f}/kW-yr).")
+        st.caption(f"**Active Benchmark:** {selected_serc_utility} (\${cap_value:,.2f}/kW-yr).")
     else:
         builder_capex = None
         builder_fcr = None
@@ -928,28 +942,36 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
         if is_real and start_year_curr > 2024:
             real_cap_mult = (1.0 + 0.022) ** (start_year_curr - 2024)
             default_cap_display = round(float(active_def_cap_val) * real_cap_mult, 2)
-            caption_str = f"Active Benchmark: **{selected_serc_utility}** (${active_def_cap_val:,.2f}/kW-yr in 2024$ Real → **${default_cap_display:,.2f}/kW-yr** in {start_year_curr}$ Constant)."
-            input_label = f"Total Economic Carrying Cost of a CT ($/kW-year in {start_year_curr}$ Constant)"
+            caption_str = (
+                f"**Active Value:** \${default_cap_display:,.2f}/kW-yr "
+                f"({start_year_curr} start year, escalated from \${active_def_cap_val:,.2f} in 2024 IRP)"
+            )
+            input_label = f"Total Economic Carrying Cost of a CT ($/kW-year, {start_year_curr} Constant Dollars)"
         else:
             default_cap_display = float(active_def_cap_val)
-            caption_str = f"Active Benchmark: **{selected_serc_utility}** (${active_def_cap_val:,.2f}/kW-yr)."
+            caption_str = f"**Active Value:** \${default_cap_display:,.2f}/kW-yr ({selected_serc_utility} benchmark)"
             input_label = "Total Economic Carrying Cost of a CT ($/kW-year)"
 
-        cap_input_key = f"direct_cap_{tuple(target_states)}_{selected_serc_utility}_{val_basis_saved}_{start_year_curr}"
-        cap_value = st.number_input(
-            input_label,
-            min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1],
-            value=default_cap_display,
-            step=CAP_VALUE_RANGE[2], format="%.2f",
-            key=cap_input_key,
-            help=(
-                f"Commission-approved avoided generation capacity credit from utility IRP or PURPA docket. "
-                f"Note: This input is the Year 1 starting value (${default_cap_display:,.2f}/kW-yr for {selected_serc_utility}) "
-                f"that increases over time across the asset lifetime via the multi-year capacity trajectory "
-                f"(escalating at 2.2% annual inflation / replacement cost escalation across future planning years)."
+        if selected_util_label == "Custom Value":
+            cap_input_key = f"direct_cap_{tuple(target_states)}_{selected_serc_utility}_{val_basis_saved}_{start_year_curr}"
+            cap_value = st.number_input(
+                input_label,
+                min_value=CAP_VALUE_RANGE[0], max_value=CAP_VALUE_RANGE[1],
+                value=default_cap_display,
+                step=CAP_VALUE_RANGE[2], format="%.2f",
+                key=cap_input_key,
+                help=(
+                    f"Commission-approved or custom avoided generation capacity credit ($/kW-year). "
+                    f"Note: This input is the Year 1 starting value (${default_cap_display:,.2f}/kW-yr) "
+                    f"that increases over time across the asset lifetime via the multi-year capacity trajectory "
+                    f"(escalating at 2.2% annual inflation / replacement cost escalation across future planning years)."
+                )
             )
-        )
-        st.caption(caption_str)
+            st.caption(f"**Custom Value Applied:** \${cap_value:,.2f}/kW-yr ({start_year_curr} start year).")
+        else:
+            cap_value = default_cap_display
+            st.caption(caption_str)
+
         # Populate benchmark breakdown for waterfall visualization
         if abs(cap_value - DEFAULT_CAP_VALUE) < 1e-4:
             ct_calc = calculate_ct_carrying_cost(1080.0, 25.00, 0.097)
@@ -961,6 +983,8 @@ with st.sidebar.expander("Total Economic Carrying Cost of a CT (ECC of a CT)", e
             ct_calc = calculate_ct_carrying_cost(1075.0, 25.00, 0.098)
         elif selected_serc_utility in ["NREL ATB 2025", "NLR / NREL ATB 2025"]:
             ct_calc = calculate_ct_carrying_cost(1105.80, 26.60, 0.082)
+        else:
+            ct_calc = calculate_ct_carrying_cost(1080.0, 25.00, 0.097)
 
     cap_esc_choice = st.selectbox(
         "CT Technology & Carrying Cost Growth",
@@ -1590,6 +1614,7 @@ else:
                                 progress_callback=_cb
                             )
                         st.success(f"Downloaded and extracted grid data for {', '.join(missing_states)}!")
+                        st.cache_data.clear()
                         st.rerun()
                     except Exception as dl_err:
                         st.error(f"Failed to auto-download from NLR: {dl_err}")
@@ -2487,10 +2512,12 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         value=f"{load_reduction.max():,.2f} kW",
                         help="Maximum single-hour reduction across the 8,760 hours."
                     )
+                    ann_energy_kwh = float((load_reduction).sum())
+                    ann_energy_disp = f"{ann_energy_kwh:,.0f} kWh" if abs(ann_energy_kwh) >= 100 else f"{ann_energy_kwh:,.1f} kWh"
                     audit_m5.metric(
                         label="Annual Energy Reduction",
-                        value=f"{(load_reduction).sum() / 1000:,.2f} MWh",
-                        help="Total annual volumetric electricity savings."
+                        value=ann_energy_disp,
+                        help="Total annual volumetric electricity savings (kWh)."
                     )
 
                     st.markdown("<hr style='margin: 12px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)

@@ -1637,8 +1637,18 @@ def build_hour_month_heatmap(datetime_series, values, title, colorbar_title="$ i
     -------
     go.Figure
     """
-    dts = pd.to_datetime(pd.Series(np.asarray(datetime_series)).reset_index(drop=True))
-    df = pd.DataFrame({"month": dts.dt.month.to_numpy(), "hour": dts.dt.hour.to_numpy(),
+    if isinstance(datetime_series, pd.DatetimeIndex):
+        months = datetime_series.month.to_numpy()
+        hours = datetime_series.hour.to_numpy()
+    elif isinstance(datetime_series, pd.Series) and pd.api.types.is_datetime64_any_dtype(datetime_series):
+        months = datetime_series.dt.month.to_numpy()
+        hours = datetime_series.dt.hour.to_numpy()
+    else:
+        dts = pd.to_datetime(pd.Series(np.asarray(datetime_series)).reset_index(drop=True))
+        months = dts.dt.month.to_numpy()
+        hours = dts.dt.hour.to_numpy()
+
+    df = pd.DataFrame({"month": months, "hour": hours,
                         "value": np.asarray(values, dtype=float)})
     pivot = df.groupby(["hour", "month"])["value"].mean().unstack("month")
     pivot = pivot.reindex(index=range(24), columns=range(1, 13))
@@ -1687,8 +1697,18 @@ def build_day_hour_heatmap(datetime_series, values, title, colorbar_title="$ imp
     -------
     go.Figure
     """
-    dts = pd.to_datetime(pd.Series(np.asarray(datetime_series)).reset_index(drop=True))
-    df = pd.DataFrame({"day": dts.dt.day.to_numpy(), "hour": dts.dt.hour.to_numpy(),
+    if isinstance(datetime_series, pd.DatetimeIndex):
+        days = datetime_series.day.to_numpy()
+        hours = datetime_series.hour.to_numpy()
+    elif isinstance(datetime_series, pd.Series) and pd.api.types.is_datetime64_any_dtype(datetime_series):
+        days = datetime_series.dt.day.to_numpy()
+        hours = datetime_series.dt.hour.to_numpy()
+    else:
+        dts = pd.to_datetime(pd.Series(np.asarray(datetime_series)).reset_index(drop=True))
+        days = dts.dt.day.to_numpy()
+        hours = dts.dt.hour.to_numpy()
+
+    df = pd.DataFrame({"day": days, "hour": hours,
                         "value": np.asarray(values, dtype=float)})
     n_days = int(df["day"].max()) if len(df) else 31
     pivot = df.groupby(["hour", "day"])["value"].mean().unstack("day")

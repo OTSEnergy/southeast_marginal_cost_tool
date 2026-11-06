@@ -2,6 +2,41 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-11-06] — Annual Energy Reduction Unit Harmonization (kWh) & UI Streamlining
+
+### Context
+Streamlined the Avoided Generation Capacity (ECC of a CT) sidebar UI and corrected the volumetric unit on the "Annual Energy Reduction" audit scorecard KPI. Because evaluated measures are single-home residential building profiles (e.g., residential heat pump conversion), annual energy reduction is properly reported in `kWh` rather than wholesale grid `MWh`.
+
+### Key Changes
+- **`app.py`**:
+  * Corrected `audit_m5` metric under SPM Audit from `(load_reduction).sum() / 1000` (MWh) to `(load_reduction).sum()` in `kWh` (e.g. `4,491 kWh` instead of `4.49 MWh`).
+  * Appended `"Custom Value"` to `util_options` in the capacity valuation expander.
+  * Preserved the last active utility capacity value in session state (`_last_utility_cap_val`) as starting point when transitioning to custom entry.
+  * In Direct IRP Scaler mode, rendered the manual `st.number_input` field only when `"Custom Value"` is selected; otherwise applied the utility benchmark directly and displayed the benchmark caption.
+  * Fixed Streamlit markdown KaTeX bug by escaping `\$` and simplified caption text from `Active Benchmark: Southern Company (141.22/kW - yrin2024 Real -> ** 147.50/kW - yr ** in 2026 Constant)` to:
+    `**Active Value:** $147.50/kW-yr (2026 start year, escalated from $141.22 in 2024 IRP)`.
+- **`docs/app_code_tour.md`**:
+  * Updated Chapter 7 sidebar description for ECC of a CT to document the streamlined `"Custom Value"` dropdown mechanism.
+- **Test suite**:
+  * 327/327 tests passing cleanly.
+
+## [2026-11-06] — Performance Optimization & Data Pipeline Caching
+
+### Context
+Addressed runtime performance degradation following multi-year trajectory and system-stress proxy complexity additions. Profiled end-to-end execution bottlenecks and implemented safe, non-breaking caching and I/O optimizations.
+
+### Key Changes
+- **`app.py`**:
+  * Applied `@st.cache_data` decorators to previously uncached heavy I/O and evaluation pipelines: `load_cambium_milestones`, `load_cambium_net_demand_stress_weights`, `load_load_profiles_from_csv`, `load_cwft_file`, `check_missing_cambium_milestones`, and `check_missing_cambium_data`.
+  * Added `st.cache_data.clear()` before `st.rerun()` in the auto-download completion handler (`btn_auto_download_cambium`) so newly retrieved files immediately bust the cache without requiring a server restart.
+- **`data_loaders.py`**:
+  * Replaced `pd.read_csv(nrows=0)` and `pd.read_csv(nrows=1)` in `load_and_aggregate_data()` with `pd_read_first_rows()`, reducing metadata scan time across 46 raw Cambium CSVs from ~284ms to ~4ms (~70x speedup for cold scans).
+  * Wrapped per-milestone loading in `load_cambium_milestones()` with `try...except`, preventing single missing milestone years (e.g., 2040) from aborting the entire milestone dictionary and discarding valid data (2025, 2030, 2035, 2045).
+- **`visualizations.py`**:
+  * Optimized `build_hour_month_heatmap()` and `build_day_hour_heatmap()` to check for existing `DatetimeIndex` or `datetime64` series, bypassing costly 8,760 string conversions via `pd.to_datetime()`.
+- **Test suite**:
+  * 327/327 tests passing cleanly (`python -m pytest` runtime improved from 23.8s to 20.9s).
+
 ## [2026-11-06] — Capacity Valuation, Technology Forecasting & Financial Consistency Audit Resolution
 
 ### Context

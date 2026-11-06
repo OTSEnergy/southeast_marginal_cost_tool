@@ -901,19 +901,20 @@ def load_and_aggregate_data(target_states, selected_scenario, weather_case, targ
 
     for file in all_csv_files:
         try:
-            # Check if this is a raw NLR Cambium file
-            first_row_df = pd.read_csv(file, nrows=0)
-            cols = [c.lower() for c in first_row_df.columns]
+            # Fast header & metadata extraction without full pandas CSV parse overhead
+            from cambium_downloader import pd_read_first_rows, scenario_matches
+            first_info = pd_read_first_rows(file)
+            if not first_info:
+                continue
+            cols = [c.lower() for c in first_info.get("cols", [])]
 
             is_raw_nrel = 'project' in cols and 'scenario' in cols and ('state' in cols or 'r' in cols)
 
             if is_raw_nrel:
-                # Read metadata from row index 1
-                from cambium_downloader import scenario_matches
-                meta_df = pd.read_csv(file, nrows=1)
-                file_state = str(meta_df['state'].iloc[0]).upper() if 'state' in meta_df.columns else ""
-                file_scenario = str(meta_df['Scenario'].iloc[0]) if 'Scenario' in meta_df.columns else ""
-                file_year = str(meta_df['t'].iloc[0]) if 't' in meta_df.columns else ""
+                meta = first_info.get("meta", {})
+                file_state = str(meta.get('state', '')).upper()
+                file_scenario = str(meta.get('Scenario', meta.get('scenario', '')))
+                file_year = str(meta.get('t', ''))
 
                 # Check if file matches selected scenario (including aliases), state, and planning year
                 if (scenario_matches(file_scenario, selected_scenario) and
@@ -1395,17 +1396,20 @@ def load_cambium_milestones(
 
     for yr in milestone_years:
         yr_int = int(yr)
-        df, warnings = load_and_aggregate_data(
-            target_states=target_states,
-            selected_scenario=selected_scenario,
-            weather_case=weather_case,
-            target_year=target_year,
-            planning_year=str(yr),
-            input_directory=input_directory,
-        )
-        if df is not None and not df.empty:
-            milestone_dfs[yr_int] = df
-        if warnings:
-            all_warnings.extend([f"[{yr}] {w}" for w in warnings])
+        try:
+            df, warnings = load_and_aggregate_data(
+                target_states=target_states,
+                selected_scenario=selected_scenario,
+                weather_case=weather_case,
+                target_year=target_year,
+                planning_year=str(yr),
+                input_directory=input_directory,
+            )
+            if df is not None and not df.empty:
+                milestone_dfs[yr_int] = df
+            if warnings:
+                all_warnings.extend([f"[{yr}] {w}" for w in warnings])
+        except Exception as exc:
+            all_warnings.append(f"[{yr}] Milestone skipped: {exc}")
 
     return milestone_dfs, all_warnings
