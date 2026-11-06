@@ -3613,16 +3613,93 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             ),
                             "Gen Capacity savings ($)": annual_gen_cap_savings,
                             "T&D Deferral savings ($)": annual_trans_savings + annual_dist_savings,
-                            "Lost Revenue ($)": annual_lost_revenue
+                            "Lost Revenue ($)": annual_lost_revenue,
+                            # Everything needed to reproduce the Overview Scorecard, Cost-
+                            # Effectiveness Table, and NPV Waterfall Bridge charts for this run
+                            # without re-running the sidebar pipeline. All scalars/small labels --
+                            # no 8,760-hour arrays -- so this stays cheap to keep around.
+                            "_detail": {
+                                "npv_grid_savings": npv_grid_savings,
+                                "npv_retail_lost_revenue": npv_retail_lost_revenue,
+                                "npv_net_savings": npv_net_savings,
+                                "npv_program_cost": npv_program_cost,
+                                "npv_energy_savings": npv_energy_savings,
+                                "npv_capacity_savings": npv_capacity_savings,
+                                "trc_ratio": trc_ratio,
+                                "rim_ratio": rim_ratio,
+                                "pct_ratio": pct_ratio,
+                                "simple_payback": simple_payback,
+                                "discounted_payback": discounted_payback,
+                                "is_system_stress_selected": is_system_stress_selected,
+                                "selected_cwf_method": selected_cwf_method,
+                                "is_seasonal": is_seasonal,
+                                "winter_coincident_kw": winter_coincident_kw,
+                                "summer_coincident_kw": summer_coincident_kw,
+                                "accredited_capacity_kw": accredited_capacity_kw,
+                                "winter_split_pct": winter_split_pct,
+                                "coincidence_delta_str": coincidence_delta_str,
+                                "coincidence_ratio_label": coincidence_ratio_label,
+                                "elcc_reduction": elcc_reduction,
+                                "elcc_ratio_valid": elcc_ratio_valid,
+                                "load_reduction_max": float(load_reduction.max()),
+                                "load_reduction_sum_mwh": float(load_reduction.sum() / 1000.0),
+                                "tariff_name_label": tariff_name_label,
+                                "selected_scenario": selected_scenario,
+                                "weather_case": weather_case,
+                                "target_states": list(target_states),
+                                "dr_mode": dr_mode,
+                                "asset_life": asset_life,
+                                "discount_rate": discount_rate,
+                                "customer_discount_rate": customer_discount_rate,
+                                "baseline_col": baseline_col,
+                                "proposed_col": proposed_col,
+                                "epc_baseline": epc_baseline,
+                                "epc_proposed": epc_proposed,
+                                "coincidence_baseline": coincidence_baseline,
+                                "coincidence_proposed": coincidence_proposed,
+                                "epc_reduction": epc_reduction,
+                                "gross_measure_cost": gross_measure_cost,
+                                "utility_incentive": utility_incentive,
+                                "annual_gen_cap_savings": annual_gen_cap_savings,
+                                "annual_energy_savings": annual_energy_savings,
+                                "annual_trans_savings": annual_trans_savings,
+                                "annual_dist_savings": annual_dist_savings,
+                                "annual_emissions_savings": annual_emissions_savings,
+                                "annual_grid_savings": annual_grid_savings,
+                                "annual_lost_revenue": annual_lost_revenue,
+                                "planning_year": planning_year,
+                                "cambium_qualified": bool(cambium_stress_eval.get("is_qualified")) if cambium_stress_eval else False,
+                                "cambium_active_hours": (
+                                    cambium_stress_eval.get("diagnostics", {}).get("active_hours")
+                                    if cambium_stress_eval else None
+                                ),
+                                "cambium_needed_bas": (
+                                    (cambium_stress_eval.get("needed_bas") or cambium_stress_eval.get("needed_geas") or [])
+                                    if cambium_stress_eval else []
+                                ),
+                                # Cost-Effectiveness Table
+                                "retail_energy_savings": retail_energy_savings,
+                                "retail_demand_savings": retail_demand_savings,
+                                "annual_net_savings": annual_net_savings,
+                                "avg_reduct_pcaf": avg_reduct_pcaf,
+                                "avg_reduct_dist": avg_reduct_dist,
+                                "cap_value": cap_value,
+                                "trans_value": trans_value,
+                                "dist_value": dist_value,
+                                "carbon_tax": carbon_tax,
+                                # NPV Waterfall Bridge
+                                "npv_bridge_df": npv_bridge_df.copy() if npv_bridge_df is not None else None,
+                                "selected_financial_method": selected_financial_method,
+                            },
                         }
                         st.session_state['saved_runs'].append(new_run)
                         st.success(f"Saved run '{scenario_run_name}' to scenario list!")
-                        
+
                 # Table of saved runs
                 if st.session_state['saved_runs']:
                     st.markdown("#### Side-by-side run comparisons")
-                    runs_df = pd.DataFrame(st.session_state['saved_runs'])
-                    
+                    runs_df = pd.DataFrame([{k: v for k, v in r.items() if k != "_detail"} for r in st.session_state['saved_runs']])
+
                     st.dataframe(
                         runs_df.style.format({
                             "Net NPV ($)": "${:,.2f}",
@@ -3633,10 +3710,135 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         }),
                         width="stretch", hide_index=True
                     )
-                    
+
                     if st.button("Clear saved runs"):
                         st.session_state['saved_runs'] = []
                         st.rerun()
+
+                    st.markdown("---")
+
+                    # A plain widget here would otherwise trigger a full top-to-bottom
+                    # script rerun on every toggle -- re-pulling Cambium data and
+                    # re-running the whole multi-year NPV pipeline for the LIVE sidebar
+                    # state, even though this section only ever reads pre-saved scalars.
+                    # @st.fragment scopes reruns to just this block instead, so switching
+                    # the picker is instant.
+                    @st.fragment
+                    def _render_scenario_reproduction():
+                        st.markdown("#### Reproduce key graphs for a saved run")
+                        st.caption(
+                            "Pulls the Overview Scorecard, Cost-Effectiveness Table, and NPV Waterfall "
+                            "Bridge charts from a saved run's own stored results -- it does not re-run "
+                            "the pipeline, so it reflects the sidebar settings that were active when that "
+                            "run was saved, not the current live sidebar."
+                        )
+                        run_labels = [f"{i+1}. {r['Name']}" for i, r in enumerate(st.session_state['saved_runs'])]
+                        picked_label = st.selectbox("Saved run to reproduce", options=run_labels, key="scenario_reproduce_picker")
+                        picked_run = st.session_state['saved_runs'][run_labels.index(picked_label)]
+                        d = picked_run.get("_detail")
+
+                        if d is None:
+                            st.info("This run was saved before this feature existed and has no stored detail to reproduce. Save a new run to use this section.")
+                        else:
+                            st.markdown(f"##### Overview Scorecard — *{picked_run['Name']}*")
+                            rcol_chart, rcol_net = st.columns([3.3, 1.2])
+                            with rcol_chart:
+                                fig_balance_r = build_economic_balance_chart(
+                                    npv_grid_savings=d["npv_grid_savings"],
+                                    npv_retail_lost_revenue=d["npv_retail_lost_revenue"],
+                                    npv_net_savings=d["npv_net_savings"],
+                                    npv_program_cost=d["npv_program_cost"],
+                                    npv_energy_savings=d["npv_energy_savings"],
+                                    npv_capacity_savings=d["npv_capacity_savings"],
+                                )
+                                st.plotly_chart(fig_balance_r, width="stretch", config={"displayModeBar": False}, key="repro_balance_chart")
+                            with rcol_net:
+                                st.markdown(
+                                    financial_metric_card_html(
+                                        label="Utility Net NPV",
+                                        value=f"{'+' if d['npv_net_savings'] >= 0 else '-'}${abs(d['npv_net_savings']):,.2f}",
+                                        sublabel="↑ Net Utility Benefit" if d['npv_net_savings'] >= 0 else "↓ Net Utility Cross-Subsidy",
+                                        is_positive=(d['npv_net_savings'] >= 0),
+                                        help_text="Grid Avoided Costs minus Utility Lost Revenue minus the one-time utility Rebate/Incentive and Admin & Marketing cost."
+                                    ),
+                                    unsafe_allow_html=True
+                                )
+
+                            rkpi1, rkpi2, rkpi3, rkpi4 = st.columns(4)
+                            with rkpi1:
+                                _ratio_card("Total Resource Cost (TRC)", d["trc_ratio"], "NPV Grid / (Measure + Admin)")
+                            with rkpi2:
+                                _ratio_card("Rate Impact Measure (RIM)", d["rim_ratio"], "NPV Grid / (Lost Rev + Program)")
+                            with rkpi3:
+                                sp_str_r = f"{d['simple_payback']:.1f} yrs" if d['simple_payback'] != float('inf') else "N/A"
+                                dp_str_r = f"{d['discounted_payback']:.1f} yrs" if d['discounted_payback'] != float('inf') else "N/A"
+                                st.metric(label="Participant Payback", value=sp_str_r, delta=f"Discounted: {dp_str_r}", delta_color="off")
+                            with rkpi4:
+                                if d["is_system_stress_selected"] or "Dual-Peak" in d["selected_cwf_method"]:
+                                    st.metric(
+                                        label="Winter Peak Capacity",
+                                        value=f"{d['winter_coincident_kw']:,.2f} kW",
+                                        delta=f"Summer: {d['summer_coincident_kw']:,.2f} kW | Blended: {d['accredited_capacity_kw']:,.2f} kW",
+                                        delta_color="off",
+                                    )
+                                else:
+                                    st.metric(label="Coincident Capacity", value=f"{d['accredited_capacity_kw']:,.2f} kW", delta_color="off")
+
+                            with st.expander("▸ Capacity Valuation Breakdown (saved run)", expanded=False):
+                                if d["is_seasonal"]:
+                                    r_metrics = [
+                                        f"Winter Peak Capacity Reduction ({d['winter_split_pct']:.0f}% Risk Weight)",
+                                        f"Summer Peak Capacity Reduction ({100.0 - d['winter_split_pct']:.0f}% Risk Weight)",
+                                        "Valued Generation Capacity (kW)",
+                                    ]
+                                    r_values = [
+                                        f"{d['winter_coincident_kw']:,.3f} kW",
+                                        f"{d['summer_coincident_kw']:,.3f} kW",
+                                        f"{d['accredited_capacity_kw']:,.3f} kW",
+                                    ]
+                                else:
+                                    r_metrics = ["Valued Generation Capacity (kW)"]
+                                    r_values = [f"{d['accredited_capacity_kw']:,.3f} kW"]
+                                r_metrics += [
+                                    "Annual Generation Capacity Avoided Cost ($/yr)", "Annual Wholesale Delivered Energy Savings ($/yr)",
+                                    "Annual Transmission & Distribution Deferral ($/yr)", "Annual Emissions Avoided Cost ($/yr)",
+                                    "Total Annual Grid Avoided Cost ($/yr)", "Annual Customer Bill Savings / Lost Revenue ($/yr)",
+                                    "Utility Net NPV ($)", "Total Resource Cost (TRC) Ratio", "Rate Impact Measure (RIM) Ratio",
+                                ]
+                                r_values += [
+                                    f"${d['annual_gen_cap_savings']:,.2f}", f"${d['annual_energy_savings']:,.2f}",
+                                    f"${(d['annual_trans_savings'] + d['annual_dist_savings']):,.2f}", f"${d['annual_emissions_savings']:,.2f}",
+                                    f"${d['annual_grid_savings']:,.2f}", f"${d['annual_lost_revenue']:,.2f}",
+                                    f"${d['npv_net_savings']:,.2f}",
+                                    "N/A" if np.isnan(d['trc_ratio']) else f"{d['trc_ratio']:.3f}",
+                                    "N/A" if np.isnan(d['rim_ratio']) else f"{d['rim_ratio']:.3f}",
+                                ]
+                                st.dataframe(pd.DataFrame({"Metric": r_metrics, "Value": r_values}), width="stretch", hide_index=True)
+
+                            st.markdown(f"##### Two-Sided Cost Effectiveness — *{picked_run['Name']}*")
+                            fig_two_sided_r = build_two_sided_cost_effectiveness_chart(
+                                annual_energy_savings=d["annual_energy_savings"],
+                                annual_gen_cap_savings=d["annual_gen_cap_savings"],
+                                annual_trans_savings=d["annual_trans_savings"],
+                                annual_dist_savings=d["annual_dist_savings"],
+                                annual_emissions_savings=d["annual_emissions_savings"],
+                                retail_energy_savings=d["retail_energy_savings"],
+                                retail_demand_savings=d["retail_demand_savings"],
+                                annual_net_savings=d["annual_net_savings"],
+                            )
+                            st.plotly_chart(fig_two_sided_r, width="stretch", config={"displayModeBar": False}, key="repro_two_sided_chart")
+
+                            st.markdown(f"##### NPV Waterfall Bridge — *{picked_run['Name']}*")
+                            if d.get("npv_bridge_df") is not None:
+                                fig_bridge_r = build_npv_waterfall_bridge_chart(d["npv_bridge_df"])
+                                st.plotly_chart(fig_bridge_r, width="stretch", config={"displayModeBar": False}, key="repro_bridge_chart")
+                            else:
+                                st.caption(
+                                    "This run was saved without an active multi-year waterfall bridge "
+                                    "(select 'Financially Consistent' financial methodology when saving a run to capture it)."
+                                )
+
+                    _render_scenario_reproduction()
                 else:
                     st.info("No saved runs. Give your current configuration a name and click **Save Current Run** to build a comparison database.")
 
