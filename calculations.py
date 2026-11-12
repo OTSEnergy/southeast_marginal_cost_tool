@@ -203,7 +203,12 @@ def _safe_cost_effectiveness_ratio(benefit, cost):
 def calculate_cost_effectiveness_tests(npv_grid_savings, npv_lost_revenue,
                                         npv_customer_bill_savings, gross_measure_cost,
                                         utility_incentive, utility_admin_cost,
-                                        annual_customer_savings_stream, pv_multipliers):
+                                        annual_customer_savings_stream, pv_multipliers,
+                                        utility_ongoing_om=0.0,
+                                        customer_ongoing_om=0.0,
+                                        npv_utility_ongoing_om=None,
+                                        npv_customer_ongoing_om=None,
+                                        annual_customer_om_stream=None):
     """
     Compute standard California Standard Practice Manual (SPM) cost-effectiveness
     test ratios (TRC, PCT, RIM) and customer payback periods.
@@ -226,6 +231,21 @@ def calculate_cost_effectiveness_tests(npv_grid_savings, npv_lost_revenue,
         Year-by-year nominal customer bill savings stream ($).
     pv_multipliers : np.ndarray
         Discount factors for each operating year.
+    utility_ongoing_om : float, optional
+        Annual ongoing utility program operations, administration, software,
+        or maintenance cost per participant ($/yr). Default 0.0.
+    customer_ongoing_om : float, optional
+        Annual ongoing customer equipment maintenance, filter replacement,
+        or service contract cost ($/yr). Default 0.0.
+    npv_utility_ongoing_om : float, optional
+        Discounted present value of utility ongoing O&M costs ($). If None,
+        derived from utility_ongoing_om and pv_multipliers.
+    npv_customer_ongoing_om : float, optional
+        Discounted present value of customer ongoing O&M costs ($). If None,
+        derived from customer_ongoing_om and pv_multipliers.
+    annual_customer_om_stream : np.ndarray, optional
+        Year-by-year customer ongoing O&M cost stream ($/yr). If None,
+        populated with customer_ongoing_om across the savings stream length.
 
     Returns
     -------
@@ -233,38 +253,65 @@ def calculate_cost_effectiveness_tests(npv_grid_savings, npv_lost_revenue,
         Dictionary containing TRC, PCT, RIM ratios, net present values,
         and simple & discounted payback periods.
     """
+    if npv_utility_ongoing_om is None:
+        if utility_ongoing_om > 0.0 and pv_multipliers is not None and len(pv_multipliers) > 0:
+            npv_utility_ongoing_om = float(np.sum(utility_ongoing_om * pv_multipliers))
+        else:
+            npv_utility_ongoing_om = 0.0
+    else:
+        npv_utility_ongoing_om = float(npv_utility_ongoing_om)
+
+    if npv_customer_ongoing_om is None:
+        if customer_ongoing_om > 0.0 and pv_multipliers is not None and len(pv_multipliers) > 0:
+            npv_customer_ongoing_om = float(np.sum(customer_ongoing_om * pv_multipliers))
+        else:
+            npv_customer_ongoing_om = 0.0
+    else:
+        npv_customer_ongoing_om = float(npv_customer_ongoing_om)
+
+    if annual_customer_om_stream is None:
+        if len(annual_customer_savings_stream) > 0:
+            annual_customer_om_stream = np.full(len(annual_customer_savings_stream), float(customer_ongoing_om), dtype=float)
+        else:
+            annual_customer_om_stream = np.array([], dtype=float)
+    else:
+        annual_customer_om_stream = np.asarray(annual_customer_om_stream, dtype=float)
+
     net_customer_cost = max(0.0, gross_measure_cost - utility_incentive)
-    total_program_cost = utility_incentive + utility_admin_cost
+    total_program_cost = utility_incentive + utility_admin_cost + npv_utility_ongoing_om
 
     # 1. Total Resource Cost (TRC) Test
-    trc_costs = gross_measure_cost + utility_admin_cost
+    trc_costs = gross_measure_cost + utility_admin_cost + npv_utility_ongoing_om + npv_customer_ongoing_om
     trc_ratio = _safe_cost_effectiveness_ratio(npv_grid_savings, trc_costs)
     trc_npv = npv_grid_savings - trc_costs
 
     # 2. Participant Cost Test (PCT) / Customer ROI
     pct_benefits = npv_customer_bill_savings + utility_incentive
-    pct_costs = gross_measure_cost
+    pct_costs = gross_measure_cost + npv_customer_ongoing_om
     pct_ratio = _safe_cost_effectiveness_ratio(pct_benefits, pct_costs)
     pct_npv = pct_benefits - pct_costs
 
-    # 3. Rate Impact Measure (RIM) Test (includes program costs)
+    # 3. Rate Impact Measure (RIM) Test (includes all utility program costs)
     rim_costs = npv_lost_revenue + total_program_cost
     rim_ratio = _safe_cost_effectiveness_ratio(npv_grid_savings, rim_costs)
     rim_npv = npv_grid_savings - rim_costs
 
     # 4. Simple Payback Period (Years)
     year1_savings = annual_customer_savings_stream[0] if len(annual_customer_savings_stream) > 0 else 0.0
+    year1_cust_om = annual_customer_om_stream[0] if len(annual_customer_om_stream) > 0 else 0.0
+    year1_net_savings = year1_savings - year1_cust_om
     if net_customer_cost <= 0:
         simple_payback = 0.0
-    elif year1_savings > 0:
-        simple_payback = net_customer_cost / year1_savings
+    elif year1_net_savings > 0:
+        simple_payback = net_customer_cost / year1_net_savings
     else:
         simple_payback = float('inf')
 
     # 5. Discounted Payback Period (Years)
-    discounted_savings_stream = annual_customer_savings_stream * pv_multipliers
+    net_cust_savings_stream = annual_customer_savings_stream - annual_customer_om_stream
+    discounted_savings_stream = net_cust_savings_stream * pv_multipliers
     cum_discounted = np.cumsum(discounted_savings_stream)
-    
+
     if net_customer_cost <= 0:
         discounted_payback = 0.0
     else:
@@ -288,6 +335,8 @@ def calculate_cost_effectiveness_tests(npv_grid_savings, npv_lost_revenue,
         "rim_npv": rim_npv,
         "simple_payback": simple_payback,
         "discounted_payback": discounted_payback,
+        "npv_utility_ongoing_om": npv_utility_ongoing_om,
+        "npv_customer_ongoing_om": npv_customer_ongoing_om,
     }
 
 
@@ -1381,18 +1430,28 @@ def calculate_cambium_seasonal_net_demand_weights(
     winter_months: tuple = (12, 1, 2),
     summer_months: tuple = (6, 7, 8, 9),
     top_n_peak_hours: int = 100,
+    energy_price_array: Optional[np.ndarray] = None,
+    scarcity_price_weight: float = 0.50,
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """
     Computes Cambium regional net-demand capacity weights with explicit dual-peak
     seasonal allocation (Winter + Summer).
 
-    Applies Cambium S1 exceedance (threshold = min(N_101, 0.95 * max(N)))
+    Applies Cambium S1 exceedance (threshold = min(N_k, 0.95 * max(N)))
     separately within Winter (Dec–Feb) and Summer (Jun–Sep) regional net load hours,
     then combines them using winter_weight and summer_weight (default 60% winter / 40% summer).
 
+    When `scarcity_price_weight > 0.0` and `energy_price_array` is provided,
+    the raw net load signal is blended with wholesale energy scarcity pricing:
+        price_factor = max(price / median_price, 0.20) ** scarcity_price_weight
+        effective_signal = net_load * price_factor
+    This dampens high-load hours that have low wholesale prices (surplus clean/cheap generation)
+    and elevates mid-load hours that experience high wholesale prices (generator outages,
+    transmission bottlenecks, or severe reserve margin tightness).
+
     Avoids single-season regional dilution (e.g. peninsular Florida cooling load
-    overwhelming winter heating peaks) while remaining 100% grounded in modeled
-    physical net-demand stress (MWh).
+    overwhelming winter heating peaks) while remaining grounded in modeled
+    physical net-demand stress (MWh) and operational scarcity.
 
     Parameters
     ----------
@@ -1409,6 +1468,13 @@ def calculate_cambium_seasonal_net_demand_weights(
         Months considered winter (default 12, 1, 2).
     summer_months : tuple of int
         Months considered summer (default 6, 7, 8, 9).
+    top_n_peak_hours : int
+        Total number of peak stress hours evaluated across the year (default 100).
+    energy_price_array : array-like, optional
+        8,760 hourly wholesale energy prices ($/MWh) from Cambium.
+    scarcity_price_weight : float, optional
+        Exponent sensitivity (0.0 to 1.0) weighting wholesale energy scarcity.
+        0.0 = pure physical net load (default); > 0.0 = scarcity-weighted blend.
 
     Returns
     -------
@@ -1420,6 +1486,22 @@ def calculate_cambium_seasonal_net_demand_weights(
         raise ValueError(f"net_load_array must contain exactly 8,760 hours (got {len(arr)}).")
     if not np.isfinite(arr).all():
         raise ValueError("net_load_array contains NaN or infinite values.")
+
+    # Apply continuous scarcity price weighting if requested and prices supplied
+    effective_signal = arr.copy()
+    is_price_blended = False
+    if scarcity_price_weight > 0.0 and energy_price_array is not None:
+        p_arr = np.asarray(energy_price_array, dtype=float)
+        if len(p_arr) == 8760 and np.isfinite(p_arr).all():
+            p_median = float(np.median(p_arr))
+            if p_median <= 0.0:
+                p_pos = p_arr[p_arr > 0.0]
+                p_median = float(np.median(p_pos)) if len(p_pos) > 0 else 1.0
+            # Normalized price ratio with 0.20 floor to avoid zeroing out loads during negative/zero prices
+            p_ratio = np.maximum(p_arr / max(p_median, 1e-3), 0.20)
+            p_factor = np.power(p_ratio, float(scarcity_price_weight))
+            effective_signal = arr * p_factor
+            is_price_blended = True
 
     if summer_weight is None:
         summer_weight = max(0.0, 1.0 - float(winter_weight))
@@ -1440,6 +1522,8 @@ def calculate_cambium_seasonal_net_demand_weights(
     diag_extra: Dict[str, Any] = {
         "winter_weight": w_norm,
         "summer_weight": s_norm,
+        "is_scarcity_price_blended": is_price_blended,
+        "scarcity_price_weight": float(scarcity_price_weight),
     }
 
     # Allocate total top_n_peak_hours across seasons proportionally to seasonal risk weights
@@ -1456,7 +1540,7 @@ def calculate_cambium_seasonal_net_demand_weights(
 
     # Evaluate winter if weight > 0
     if w_norm > 0.0 and np.any(winter_mask):
-        w_sub = arr[winter_mask]
+        w_sub = effective_signal[winter_mask]
         w_max = float(np.max(w_sub))
         if w_max > 0.0:
             w_sorted = np.sort(w_sub)[::-1]
@@ -1467,13 +1551,13 @@ def calculate_cambium_seasonal_net_demand_weights(
             tot_w_excess = float(np.sum(w_excess))
             if tot_w_excess > 0.0:
                 weights[winter_mask] += w_norm * (w_excess / tot_w_excess)
-                diag_extra["winter_peak_net_load"] = w_max
+                diag_extra["winter_peak_net_load"] = float(np.max(arr[winter_mask]))
                 diag_extra["winter_threshold"] = w_thresh
                 diag_extra["active_winter_hours"] = int(np.sum(w_excess > 0.0))
 
     # Evaluate summer if weight > 0
     if s_norm > 0.0 and np.any(summer_mask):
-        s_sub = arr[summer_mask]
+        s_sub = effective_signal[summer_mask]
         s_max = float(np.max(s_sub))
         if s_max > 0.0:
             s_sorted = np.sort(s_sub)[::-1]
@@ -1484,7 +1568,7 @@ def calculate_cambium_seasonal_net_demand_weights(
             tot_s_excess = float(np.sum(s_excess))
             if tot_s_excess > 0.0:
                 weights[summer_mask] += s_norm * (s_excess / tot_s_excess)
-                diag_extra["summer_peak_net_load"] = s_max
+                diag_extra["summer_peak_net_load"] = float(np.max(arr[summer_mask]))
                 diag_extra["summer_threshold"] = s_thresh
                 diag_extra["active_summer_hours"] = int(np.sum(s_excess > 0.0))
 
@@ -1781,6 +1865,8 @@ def calculate_multi_year_avoided_costs_and_npv(
     real_retail_escalation_rate: Optional[float] = None,
     program_cost_timing: str = "upfront",
     capacity_cost_schedule: Optional[Dict[int, float]] = None,
+    utility_ongoing_om: float = 0.0,
+    customer_ongoing_om: float = 0.0,
 ) -> Dict[str, Any]:
     """
     Compute multi-year avoided costs and NPV using dynamic hourly Cambium milestone trajectories.
@@ -1987,14 +2073,29 @@ def calculate_multi_year_avoided_costs_and_npv(
         retail_stream_disc_util = annual_lost_revenue * disc_factors
         customer_stream_disc = annual_lost_revenue * cust_disc_factors
 
+        annual_utility_om = np.full(asset_life, float(utility_ongoing_om), dtype=float)
+        annual_customer_om = np.full(asset_life, float(customer_ongoing_om), dtype=float)
+
+        utility_om_disc = annual_utility_om * disc_factors
+        customer_om_disc = annual_customer_om * cust_disc_factors
+
+        npv_utility_ongoing_om = float(np.sum(utility_om_disc))
+        npv_customer_ongoing_om = float(np.sum(customer_om_disc))
+
         npv_grid_savings = float(np.sum(grid_savings_disc))
         npv_energy_savings = float(np.sum(energy_savings_disc))
         npv_capacity_savings = float(np.sum(cap_emiss_savings_disc))
         npv_retail_lost_revenue = float(np.sum(retail_stream_disc_util))
         npv_customer_bill_savings = float(np.sum(customer_stream_disc))
 
-        npv_program_cost = float(utility_incentive + utility_admin_cost)
-        npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_program_cost
+        if program_cost_timing == "upfront":
+            npv_program_cost = float(utility_incentive + utility_admin_cost)
+        else:
+            ann_prog = (utility_incentive + utility_admin_cost) / float(asset_life)
+            npv_program_cost = float(np.sum(ann_prog * disc_factors))
+
+        npv_total_program_cost = npv_program_cost + npv_utility_ongoing_om
+        npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_total_program_cost
 
         # Cost-effectiveness tests
         cost_tests = calculate_cost_effectiveness_tests(
@@ -2006,10 +2107,15 @@ def calculate_multi_year_avoided_costs_and_npv(
             utility_admin_cost=utility_admin_cost,
             annual_customer_savings_stream=annual_lost_revenue,
             pv_multipliers=cust_disc_factors,
+            utility_ongoing_om=utility_ongoing_om,
+            customer_ongoing_om=customer_ongoing_om,
+            npv_utility_ongoing_om=npv_utility_ongoing_om,
+            npv_customer_ongoing_om=npv_customer_ongoing_om,
+            annual_customer_om_stream=annual_customer_om,
         )
 
         # Build detailed cash flow DataFrame
-        cum_util_net_pv = np.cumsum(grid_savings_disc - retail_stream_disc_util) - npv_program_cost
+        cum_util_net_pv = np.cumsum(grid_savings_disc - retail_stream_disc_util - utility_om_disc) - npv_program_cost
         cash_flow_df = pd.DataFrame({
             "Operating_Year": years,
             "Calendar_Year": calendar_years,
@@ -2025,6 +2131,8 @@ def calculate_multi_year_avoided_costs_and_npv(
             "Capacity_Emissions_Savings": cap_emiss_savings,
             "Total_Grid_Savings": annual_grid_savings,
             "Lost_Retail_Revenue": annual_lost_revenue,
+            "Utility_Ongoing_OM": annual_utility_om,
+            "Customer_Ongoing_OM": annual_customer_om,
             "Discount_Factor_Utility": disc_factors,
             "Discount_Factor_Customer": cust_disc_factors,
             "Discounted_Grid_Savings": grid_savings_disc,
@@ -2032,6 +2140,8 @@ def calculate_multi_year_avoided_costs_and_npv(
             "Discounted_Capacity_Savings": cap_emiss_savings_disc,
             "Discounted_Lost_Revenue": retail_stream_disc_util,
             "Discounted_Customer_Savings": customer_stream_disc,
+            "Discounted_Utility_OM": utility_om_disc,
+            "Discounted_Customer_OM": customer_om_disc,
             "Cumulative_Utility_Net_PV": cum_util_net_pv,
         })
 
@@ -2052,17 +2162,24 @@ def calculate_multi_year_avoided_costs_and_npv(
             "annual_emissions_savings": annual_emissions_savings,
             "annual_grid_savings": annual_grid_savings,
             "annual_lost_revenue": annual_lost_revenue,
+            "annual_utility_om": annual_utility_om,
+            "annual_customer_om": annual_customer_om,
             "discount_factors": disc_factors,
             "customer_discount_factors": cust_disc_factors,
             "grid_savings_discounted": grid_savings_disc,
             "retail_lost_revenue_discounted": retail_stream_disc_util,
             "customer_bill_savings_discounted": customer_stream_disc,
+            "discounted_utility_om": utility_om_disc,
+            "discounted_customer_om": customer_om_disc,
             "npv_grid_savings": npv_grid_savings,
             "npv_energy_savings": npv_energy_savings,
             "npv_capacity_savings": npv_capacity_savings,
             "npv_retail_lost_revenue": npv_retail_lost_revenue,
             "npv_customer_bill_savings": npv_customer_bill_savings,
             "npv_program_cost": npv_program_cost,
+            "npv_utility_ongoing_om": npv_utility_ongoing_om,
+            "npv_customer_ongoing_om": npv_customer_ongoing_om,
+            "npv_total_program_cost": npv_total_program_cost,
             "npv_net_savings": npv_net_savings,
             "cash_flow_df": cash_flow_df,
             "cost_tests": cost_tests,
@@ -2251,6 +2368,19 @@ def calculate_multi_year_avoided_costs_and_npv(
             annual_grid_savings[idx] = tot_grid
             annual_lost_revenue[idx] = tot_lost_rev
 
+    if valuation_basis == "real":
+        annual_utility_om = np.full(asset_life, float(utility_ongoing_om), dtype=float)
+        annual_customer_om = np.full(asset_life, float(customer_ongoing_om), dtype=float)
+    else:
+        annual_utility_om = float(utility_ongoing_om) * ((1.0 + i) ** tau)
+        annual_customer_om = float(customer_ongoing_om) * ((1.0 + i) ** tau)
+
+    utility_om_disc = annual_utility_om * disc_factors
+    customer_om_disc = annual_customer_om * cust_disc_factors
+
+    npv_utility_ongoing_om = float(np.sum(utility_om_disc))
+    npv_customer_ongoing_om = float(np.sum(customer_om_disc))
+
     grid_savings_disc = annual_grid_savings * disc_factors
     energy_savings_disc = annual_energy_savings * disc_factors
     cap_emiss_savings = annual_gen_cap_savings + annual_trans_savings + annual_dist_savings + annual_emissions_savings
@@ -2270,7 +2400,8 @@ def calculate_multi_year_avoided_costs_and_npv(
         ann_prog = (utility_incentive + utility_admin_cost) / float(asset_life)
         npv_program_cost = float(np.sum(ann_prog * disc_factors))
 
-    npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_program_cost
+    npv_total_program_cost = npv_program_cost + npv_utility_ongoing_om
+    npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_total_program_cost
 
     cost_tests = calculate_cost_effectiveness_tests(
         npv_grid_savings=npv_grid_savings,
@@ -2281,9 +2412,14 @@ def calculate_multi_year_avoided_costs_and_npv(
         utility_admin_cost=utility_admin_cost,
         annual_customer_savings_stream=annual_lost_revenue,
         pv_multipliers=cust_disc_factors,
+        utility_ongoing_om=utility_ongoing_om,
+        customer_ongoing_om=customer_ongoing_om,
+        npv_utility_ongoing_om=npv_utility_ongoing_om,
+        npv_customer_ongoing_om=npv_customer_ongoing_om,
+        annual_customer_om_stream=annual_customer_om,
     )
 
-    cum_util_net_pv = np.cumsum(grid_savings_disc - retail_stream_disc_util) - npv_program_cost
+    cum_util_net_pv = np.cumsum(grid_savings_disc - retail_stream_disc_util - utility_om_disc) - npv_program_cost
     cash_flow_df = pd.DataFrame({
         "Operating_Year": years,
         "Calendar_Year": calendar_years,
@@ -2299,6 +2435,8 @@ def calculate_multi_year_avoided_costs_and_npv(
         "Capacity_Emissions_Savings": cap_emiss_savings,
         "Total_Grid_Savings": annual_grid_savings,
         "Lost_Retail_Revenue": annual_lost_revenue,
+        "Utility_Ongoing_OM": annual_utility_om,
+        "Customer_Ongoing_OM": annual_customer_om,
         "Discount_Factor_Utility": disc_factors,
         "Discount_Factor_Customer": cust_disc_factors,
         "Discounted_Grid_Savings": grid_savings_disc,
@@ -2306,6 +2444,8 @@ def calculate_multi_year_avoided_costs_and_npv(
         "Discounted_Capacity_Savings": cap_emiss_savings_disc,
         "Discounted_Lost_Revenue": retail_stream_disc_util,
         "Discounted_Customer_Savings": customer_stream_disc,
+        "Discounted_Utility_OM": utility_om_disc,
+        "Discounted_Customer_OM": customer_om_disc,
         "Cumulative_Utility_Net_PV": cum_util_net_pv,
     })
 
@@ -2328,17 +2468,24 @@ def calculate_multi_year_avoided_costs_and_npv(
         "annual_emissions_savings": annual_emissions_savings,
         "annual_grid_savings": annual_grid_savings,
         "annual_lost_revenue": annual_lost_revenue,
+        "annual_utility_om": annual_utility_om,
+        "annual_customer_om": annual_customer_om,
         "discount_factors": disc_factors,
         "customer_discount_factors": cust_disc_factors,
         "grid_savings_discounted": grid_savings_disc,
         "retail_lost_revenue_discounted": retail_stream_disc_util,
         "customer_bill_savings_discounted": customer_stream_disc,
+        "discounted_utility_om": utility_om_disc,
+        "discounted_customer_om": customer_om_disc,
         "npv_grid_savings": npv_grid_savings,
         "npv_energy_savings": npv_energy_savings,
         "npv_capacity_savings": npv_capacity_savings,
         "npv_retail_lost_revenue": npv_retail_lost_revenue,
         "npv_customer_bill_savings": npv_customer_bill_savings,
         "npv_program_cost": npv_program_cost,
+        "npv_utility_ongoing_om": npv_utility_ongoing_om,
+        "npv_customer_ongoing_om": npv_customer_ongoing_om,
+        "npv_total_program_cost": npv_total_program_cost,
         "npv_net_savings": npv_net_savings,
         "cash_flow_df": cash_flow_df,
         "cost_tests": cost_tests,
@@ -2633,7 +2780,7 @@ def build_reproducible_npv_bridge(
     npv_e_real = np.sum(cf_e * df_real)
     npv_cap_real = np.sum(cf_cap * df_real)
     npv_ret_real = np.sum(cf_ret * df_real)
-    npv_prog = float(baseline_npv_result["npv_program_cost"])
+    npv_prog = float(baseline_npv_result.get("npv_total_program_cost", baseline_npv_result["npv_program_cost"]))
     npv_step3 = npv_e_real + npv_cap_real - npv_ret_real - npv_prog
 
     delta_disc_rate = npv_step3 - current_npv

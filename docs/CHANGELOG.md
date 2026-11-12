@@ -2,6 +2,97 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-11-12] — Ongoing Equipment O&M Cost Wiring (Utility Program & User)
+
+### Context
+Fully implemented and wired ongoing annual operations and maintenance (O&M) costs for equipment across both the utility program perspective (defaulting to \$0/yr) and the participant/user perspective. Wired these annual cost streams throughout California Standard Practice Manual (SPM) cost-effectiveness tests (TRC, PCT, RIM), customer simple and discounted payback periods, multi-year cash flow evaluation, lifetime cash flow charts, and waterfall balance diagrams.
+
+### Key Changes
+- **`config.py`**:
+  * Added `DEFAULT_UTILITY_ONGOING_OM = 0.0` ($/yr) and `DEFAULT_CUSTOMER_ONGOING_OM = 0.0` ($/yr).
+- **`calculations.py`**:
+  * Updated `calculate_cost_effectiveness_tests()`:
+    - Accepts `utility_ongoing_om`, `customer_ongoing_om`, `npv_utility_ongoing_om`, `npv_customer_ongoing_om`, and `annual_customer_om_stream`.
+    - **Total Resource Cost (TRC)**: Incorporates both utility ongoing O&M and customer ongoing O&M present values into TRC costs denominator: `TRC = NPV Grid Avoided Costs / (Gross Measure Cost + Utility Admin Cost + PV of Utility Ongoing O&M + PV of Customer Ongoing O&M)`.
+    - **Participant Cost Test (PCT)**: Incorporates customer ongoing O&M present value into customer costs: `PCT = (NPV Customer Bill Savings + Incentive) / (Gross Measure Cost + PV of Customer Ongoing O&M)`. Customer Net NPV reflects bill savings minus net upfront cost minus PV of customer ongoing O&M.
+    - **Rate Impact Measure (RIM)**: Incorporates utility ongoing program O&M present value into utility costs denominator: `RIM = NPV Grid Avoided Costs / (NPV Lost Retail Revenue + Utility Upfront Program Cost + PV of Utility Ongoing O&M)`.
+    - **Customer Payback Periods**: Simple Payback computes Net Measure Cost ÷ (Year 1 Customer Bill Savings − Customer Ongoing O&M); Discounted Payback solves for cumulative discounted net cash flow (Bill Savings − Customer Ongoing O&M) ≥ Net Measure Cost.
+  * Updated `calculate_multi_year_avoided_costs_and_npv()`:
+    - Added `utility_ongoing_om` and `customer_ongoing_om` parameters to both `financial_method == "current"` and `"financially_consistent"` branches.
+    - Added `Utility_Ongoing_OM`, `Customer_Ongoing_OM`, `Discounted_Utility_OM`, `Discounted_Customer_OM` to `cash_flow_df`.
+    - Correctly calculates `npv_total_program_cost = npv_program_cost + npv_utility_ongoing_om` and `npv_net_savings`.
+    - Deducts annual utility O&M from cumulative net utility cash flow `cum_util_net_pv`.
+  * Updated `build_reproducible_npv_bridge()` to account for total program cost including utility ongoing O&M.
+- **`visualizations.py`**:
+  * Updated `build_lifetime_npv_chart()`: Added `om_stream` and `om_name` parameters; renders annual ongoing O&M bars (`COLORS["amber"]`) and factors them into cumulative net cash flow lines for both Utility and Customer perspectives.
+  * Updated `build_economic_balance_chart()`: Added optional `npv_utility_ongoing_om` waterfall bar and cumulative tracking.
+- **`app.py`**:
+  * Added sidebar number inputs for "Utility Program Ongoing O&M ($/yr)" (defaulting to \$0/yr) and "Customer Ongoing O&M ($/yr)".
+  * Wired inputs to `calculate_multi_year_avoided_costs_and_npv()`, `calculate_cost_effectiveness_tests()`, `build_economic_balance_chart()`, and `build_lifetime_npv_chart()`.
+  * Updated Tab 2 (Overview Scorecard) KPI tooltips and technical audit table.
+  * Updated Tab 3 (Cost-Effectiveness Table) Annual Operating Margin formula (`annual_net_savings = annual_grid_savings - annual_lost_revenue - utility_ongoing_om`) and data table formulas.
+  * Updated Lifetime Cash Flow tab formatting to display ongoing O&M columns.
+  * Saved O&M variables in Scenario Manager runs.
+- **`tests/test_calculations.py`**:
+  * Added `test_ongoing_om_wiring_for_utility_and_customer()` and `test_multi_year_valuation_ongoing_om_integration()`.
+  * 331/331 tests passing cleanly with zero regressions.
+- **`docs/`**:
+  * Updated `docs/glossary.md` definitions for TRC, PCT, RIM.
+  * Updated `docs/roadmap.md` items 2.1 and 3.1.
+  * Updated `docs/needs_and_gaps.md` §4.1 and §4.2.
+  * Updated `docs/app_code_tour.md` RIM equation.
+  * Updated `docs/app_annotated.py` sync header (4,314 lines).
+
+### Context
+Streamlined the financial methodology controls in the sidebar. Per user request, the three financial parameters from the "Financial Valuation Methodology & Dollar Basis" card have been set to their recommended defaults and moved into a collapsed advanced expander to declutter the primary UI.
+
+### Key Changes
+- **`app.py`**:
+  * Fixed recommended defaults:
+    * **Financial Valuation Method**: `"financially_consistent"` (`"Financially Consistent (Fisher Aligned)"`)
+    * **Valuation Basis**: `"real"` (`Real Dollars (Constant Base Year$)`)
+    * **Discount Timing Convention**: `"mid_year"` (`Mid-Year (Continuous Cash Flow)`)
+  * Moved the 3 selectboxes out of the main visible flow into `st.expander("⚙️ Advanced Financial Valuation Settings", expanded=False)`.
+  * Preserved full functionality for expert users while keeping the primary sidebar clean.
+
+## [2026-11-12] — Scarcity-Weighted Net Load (Combined Default & Simplified UI)
+
+### Context
+Simplified the user interface for Section 5 ("Capacity Worth Factor / Capacity Risk Allocation"). Merged wholesale scarcity pricing directly into the primary "Seasonal Split Net-Demand" method as the default, eliminating redundant checkboxes and inline clutter while tucking fine-tuning controls into an optional advanced expander.
+
+### Key Changes
+- **`app.py`**:
+  * Unified method description: *"Evaluates state-level net load scaled by wholesale energy scarcity pricing across Winter (Dec–Feb) and Summer (Jun–Sep). Captures generator outages and tight reserve margins while ruling out high-load hours with cheap surplus energy."*
+  * Combined scarcity price weighting into the default computation (`scarcity_price_weight = 0.50`).
+  * Removed the standalone checkbox and raw formula block; tucked sensitivity tuning into `⚙️ Advanced: Scarcity Pricing Sensitivity` (`st.expander(expanded=False)`).
+  * Reduced vertical footprint and noise in sidebar Section 5.
+- **`calculations.py` & `system_stress_data.py` & `data_loaders.py`**:
+  * Set `scarcity_price_weight = 0.50` as the standard default parameter across all loader and calculation signatures.
+- **Tests**:
+  * Verified 23/23 net-demand tests and calculation test suite pass cleanly.
+
+## [2026-11-12] — Seasonal (Winter/Summer/Shoulder) Diurnal Grid Risk Sample Day Chart
+
+### Context
+Added seasonal diurnal grid risk charting capability displaying a 24-hour representative sample day of when capacity and reliability risks occur across Winter, Summer, and Shoulder seasons (e.g. Winter 10% at hour 5, 20% at hour 6, 35% at hour 7; Summer afternoon AC peak; Shoulder solar sunset ramp).
+
+### Key Changes
+- **`visualizations.py`**:
+  * Implemented `build_seasonal_grid_risk_chart(cwf_array, datetime_series, normalize_per_season=True, ...)` to generate a 3-trace grouped Plotly bar chart depicting 24-hour diurnal risk timing for Winter (Dec–Feb), Summer (Jun–Sep), and Shoulder (Mar–May, Oct–Nov).
+  * Supports both canonical representative sample day profiles (when `cwf_array is None`) and empirical 8,760 CWF inputs.
+  * Added `include_shoulder` and `normalize_per_season` optional parameters to `plot_southeast_cwf_distribution()`, preserving 100% backward compatibility for 2-trace callers while supporting 3-season diurnal views.
+- **`app.py`**:
+  * Integrated `build_seasonal_grid_risk_chart` into `chart_tab_cwf` with a toggle allowing users to switch between "Seasonal Sample Day (100% per Season)" and "Annual Risk Distribution".
+  * Streamlined sidebar Section 5 ("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"): removed popover peek and auto-popup clutter, replacing with a single full-width `📊 Pop Up Diurnal Risk Chart` modal action (`@st.dialog`) with seasonal summary metric badges.
+  * In the modal dialog: removed the "Illustrative Benchmark Mode" caption line and added a layout selector between "Stacked by Season (Independent Scale)" and "Combined 24-Hr Overlay".
+- **`visualizations.py`**:
+  * Added `layout_mode="subplots"` to `build_seasonal_grid_risk_chart()` rendering 3 vertically aligned seasonal rows (Winter, Summer, Shoulder) with independent y-axis headroom scaling (`range=[0, max * 1.35]`), bold legible 11pt slate data labels (`#1E293B`), and wide un-cramped bars.
+- **`tests/test_calculations.py`**:
+  * Added `test_seasonal_grid_risk_chart_sample_day` verifying 3-trace generation, 100% per-season sum validation, peak hour alignments (hour 7 winter, hour 16 summer), zero-weight shoulder handling, and non-normalized annual share mode.
+  * 328/328 tests passing cleanly.
+- **Artifacts**:
+  * Created interactive HTML visualization and detailed markdown breakdown in `seasonal_grid_risk_artifact.md`.
+
 ## [2026-11-06] — Annual Energy Reduction Unit Harmonization (kWh) & UI Streamlining
 
 ### Context

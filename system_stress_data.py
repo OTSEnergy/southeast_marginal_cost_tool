@@ -2135,6 +2135,8 @@ def aggregate_state_busbar_net_load(
 
     sum_net_load_est = np.zeros(8760, dtype=float)
     sum_enduse_load_est = np.zeros(8760, dtype=float)
+    sum_energy_cost_est = np.zeros(8760, dtype=float)
+    sum_cost_weights_est = np.zeros(8760, dtype=float)
     ba_annual_enduse: Dict[str, float] = {}
 
     for ba, data in ba_data_map.items():
@@ -2148,16 +2150,36 @@ def aggregate_state_busbar_net_load(
         net_load = df["net_load_busbar"].values
         enduse = df["enduse_load"].values
 
+        # Wholesale energy price (check energy_cost_busbar or energy_cost_enduse)
+        cost_col = None
+        for cand in ["energy_cost_busbar", "energy_cost_enduse", "total_cost_busbar"]:
+            if cand in df.columns:
+                cost_col = cand
+                break
+        energy_costs = df[cost_col].values if cost_col else np.zeros(8760, dtype=float)
+
         sum_net_load_est[h_est_indices] += net_load
         sum_enduse_load_est[h_est_indices] += enduse
 
+        # Load-weighted wholesale energy price aggregation
+        sum_energy_cost_est[h_est_indices] += energy_costs * enduse
+        sum_cost_weights_est[h_est_indices] += enduse
+
         tot_enduse = float(np.sum(enduse))
         ba_annual_enduse[ba] = tot_enduse
+
+    # Calculate average energy cost per hour across BAs (load-weighted)
+    avg_energy_cost = np.where(
+        sum_cost_weights_est > 0.0,
+        sum_energy_cost_est / sum_cost_weights_est,
+        0.0,
+    )
 
     return {
         "state": state,
         "net_load_est": sum_net_load_est,
         "enduse_load_est": sum_enduse_load_est,
+        "energy_price_est": avg_energy_cost,
         "ba_annual_enduse": ba_annual_enduse,
         "constituent_count": len(ba_data_map),
     }
@@ -2178,6 +2200,8 @@ def aggregate_gea_busbar_net_load(
 
     sum_net_load_est = np.zeros(8760, dtype=float)
     sum_enduse_load_est = np.zeros(8760, dtype=float)
+    sum_energy_cost_est = np.zeros(8760, dtype=float)
+    sum_cost_weights_est = np.zeros(8760, dtype=float)
     ba_annual_enduse: Dict[str, float] = {}
     ba_states: Dict[str, str] = {}
 
@@ -2192,17 +2216,33 @@ def aggregate_gea_busbar_net_load(
         net_load = df["net_load_busbar"].values
         enduse = df["enduse_load"].values
 
+        cost_col = None
+        for cand in ["energy_cost_busbar", "energy_cost_enduse", "total_cost_busbar"]:
+            if cand in df.columns:
+                cost_col = cand
+                break
+        energy_costs = df[cost_col].values if cost_col else np.zeros(8760, dtype=float)
+
         sum_net_load_est[h_est_indices] += net_load
         sum_enduse_load_est[h_est_indices] += enduse
+        sum_energy_cost_est[h_est_indices] += energy_costs * enduse
+        sum_cost_weights_est[h_est_indices] += enduse
 
         tot_enduse = float(np.sum(enduse))
         ba_annual_enduse[ba] = tot_enduse
         ba_states[ba] = data.get("state", "unknown")
 
+    avg_energy_cost = np.where(
+        sum_cost_weights_est > 0.0,
+        sum_energy_cost_est / sum_cost_weights_est,
+        0.0,
+    )
+
     return {
         "gea": gea,
         "net_load_est": sum_net_load_est,
         "enduse_load_est": sum_enduse_load_est,
+        "energy_price_est": avg_energy_cost,
         "ba_annual_enduse": ba_annual_enduse,
         "ba_states": ba_states,
         "constituent_count": len(ba_data_map),
@@ -2349,6 +2389,7 @@ def load_cambium_net_demand_proxy_for_portfolio(
     summer_weight: Optional[float] = None,
     aggregation_level: str = "state",
     top_n_peak_hours: int = 100,
+    scarcity_price_weight: float = 0.50,
 ) -> Dict[str, Any]:
     """
     Loads, qualifies, and computes Cambium net-demand capacity weights
@@ -2359,6 +2400,8 @@ def load_cambium_net_demand_proxy_for_portfolio(
                            directly across constituent ReEDS BAs belonging to the target state(s).
                            "gea" evaluates net-demand aggregated across the full regional
                            Generation and Emissions Assessment (GEA) region (e.g. SERTP across 11 BAs).
+        scarcity_price_weight: exponent (0.0 to 1.0) blending wholesale energy prices to elevate
+                               mid-load generator outage hours and dampen high-load surplus hours.
     """
     validate_cambium_state_mapping(target_states)
 
@@ -2446,6 +2489,8 @@ def load_cambium_net_demand_proxy_for_portfolio(
                     winter_weight=winter_weight,
                     summer_weight=summer_weight,
                     top_n_peak_hours=top_n_peak_hours,
+                    energy_price_array=agg.get("energy_price_est"),
+                    scarcity_price_weight=scarcity_price_weight,
                 )
             else:
                 w_est, diag = calculate_cambium_net_demand_exceedance_weights(agg["net_load_est"])
@@ -2544,6 +2589,9 @@ def load_cambium_net_demand_proxy_for_portfolio(
                 agg["net_load_est"],
                 winter_weight=winter_weight,
                 summer_weight=summer_weight,
+                top_n_peak_hours=top_n_peak_hours,
+                energy_price_array=agg.get("energy_price_est"),
+                scarcity_price_weight=scarcity_price_weight,
             )
         else:
             w_est, diag = calculate_cambium_net_demand_exceedance_weights(agg["net_load_est"])

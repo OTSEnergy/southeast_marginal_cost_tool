@@ -370,6 +370,46 @@ class TestCambiumSeasonalNetDemandMath:
         # And specifically in the reasonable engineering range ~0.75 - 1.1 kW
         assert 0.70 <= credit_seasonal <= 1.20
 
+    def test_scarcity_price_blend_elevates_outage_hours_and_dampens_cheap_surplus(self):
+        """Verifies that scarcity price blending demotes high-load low-cost hours and elevates mid-load outage hours."""
+        hours = pd.Series(pd.date_range("2030-01-01", periods=8760, freq="h"))
+        months = hours.dt.month.to_numpy()
+        is_winter = np.isin(months, [12, 1, 2])
+        winter_indices = np.where(is_winter)[0]
+
+        # Base net load: flat 1000 MWh except two test winter hours
+        net_load = np.full(8760, 1000.0)
+        h_high_load_cheap = winter_indices[10]   # High load, surplus energy (cheap)
+        h_mid_load_outage = winter_indices[50]   # Mid load, generator outage (expensive)
+
+        net_load[h_high_load_cheap] = 5000.0  # Very high physical load
+        net_load[h_mid_load_outage] = 3000.0  # Moderate physical load
+
+        # Baseline prices: median $30/MWh
+        prices = np.full(8760, 30.0)
+        prices[h_high_load_cheap] = 5.0     # Surplus renewables/hydro ($5/MWh)
+        prices[h_mid_load_outage] = 400.0   # Severe unit outage / scarcity ($400/MWh)
+
+        # 1. Pure physical net load weights (no price blending)
+        w_pure, diag_pure = calculate_cambium_seasonal_net_demand_weights(
+            net_load, datetime_series=hours, winter_weight=0.80, summer_weight=0.20,
+            scarcity_price_weight=0.0
+        )
+        # In pure physical, the 5000 MWh hour gets higher weight than 3000 MWh hour
+        assert w_pure[h_high_load_cheap] > w_pure[h_mid_load_outage]
+
+        # 2. Scarcity-weighted net load weights (scarcity_price_weight = 0.50)
+        w_blend, diag_blend = calculate_cambium_seasonal_net_demand_weights(
+            net_load, datetime_series=hours, winter_weight=0.80, summer_weight=0.20,
+            energy_price_array=prices, scarcity_price_weight=0.50
+        )
+        assert diag_blend["is_scarcity_price_blended"] is True
+        # With scarcity price blending, the mid-load outage hour ($400/MWh) is elevated above the cheap hour ($5/MWh)
+        assert w_blend[h_mid_load_outage] > w_blend[h_high_load_cheap]
+        # Weights still sum to 1.0 and respect 80% winter / 20% summer partition
+        assert np.isclose(np.sum(w_blend), 1.0)
+        assert np.isclose(np.sum(w_blend[is_winter]), 0.80)
+
 
 class TestCambiumStateLevelAggregation:
     """Verifies state-level ReEDS BA aggregation for Cambium net demand."""

@@ -1,5 +1,5 @@
 
-# Note: app.py synced at 3436 lines on 2026-11-04 (Cambium Scenario Isolation, Financial Consistency, and NPV Explanation Engine).
+# Note: app.py synced at 4,314 lines on 2026-11-12 (Ongoing Equipment O&M for Utility Program and Customer).
 """
 ================================================================================
 ⚡ ANNOTATED TOUR OF APP.PY: SOUTHEAST MARGINAL COST VALUATION ENGINE ⚡

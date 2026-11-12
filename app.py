@@ -36,6 +36,7 @@ from config import (
     ESCALATION_SCENARIO_BASE, ESCALATION_SCENARIO_HIGH, ESCALATION_SCENARIO_LOW,
     ESCALATION_SCENARIO_CUSTOM, get_escalation_scenario_adders,
     DEFAULT_GROSS_MEASURE_COST, DEFAULT_UTILITY_INCENTIVE, DEFAULT_UTILITY_ADMIN_COST,
+    DEFAULT_UTILITY_ONGOING_OM, DEFAULT_CUSTOMER_ONGOING_OM,
     DEFAULT_DR_HOURS_PER_YEAR, DEFAULT_DR_SEASON, DR_SEASON_OPTIONS,
     DEFAULT_DR_MAX_HOURS_PER_DAY, DEFAULT_DR_CAPACITY_KW,
     DEFAULT_DR_PERFORMANCE_FACTOR, DR_PERFORMANCE_FACTOR_RANGE,
@@ -69,6 +70,7 @@ from visualizations import (
     build_cumulative_cost_chart,
     plot_peaker_carrying_cost_breakdown,
     plot_southeast_cwf_distribution,
+    build_seasonal_grid_risk_chart,
     plot_feeder_vs_system_load,
     build_economic_balance_chart,
     build_two_sided_cost_effectiveness_chart,
@@ -240,6 +242,61 @@ load_load_profiles_from_csv = st.cache_data(load_load_profiles_from_csv)
 load_cwft_file = st.cache_data(load_cwft_file)
 check_missing_cambium_milestones = st.cache_data(check_missing_cambium_milestones)
 check_missing_cambium_data = st.cache_data(check_missing_cambium_data)
+
+
+# Modal dialog popup for seasonal grid risk diurnal profiles
+if hasattr(st, "dialog"):
+    @st.dialog("Seasonal Cumulative Grid Risk by Hour", width="large")
+    def popup_seasonal_grid_risk(cwf_arr=None, dts=None, winter_share=None):
+        if cwf_arr is None:
+            cwf_arr = st.session_state.get("_last_cwft_array")
+            dts = st.session_state.get("_last_datetime_series")
+
+        layout_view = st.radio(
+            "View Scaling",
+            ["Stacked by Season (Independent Scale)", "Combined 24-Hr Overlay"],
+            index=0,
+            horizontal=True,
+            key="modal_risk_chart_scaling_toggle",
+        )
+        mode = "subplots" if "Stacked" in layout_view else "grouped"
+
+        fig_modal = build_seasonal_grid_risk_chart(
+            cwf_array=cwf_arr,
+            datetime_series=dts,
+            normalize_per_season=False,
+            winter_share=winter_share,
+            layout_mode=mode,
+            height=580 if mode == "subplots" else 460,
+        )
+
+        traces = [t for t in fig_modal.data if t.type == "bar"]
+        w_peak_val = max(traces[0].y) if len(traces) > 0 and len(traces[0].y) > 0 else 0.0
+        w_peak_hr = traces[0].x[list(traces[0].y).index(w_peak_val)] if w_peak_val > 0 else None
+
+        s_peak_val = max(traces[1].y) if len(traces) > 1 and len(traces[1].y) > 0 else 0.0
+        s_peak_hr = traces[1].x[list(traces[1].y).index(s_peak_val)] if s_peak_val > 0 else None
+
+        sh_peak_val = max(traces[2].y) if len(traces) > 2 and len(traces[2].y) > 0 else 0.0
+        sh_peak_hr = traces[2].x[list(traces[2].y).index(sh_peak_val)] if sh_peak_val > 0 else None
+
+        w_tot_sum = sum(traces[0].y) if len(traces) > 0 else 0.0
+        s_tot_sum = sum(traces[1].y) if len(traces) > 1 else 0.0
+        sh_tot_sum = sum(traces[2].y) if len(traces) > 2 else 0.0
+
+        w_label = f"Peak Hr {w_peak_hr}: {w_peak_val:.1f}%" if w_peak_hr is not None else "0%"
+        s_label = f"Peak Hr {s_peak_hr}: {s_peak_val:.1f}%" if s_peak_hr is not None else "0%"
+        sh_label = f"Peak Hr {sh_peak_hr}: {sh_peak_val:.1f}%" if sh_peak_hr is not None else "0%"
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Winter Season Total", f"{w_tot_sum:.1f}%", w_label)
+        k2.metric("Summer Season Total", f"{s_tot_sum:.1f}%", s_label)
+        k3.metric("Shoulder Season Total", f"{sh_tot_sum:.1f}%", sh_label)
+
+        st.plotly_chart(fig_modal, width="stretch")
+else:
+    def popup_seasonal_grid_risk(cwf_arr=None, dts=None, winter_share=None):
+        pass
 
 
 
@@ -1068,14 +1125,15 @@ with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"
     user_confirmed_utc_offset = False
     eia_api_key_session = st.session_state.get("eia_api_key_session", "")
     force_eia_cache_refresh = False
+    scarcity_price_weight = 0.50
 
     if cwf_source_mode == CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL:
         selected_cwf_method = CAMBIUM_SEASONAL_NET_DEMAND_CWF_LABEL
         st.caption(
-            "**Seasonal Split Net-Demand (Cambium 2024 / 2023):** "
-            "Evaluates state-level net-load (`busbar_load − variable_generation`) peak hours separately across "
-            "Winter (Dec–Feb) and Summer (Jun–Sep), allocating capacity value between seasonal peaks. "
-            "Prevents single-season dilution while grounding reliability in state-level modeled physical grid stress."
+            "**Seasonal Split Net-Demand & Scarcity Blend (Cambium 2024 / 2023):** "
+            "Evaluates state-level net load scaled by wholesale energy scarcity pricing across "
+            "Winter (Dec–Feb) and Summer (Jun–Sep). Captures generator outages and tight reserve margins "
+            "while ruling out high-load hours with cheap surplus energy."
         )
         lock_winter_split = selected_example.get("cwf_winter_split") if selected_example else None
         if lock_winter_split is not None:
@@ -1086,7 +1144,7 @@ with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"
                 value=float(lock_winter_split),
                 step=5.0,
                 disabled=True,
-                help="Percent of annual capacity value assigned to winter net-demand peak hours (remainder goes to summer net-demand peaks)."
+                help="Percent of annual capacity value assigned to winter peak hours (remainder goes to summer peaks)."
             )
             st.caption(f"Locked to {lock_winter_split:.0f}% Winter by the selected example building, to reflect this system's documented winter-peaking risk profile.")
         else:
@@ -1096,7 +1154,7 @@ with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"
                 max_value=100.0,
                 value=80.0,
                 step=5.0,
-                help="Percent of annual capacity value assigned to winter net-demand peak hours (remainder goes to summer net-demand peaks). Defaults to 80% to reflect Southeast winter heating peak risk."
+                help="Percent of annual capacity value assigned to winter peak hours (remainder goes to summer peaks). Defaults to 80% to reflect Southeast winter heating peak risk."
             )
         top_n_peak_hours = st.slider(
             "Peak Hours (Annual)",
@@ -1104,7 +1162,7 @@ with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"
             max_value=1000,
             value=100,
             step=25,
-            help="Total number of upper-tail net-demand peak hours evaluated across the year (default 100). Allocated between winter and summer according to seasonal capacity risk shares."
+            help="Total number of upper-tail peak hours evaluated across the year (default 100). Allocated between winter and summer according to seasonal capacity risk shares."
         )
         w_hrs_label = int(round(top_n_peak_hours * (winter_split_pct / 100.0)))
         s_hrs_label = top_n_peak_hours - w_hrs_label
@@ -1112,6 +1170,24 @@ with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"
             f"Seasonal split: **{winter_split_pct:.0f}% Winter ({w_hrs_label} hrs)** / **{100.0 - winter_split_pct:.0f}% Summer ({s_hrs_label} hrs)** "
             f"across **{top_n_peak_hours} total peak hours**."
         )
+
+        with st.expander("⚙️ Advanced: Scarcity Pricing Sensitivity", expanded=False):
+            scarcity_price_weight = st.slider(
+                "Scarcity Weight Exponent (γ)",
+                min_value=0.0,
+                max_value=1.00,
+                value=0.50,
+                step=0.05,
+                help=(
+                    "Exponent scaling applied to wholesale energy price: Stress = Net_Load * (Price / Median_Price)^γ. "
+                    "0.50 (default) provides square-root dampening. Set to 0.0 for pure unweighted physical net load."
+                ),
+            )
+            if scarcity_price_weight > 0.0:
+                st.caption(f"Net load scaled by `(Price / Median_Price)^{scarcity_price_weight:.2f}` to account for generator outages.")
+            else:
+                st.caption("Using pure physical net load (no scarcity price scaling).")
+
         if target_states:
             try:
                 from cambium_downloader import STATE_TO_BALANCING_AREAS
@@ -1133,6 +1209,15 @@ with st.sidebar.expander("Capacity Worth Factor (CWF)/ Capacity Risk Allocation"
             help="Local file path to load if no file is uploaded above."
         )
         cwft_filepath = sanitize_filepath(cwft_filepath)
+
+    st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+    if st.button(
+        "📊 Pop Up Diurnal Risk Chart",
+        key="btn_popup_cwf_chart",
+        use_container_width=True,
+        help="Open modal dialog showing the 24-hour diurnal risk profile across Winter, Summer, and Shoulder seasons.",
+    ):
+        popup_seasonal_grid_risk(winter_share=winter_split_pct)
 
 # 6. Transmission & Distribution Deferral & Feeder
 with st.sidebar.expander("T&D Deferral & Local Feeder Profile", expanded=False):
@@ -1364,52 +1449,62 @@ with st.sidebar.expander("Financial Assumptions & Multi-Year Trajectory", expand
     degradation_rate = float(DEFAULT_DEGRADATION_RATE)
 
     st.markdown("---")
-    st.caption("**Financial Valuation Methodology & Dollar Basis**")
-    fin_method_choice = st.selectbox(
-        "Financial Valuation Method",
-        options=[
-            "Financially Consistent (Fisher Aligned)",
-            "Legacy Current Method (Unadjusted 2023$ Wholesale Energy)",
-        ],
-        index=0,
-        help=(
-            "Recommended: 'Financially Consistent' applies the exact Fisher equation "
-            "(1 + r_nom) = (1 + r_real) * (1 + i) to convert between nominal and real discount rates, "
-            "and harmonizes 2023$ Cambium wholesale energy prices to the valuation start dollar year."
-        ),
-    )
-    selected_financial_method = "financially_consistent" if fin_method_choice.startswith("Financially Consistent") else "current"
+    # Financial Valuation defaults (preset as recommended Fisher-consistent real dollar valuation with mid-year discounting)
+    selected_financial_method = "financially_consistent"
+    selected_valuation_basis = "real"
+    selected_discount_timing = "mid_year"
+    st.session_state["selected_val_currency"] = "real"
 
-    val_basis_choice = st.selectbox(
-        "Valuation Basis",
-        options=[
-            f"Real Dollars (Constant Base {int(start_year)}$)",
-            "Nominal Dollars (Escalated with Inflation)",
-        ],
-        index=0,
-        help=(
-            f"Real: Cash flows are evaluated in constant {int(start_year)} purchasing power discounted at the real discount rate. "
-            "Nominal: Cash flows compound with inflation and are discounted at the nominal WACC."
-        ),
-    )
-    selected_valuation_basis = "real" if val_basis_choice.startswith("Real") else "nominal"
-    st.session_state["selected_val_currency"] = "nominal" if selected_valuation_basis == "nominal" else "real"
+    with st.expander("⚙️ Advanced Financial Valuation Settings", expanded=False):
+        fin_method_choice = st.selectbox(
+            "Financial Valuation Method",
+            options=[
+                "Financially Consistent (Fisher Aligned)",
+                "Legacy Current Method (Unadjusted 2023$ Wholesale Energy)",
+            ],
+            index=0,
+            help=(
+                "Recommended: 'Financially Consistent' applies the exact Fisher equation "
+                "(1 + r_nom) = (1 + r_real) * (1 + i) to convert between nominal and real discount rates, "
+                "and harmonizes 2023$ Cambium wholesale energy prices to the valuation start dollar year."
+            ),
+        )
+        selected_financial_method = "financially_consistent" if fin_method_choice.startswith("Financially Consistent") else "current"
 
-    discount_timing_choice = st.selectbox(
-        "Discount Timing Convention",
-        options=["Year-End (Standard)", "Mid-Year (Continuous Cash Flow)"],
-        index=0,
-        help="Year-end assumes cash flows occur at t=1,2,...; Mid-year assumes uniform continuous flow throughout each year (t=0.5, 1.5, ...)."
-    )
-    selected_discount_timing = "year_end" if discount_timing_choice.startswith("Year-End") else "mid_year"
+        val_basis_choice = st.selectbox(
+            "Valuation Basis",
+            options=[
+                f"Real Dollars (Constant Base {int(start_year)}$)",
+                "Nominal Dollars (Escalated with Inflation)",
+            ],
+            index=0,
+            help=(
+                f"Real: Cash flows are evaluated in constant {int(start_year)} purchasing power discounted at the real discount rate. "
+                "Nominal: Cash flows compound with inflation and are discounted at the nominal WACC."
+            ),
+        )
+        selected_valuation_basis = "real" if val_basis_choice.startswith("Real") else "nominal"
+        st.session_state["selected_val_currency"] = "nominal" if selected_valuation_basis == "nominal" else "real"
+
+        discount_timing_choice = st.selectbox(
+            "Discount Timing Convention",
+            options=["Mid-Year (Continuous Cash Flow)", "Year-End (Standard)"],
+            index=0,
+            help="Mid-year assumes uniform continuous flow throughout each year (t=0.5, 1.5, ...); Year-end assumes cash flows occur at t=1,2,..."
+        )
+        selected_discount_timing = "mid_year" if discount_timing_choice.startswith("Mid-Year") else "year_end"
 
     st.markdown("---")
     example_gross_cost = selected_example.get("gross_measure_cost") if selected_example else None
     example_incentive = selected_example.get("utility_incentive") if selected_example else None
     example_admin_cost = selected_example.get("utility_admin_cost") if selected_example else None
+    example_util_om = selected_example.get("utility_ongoing_om") if selected_example else None
+    example_cust_om = selected_example.get("customer_ongoing_om") if selected_example else None
     gross_measure_cost = st.number_input("Gross Installed Measure Cost ($)", min_value=0.0, value=(example_gross_cost if example_gross_cost is not None else DEFAULT_GROSS_MEASURE_COST), step=250.0, format="%.2f", help="Total upfront equipment, materials, and installation labor cost.")
     utility_incentive = st.number_input("Utility Rebate / Incentive ($)", min_value=0.0, value=(example_incentive if example_incentive is not None else DEFAULT_UTILITY_INCENTIVE), step=50.0, format="%.2f", help="Customer rebate or financial incentive provided by utility.")
     utility_admin_cost = st.number_input("Utility Admin & Marketing Cost ($)", min_value=0.0, value=(example_admin_cost if example_admin_cost is not None else DEFAULT_UTILITY_ADMIN_COST), step=25.0, format="%.2f", help="Utility administrative, marketing, and processing costs per participant.")
+    utility_ongoing_om = st.number_input("Utility Program Ongoing O&M ($/yr)", min_value=0.0, value=(float(example_util_om) if example_util_om is not None else DEFAULT_UTILITY_ONGOING_OM), step=10.0, format="%.2f", help="Annual ongoing utility program operations, administration, software, or maintenance cost per participant (defaults to $0/yr).")
+    customer_ongoing_om = st.number_input("Customer Ongoing O&M ($/yr)", min_value=0.0, value=(float(example_cust_om) if example_cust_om is not None else DEFAULT_CUSTOMER_ONGOING_OM), step=25.0, format="%.2f", help="Annual ongoing customer equipment maintenance, filter replacement, or service contract cost ($/yr).")
     if example_gross_cost is not None:
         st.caption(f"Pre-filled from the selected example building (installed cost estimate from the Fair Quote Tool's Fully Communicating tier, plus a $500 backup-coil add-on where applicable). Adjust freely.")
 
@@ -1750,6 +1845,7 @@ else:
                     summer_weight=(100.0 - winter_split_pct) / 100.0 if is_seasonal else 0.40,
                     aggregation_level="state",
                     top_n_peak_hours=top_n_peak_hours,
+                    scarcity_price_weight=scarcity_price_weight if is_seasonal else 0.0,
                 )
                 if cambium_stress_eval.get("is_qualified"):
                     cwft_array = cambium_stress_eval["cwft_array"]
@@ -1761,8 +1857,13 @@ else:
                         f"Seasonal split ({winter_split_pct:.0f}% Winter [{w_diag} hrs] / {100.0 - winter_split_pct:.0f}% Summer [{s_diag} hrs])"
                         if is_seasonal else "Annual exceedance"
                     )
+                    blend_note = (
+                        f" | Scarcity-weighted price blend active (weight: {scarcity_price_weight:.2f})"
+                        if (is_seasonal and scarcity_price_weight > 0.0)
+                        else ""
+                    )
                     st.info(
-                        f"ℹ️ **Cambium State-Level Net-Demand Proxy Active:** {split_desc} "
+                        f"ℹ️ **Cambium State-Level Net-Demand Proxy Active:** {split_desc}{blend_note} "
                         f"evaluated for {', '.join(target_states)} (BAs: {', '.join(cambium_stress_eval.get('needed_bas', []))}), "
                         f"modeled year {planning_year}, 2012 weather basis. Active stress hours: {tot_diag}."
                     )
@@ -1830,6 +1931,10 @@ else:
                     if cwft_filepath == "CWFT.csv":
                         generate_default_cwft_file("CWFT.csv")
                     cwft_array = load_cwft_file(cwft_filepath)
+
+            # Persist for sidebar popup preview
+            st.session_state["_last_cwft_array"] = cwft_array
+            st.session_state["_last_datetime_series"] = datetime_series
 
             # Localized Feeder Distribution Weights
             dist_weight_array = calculate_feeder_pcaf_weights(
@@ -2004,6 +2109,8 @@ else:
                     gross_measure_cost=gross_measure_cost,
                     utility_incentive=utility_incentive,
                     utility_admin_cost=utility_admin_cost,
+                    utility_ongoing_om=utility_ongoing_om,
+                    customer_ongoing_om=customer_ongoing_om,
                     dr_capacity_derate=dr_capacity_derate,
                     capacity_escalation_rate=capacity_escalation_rate,
                     capacity_escalation_adder=cap_adder_input,
@@ -2031,6 +2138,11 @@ else:
                 npv_retail_lost_revenue = multi_res["npv_retail_lost_revenue"]
                 npv_customer_bill_savings = multi_res["npv_customer_bill_savings"]
                 npv_program_cost = multi_res["npv_program_cost"]
+                npv_utility_ongoing_om = multi_res.get("npv_utility_ongoing_om", 0.0)
+                npv_customer_ongoing_om = multi_res.get("npv_customer_ongoing_om", 0.0)
+                npv_total_program_cost = multi_res.get("npv_total_program_cost", npv_program_cost + npv_utility_ongoing_om)
+                discounted_utility_om = multi_res.get("discounted_utility_om", np.zeros(len(years)))
+                discounted_customer_om = multi_res.get("discounted_customer_om", np.zeros(len(years)))
                 npv_net_savings = multi_res["npv_net_savings"]
 
                 cost_tests = multi_res["cost_tests"]
@@ -2058,6 +2170,8 @@ else:
                             gross_measure_cost=gross_measure_cost,
                             utility_incentive=utility_incentive,
                             utility_admin_cost=utility_admin_cost,
+                            utility_ongoing_om=utility_ongoing_om,
+                            customer_ongoing_om=customer_ongoing_om,
                             dr_capacity_derate=dr_capacity_derate,
                             capacity_escalation_rate=capacity_escalation_rate,
                             capacity_escalation_adder=cap_adder_input,
@@ -2093,8 +2207,13 @@ else:
                 npv_capacity_savings = (annual_gen_cap_savings + annual_trans_savings + annual_dist_savings + annual_emissions_savings) * pv_grid_mult_sum
                 npv_retail_lost_revenue = annual_lost_revenue * retail_pv_multipliers.sum()
                 npv_customer_bill_savings = annual_lost_revenue * customer_pv_multipliers.sum()
+                discounted_utility_om = utility_ongoing_om * disc_factors
+                discounted_customer_om = customer_ongoing_om * customer_disc_factors
+                npv_utility_ongoing_om = float(np.sum(discounted_utility_om))
+                npv_customer_ongoing_om = float(np.sum(discounted_customer_om))
                 npv_program_cost = utility_incentive + utility_admin_cost
-                npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_program_cost
+                npv_total_program_cost = npv_program_cost + npv_utility_ongoing_om
+                npv_net_savings = npv_grid_savings - npv_retail_lost_revenue - npv_total_program_cost
 
                 grid_savings_disc = annual_grid_savings * grid_pv_multipliers
                 annual_cust_savings_stream = (annual_lost_revenue * retail_esc_factors * deg_factors)
@@ -2106,7 +2225,12 @@ else:
                     utility_incentive=utility_incentive,
                     utility_admin_cost=utility_admin_cost,
                     annual_customer_savings_stream=annual_cust_savings_stream,
-                    pv_multipliers=customer_pv_multipliers
+                    pv_multipliers=customer_pv_multipliers,
+                    utility_ongoing_om=utility_ongoing_om,
+                    customer_ongoing_om=customer_ongoing_om,
+                    npv_utility_ongoing_om=npv_utility_ongoing_om,
+                    npv_customer_ongoing_om=npv_customer_ongoing_om,
+                    annual_customer_om_stream=np.full(len(years), customer_ongoing_om, dtype=float),
                 )
 
             trc_ratio = cost_tests["trc_ratio"]
@@ -2181,7 +2305,7 @@ else:
                 + annual_emissions_savings
             )
             comp_npv_grid_savings = float(comp_annual_grid_savings * grid_pv_multipliers.sum())
-            comp_npv_net_savings = comp_npv_grid_savings - npv_retail_lost_revenue - npv_program_cost
+            comp_npv_net_savings = comp_npv_grid_savings - npv_retail_lost_revenue - npv_total_program_cost
             comp_cost_tests = calculate_cost_effectiveness_tests(
                 npv_grid_savings=comp_npv_grid_savings,
                 npv_lost_revenue=npv_retail_lost_revenue,
@@ -2191,6 +2315,11 @@ else:
                 utility_admin_cost=utility_admin_cost,
                 annual_customer_savings_stream=annual_cust_savings_stream,
                 pv_multipliers=customer_pv_multipliers,
+                utility_ongoing_om=utility_ongoing_om,
+                customer_ongoing_om=customer_ongoing_om,
+                npv_utility_ongoing_om=npv_utility_ongoing_om,
+                npv_customer_ongoing_om=npv_customer_ongoing_om,
+                annual_customer_om_stream=np.full(len(years), customer_ongoing_om, dtype=float),
             )
             comp_trc_ratio = comp_cost_tests["trc_ratio"]
             comp_rim_ratio = comp_cost_tests["rim_ratio"]
@@ -2381,6 +2510,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             npv_program_cost=npv_program_cost,
                             npv_energy_savings=npv_energy_savings,
                             npv_capacity_savings=npv_capacity_savings,
+                            npv_utility_ongoing_om=npv_utility_ongoing_om,
                         )
                         st.plotly_chart(fig_balance, width="stretch", config={"displayModeBar": False})
                     with col_bal_net:
@@ -2391,7 +2521,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 value=f"{'+' if npv_net_savings >= 0 else '-'}${abs(npv_net_savings):,.2f}",
                                 sublabel="↑ Net Utility Benefit" if npv_net_savings >= 0 else "↓ Net Utility Cross-Subsidy",
                                 is_positive=(npv_net_savings >= 0),
-                                help_text="Grid Avoided Costs minus Utility Lost Revenue minus the one-time utility Rebate/Incentive and Admin & Marketing cost. Negative values indicate retail bill savings plus program cost exceed grid cost deferrals, requiring cross-subsidization."
+                                help_text="Grid Avoided Costs minus Utility Lost Revenue minus upfront utility program costs (Rebate/Incentive + Admin) minus Utility Ongoing O&M. Negative values indicate retail bill savings plus program costs exceed grid cost deferrals, requiring cross-subsidization."
                             ),
                             unsafe_allow_html=True
                         )
@@ -2424,12 +2554,12 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     _ratio_card(
                         "Total Resource Cost (TRC)",
                         trc_ratio,
-                        "NPV Grid / (Measure + Admin)",
+                        "NPV Grid / Total Resource Cost",
                         help_text=(
                             "<strong>Total Resource Cost (TRC) Test</strong><br>"
                             "Measures overall cost-effectiveness from the combined perspective of the utility and customer.<br><br>"
-                            "<strong>Basis:</strong> NPV Grid Avoided Costs ÷ (Gross Installed Measure Cost + Utility Admin Cost)<br><br>"
-                            "<strong>• Above 1.0 (Pass):</strong> Lifetime avoided grid benefits exceed total installed measure and program costs, delivering net resource savings.<br><br>"
+                            "<strong>Basis:</strong> NPV Grid Avoided Costs ÷ (Gross Installed Measure Cost + Utility Admin Cost + PV of Utility & Customer Ongoing O&M)<br><br>"
+                            "<strong>• Above 1.0 (Pass):</strong> Lifetime avoided grid benefits exceed total installed measure, program, and ongoing O&M costs, delivering net resource savings.<br><br>"
                             "<strong>• Below 1.0 (Fail):</strong> Total costs exceed grid benefits (net resource loss)."
                         )
                     )
@@ -2441,8 +2571,8 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         help_text=(
                             "<strong>Rate Impact Measure (RIM) Test</strong><br>"
                             "Evaluates whether this measure increases or decreases electric rates, measuring the impact on non-participating ratepayers.<br><br>"
-                            "<strong>Basis:</strong> NPV Grid Avoided Costs ÷ (NPV Lost Retail Revenue + Utility Program Costs)<br><br>"
-                            "<strong>• Above 1.0 (Pass):</strong> Avoided grid savings exceed lost revenue and program costs, putting <em>downward pressure</em> on electric rates (benefiting non-participating customers with no cross-subsidy).<br><br>"
+                            "<strong>Basis:</strong> NPV Grid Avoided Costs ÷ (NPV Lost Retail Revenue + Utility Program Costs + PV of Utility Ongoing O&M)<br><br>"
+                            "<strong>• Above 1.0 (Pass):</strong> Avoided grid savings exceed lost revenue, upfront program costs, and ongoing program O&M, putting <em>downward pressure</em> on electric rates (benefiting non-participating customers with no cross-subsidy).<br><br>"
                             "<strong>• Below 1.0 (Cross-Subsidy):</strong> Avoided grid savings are less than lost revenue and program costs, putting <em>upward pressure</em> on electric rates (non-participating ratepayers cross-subsidize participants)."
                         )
                     )
@@ -2454,7 +2584,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         value=sp_str,
                         delta=f"Discounted: {dp_str}",
                         delta_color="off",
-                        help="Net Measure Cost divided by Year 1 Customer Bill Savings."
+                        help="Net Measure Cost divided by Year 1 Customer Net Savings (Bill Savings minus Customer Ongoing O&M)."
                     )
                 with kpi_col4:
                     if is_system_stress_selected or "Dual-Peak" in selected_cwf_method:
@@ -2493,7 +2623,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                         value="N/A" if np.isnan(pct_ratio) else f"{pct_ratio:.3f}",
                         delta="Fail (cost basis negative)" if np.isnan(pct_ratio) else ("Pass" if pct_ratio >= 1.0 else "Fail"),
                         delta_color="inverse" if np.isnan(pct_ratio) else ("normal" if pct_ratio >= 1.0 else "inverse"),
-                        help="(Bill Savings + Rebate) ÷ Measure Cost"
+                        help="(Bill Savings + Rebate) ÷ (Measure Cost + PV of Customer Ongoing O&M)"
                     )
                     audit_m2.metric(
                         label="Winter Peak Reduction",
@@ -2542,7 +2672,8 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
 - **Technical EPC Reduction:** `**{epc_reduction:.2f} kW**` *(undiminished physical coincident cut)*
 - **Accredited / Valued Capacity:** `**{accredited_capacity_kw:.2f} kW**` *(drives Gen Capacity avoided costs)*
 - **{coincidence_ratio_label}:** `**{elcc_audit_str}**`
-- **Gross Measure Cost / Utility Incentive:** `\${gross_measure_cost:,.2f} / \${utility_incentive:,.2f}`"""
+- **Gross Measure Cost / Utility Incentive:** `\${gross_measure_cost:,.2f} / \${utility_incentive:,.2f}`
+- **Ongoing O&M (Utility / Customer):** `\${utility_ongoing_om:,.2f}/yr / \${customer_ongoing_om:,.2f}/yr`"""
                         )
 
                 # 4. Capacity Method Summary & Cambium Net-Demand Diagnostics Expander
@@ -2666,7 +2797,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     retail_energy_savings = (load_reduction * custom_rate_kwh).sum()
                     retail_demand_savings = annual_lost_revenue - retail_energy_savings
 
-                annual_net_savings = annual_grid_savings - annual_lost_revenue
+                annual_net_savings = annual_grid_savings - annual_lost_revenue - utility_ongoing_om
 
                 # 1. Headline Annual & Lifetime KPI Metric Cards
                 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
@@ -2699,7 +2830,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             value=f"{'+' if annual_net_savings >= 0 else '-'}${abs(annual_net_savings):,.2f}/yr",
                             sublabel="↑ Positive Utility Return" if annual_net_savings >= 0 else "↓ Net Utility Cross-Subsidy",
                             is_positive=(annual_net_savings >= 0),
-                            help_text="Annual Wholesale Grid Avoided Costs minus Annual Retail Bill Reductions. This does NOT include the one-time utility Rebate/Incentive or Admin & Marketing cost from the sidebar — those are one-time, not annual, so they don't belong in an annual figure. See the Lifetime Cash Flow tab's Utility perspective for the version that nets those in."
+                            help_text="Annual Wholesale Grid Avoided Costs minus Annual Retail Bill Reductions minus Utility Ongoing O&M ($/yr). This does NOT include the one-time upfront utility Rebate/Incentive or Admin & Marketing cost from the sidebar — those are one-time, not annual, so they don't belong in an annual figure. See the Lifetime Cash Flow tab's Utility perspective for the version that nets those in."
                         ),
                         unsafe_allow_html=True
                     )
@@ -2710,7 +2841,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             value=f"{'+' if npv_net_savings >= 0 else '-'}${abs(npv_net_savings):,.2f}",
                             sublabel=f"{'↑' if npv_net_savings >= 0 else '↓'} {asset_life} yrs @ {discount_rate}% WACC",
                             is_positive=(npv_net_savings >= 0),
-                            help_text="Discounted net present value of wholesale grid cost deferrals minus customer bill reductions, minus the utility's one-time Rebate/Incentive and Admin & Marketing cost, over the asset lifetime. For the year-by-year cash flow behind this number, see the Lifetime Cash Flow tab's Utility perspective."
+                            help_text="Discounted net present value of wholesale grid cost deferrals minus customer bill reductions, minus utility upfront program costs (Rebate/Incentive + Admin) and ongoing utility program O&M, over the asset lifetime. For the year-by-year cash flow behind this number, see the Lifetime Cash Flow tab's Utility perspective."
                         ),
                         unsafe_allow_html=True
                     )
@@ -2829,7 +2960,7 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                             "Sum of Tariff Components",
                             f"NPV over {asset_life} years @ {discount_rate}% WACC",
                             f"NPV over {asset_life} years @ {discount_rate}% WACC",
-                            "Grid NPV - Lost Revenue NPV - Program Cost (Incentive + Admin)",
+                            "Grid NPV - Lost Revenue NPV - Program Cost (Incentive + Admin + Ongoing O&M)",
                             "Grid NPV / Lost Revenue NPV"
                         ],
                         "Value ($/yr)": [
@@ -3162,7 +3293,17 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                     st.markdown("#### Southeast Capacity Risk Distribution & Local Feeder Stress")
                     col_cwf1, col_cwf2, col_text = st.columns([3, 3, 2])
                     with col_cwf1:
-                        fig_cwf_dist = plot_southeast_cwf_distribution(cwft_array, datetime_series)
+                        cwf_view_mode = st.radio(
+                            "Diurnal Risk View",
+                            ["Seasonal Sample Day (100% per Season)", "Annual Risk Distribution"],
+                            index=0,
+                            horizontal=True,
+                            key="cwf_diurnal_view_toggle",
+                        )
+                        if "Sample Day" in cwf_view_mode:
+                            fig_cwf_dist = build_seasonal_grid_risk_chart(cwft_array, datetime_series, normalize_per_season=True)
+                        else:
+                            fig_cwf_dist = plot_southeast_cwf_distribution(cwft_array, datetime_series, include_shoulder=True)
                         st.plotly_chart(fig_cwf_dist, width="stretch")
                     with col_cwf2:
                         fig_feeder = plot_feeder_vs_system_load(dist_weight_array, results_df['PCAF_Weight'].to_numpy(), datetime_series)
@@ -3243,7 +3384,9 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 cost_name="Lost Retail Revenue (PV)",
                                 cost_negative_name="Revenue Gain (PV)",
                                 upfront_cost=utility_incentive + utility_admin_cost,
-                                upfront_name="Program Cost (Incentive + Admin)"
+                                upfront_name="Program Cost (Incentive + Admin)",
+                                om_stream=discounted_utility_om,
+                                om_name="Utility Ongoing O&M (PV)"
                             )
                         else:
                             customer_stream_disc = annual_lost_revenue * customer_pv_multipliers
@@ -3252,7 +3395,9 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 benefit_name="Bill Savings (PV)",
                                 benefit_negative_name="Bill Increase (PV)",
                                 upfront_cost=net_customer_cost,
-                                upfront_name="Upfront Cost (after rebate)"
+                                upfront_name="Upfront Cost (after rebate)",
+                                om_stream=discounted_customer_om,
+                                om_name="Customer Ongoing O&M (PV)"
                             )
                         st.plotly_chart(fig_lifetime, width="stretch")
 
@@ -3271,6 +3416,8 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 "Capacity_Emissions_Savings": "${:,.2f}",
                                 "Total_Grid_Savings": "${:,.2f}",
                                 "Lost_Retail_Revenue": "${:,.2f}",
+                                "Utility_Ongoing_OM": "${:,.2f}",
+                                "Customer_Ongoing_OM": "${:,.2f}",
                                 "Unit_Capacity_Cost_per_kW_yr": "${:,.2f}",
                                 "Unit_Trans_Value_per_kW_yr": "${:,.2f}",
                                 "Unit_Dist_Value_per_kW_yr": "${:,.2f}",
@@ -3280,6 +3427,8 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 "Discounted_Grid_Savings": "${:,.2f}",
                                 "Discounted_Lost_Revenue": "${:,.2f}",
                                 "Discounted_Customer_Savings": "${:,.2f}",
+                                "Discounted_Utility_OM": "${:,.2f}",
+                                "Discounted_Customer_OM": "${:,.2f}",
                                 "Cumulative_Utility_Net_PV": "${:,.2f}",
                             }
                             st.dataframe(
@@ -3687,6 +3836,11 @@ the simulated hourly demand shapes must line up with the grid dataset chronologi
                                 "epc_reduction": epc_reduction,
                                 "gross_measure_cost": gross_measure_cost,
                                 "utility_incentive": utility_incentive,
+                                "utility_admin_cost": utility_admin_cost,
+                                "utility_ongoing_om": utility_ongoing_om,
+                                "customer_ongoing_om": customer_ongoing_om,
+                                "npv_utility_ongoing_om": npv_utility_ongoing_om,
+                                "npv_customer_ongoing_om": npv_customer_ongoing_om,
                                 "annual_gen_cap_savings": annual_gen_cap_savings,
                                 "annual_energy_savings": annual_energy_savings,
                                 "annual_trans_savings": annual_trans_savings,

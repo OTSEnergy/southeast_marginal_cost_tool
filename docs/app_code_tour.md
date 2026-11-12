@@ -49,7 +49,7 @@ Before diving into the code, here are a few key building blocks:
 *   **PCAF (Peak Capacity Allocation Factor)**: Allocates localized Transmission & Distribution (T&D) deferral costs across the top grid stress hours.
 *   **URDB (Utility Rate Database)**: NREL's standardized JSON schema for describing complex retail electricity tariffs (fixed monthly fees, volumetric energy tiers, seasonal peak demand charges).
 *   **RIM Ratio (Rate Impact Measure)**: Measures program cost-effectiveness from non-participating customers' perspective:
-    $$\text{RIM Ratio} = \frac{\text{Net Present Value of Wholesale Grid Savings}}{\text{Net Present Value of Retail Lost Revenue} + \text{Program Costs}}$$
+    $$\text{RIM Ratio} = \frac{\text{Net Present Value of Wholesale Grid Savings}}{\text{Net Present Value of Retail Lost Revenue} + \text{Utility Program Costs (Upfront + Ongoing O&M)}}$$
     A ratio $> 1.0$ means grid savings exceed lost utility revenue and program costs, putting downward pressure on customer rates.
 
 ---

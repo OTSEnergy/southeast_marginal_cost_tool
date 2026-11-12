@@ -2085,6 +2085,152 @@ class TestCostEffectivenessTests:
         # number for a scenario where both sides are actually unfavorable.
         assert res["rim_ratio"] != pytest.approx(-632.0 / -1390.0)
 
+    def test_ongoing_om_wiring_for_utility_and_customer(self):
+        """
+        Validates that ongoing O&M for utility program (default 0) and customer
+        are correctly wired into TRC, PCT, RIM, Net NPVs, and Payback Periods.
+        """
+        from calculations import calculate_cost_effectiveness_tests
+        
+        npv_grid = 10000.0
+        npv_lost = 4000.0
+        gross_cost = 5000.0
+        incentive = 1000.0
+        admin = 200.0
+        n_years = 10
+        annual_savings = np.ones(n_years) * 500.0
+        pv_mults = np.ones(n_years) * 0.75  # discount factor = 0.75 each year
+
+        # 1. Baseline: Zero O&M
+        res_zero = calculate_cost_effectiveness_tests(
+            npv_grid_savings=npv_grid,
+            npv_lost_revenue=npv_lost,
+            npv_customer_bill_savings=npv_lost,
+            gross_measure_cost=gross_cost,
+            utility_incentive=incentive,
+            utility_admin_cost=admin,
+            annual_customer_savings_stream=annual_savings,
+            pv_multipliers=pv_mults,
+            utility_ongoing_om=0.0,
+            customer_ongoing_om=0.0,
+        )
+
+        assert res_zero["npv_utility_ongoing_om"] == 0.0
+        assert res_zero["npv_customer_ongoing_om"] == 0.0
+        # TRC = 10000 / (5000 + 200) = 10000 / 5200
+        assert pytest.approx(res_zero["trc_ratio"], abs=1e-3) == 10000.0 / 5200.0
+        # PCT = (4000 + 1000) / 5000 = 5000 / 5000 = 1.0
+        assert pytest.approx(res_zero["pct_ratio"], abs=1e-3) == 1.0
+        # RIM = 10000 / (4000 + 1000 + 200) = 10000 / 5200
+        assert pytest.approx(res_zero["rim_ratio"], abs=1e-3) == 10000.0 / 5200.0
+        # Simple payback = (5000 - 1000) / 500 = 4000 / 500 = 8.0 yrs
+        assert pytest.approx(res_zero["simple_payback"], abs=1e-3) == 8.0
+
+        # 2. With Utility Ongoing O&M ($50/yr) and Customer Ongoing O&M ($100/yr)
+        util_om = 50.0
+        cust_om = 100.0
+        # PV of utility O&M = 10 * 50 * 0.75 = 375.0
+        # PV of customer O&M = 10 * 100 * 0.75 = 750.0
+        res_om = calculate_cost_effectiveness_tests(
+            npv_grid_savings=npv_grid,
+            npv_lost_revenue=npv_lost,
+            npv_customer_bill_savings=npv_lost,
+            gross_measure_cost=gross_cost,
+            utility_incentive=incentive,
+            utility_admin_cost=admin,
+            annual_customer_savings_stream=annual_savings,
+            pv_multipliers=pv_mults,
+            utility_ongoing_om=util_om,
+            customer_ongoing_om=cust_om,
+        )
+
+        assert pytest.approx(res_om["npv_utility_ongoing_om"], abs=1e-3) == 375.0
+        assert pytest.approx(res_om["npv_customer_ongoing_om"], abs=1e-3) == 750.0
+
+        # TRC Costs = Gross Measure Cost + Utility Admin + PV(Util O&M) + PV(Cust O&M)
+        # = 5000 + 200 + 375 + 750 = 6325.0
+        assert pytest.approx(res_om["trc_ratio"], abs=1e-3) == 10000.0 / 6325.0
+        assert pytest.approx(res_om["trc_npv"], abs=1e-3) == 10000.0 - 6325.0
+
+        # PCT Costs = Gross Measure Cost + PV(Cust O&M) = 5000 + 750 = 5750.0
+        # PCT Benefits = Bill Savings + Incentive = 4000 + 1000 = 5000.0
+        assert pytest.approx(res_om["pct_ratio"], abs=1e-3) == 5000.0 / 5750.0
+        assert pytest.approx(res_om["pct_npv"], abs=1e-3) == 5000.0 - 5750.0
+
+        # RIM Costs = Lost Revenue + Utility Incentive + Utility Admin + PV(Util O&M)
+        # = 4000 + 1000 + 200 + 375 = 5575.0
+        assert pytest.approx(res_om["rim_ratio"], abs=1e-3) == 10000.0 / 5575.0
+        assert pytest.approx(res_om["rim_npv"], abs=1e-3) == 10000.0 - 5575.0
+
+        # Simple payback: Net Upfront Cost / (Year 1 Bill Savings - Customer O&M)
+        # Net Upfront = 5000 - 1000 = 4000
+        # Year 1 Net = 500 - 100 = 400
+        # Payback = 4000 / 400 = 10.0 years (longer due to ongoing O&M)
+        assert pytest.approx(res_om["simple_payback"], abs=1e-3) == 4000.0 / 400.0
+        # Discounted payback: 4000 / (400 * 0.75) = 4000 / 300 = 13.333 years (exceeds 10-yr life -> inf)
+        assert res_om["discounted_payback"] == float('inf')
+
+    def test_multi_year_valuation_ongoing_om_integration(self):
+        """
+        Validates calculate_multi_year_avoided_costs_and_npv integration with ongoing O&M.
+        """
+        from calculations import calculate_multi_year_avoided_costs_and_npv
+        
+        load_red = np.ones(8760) * 1.5
+        cwft = np.ones(8760) / 8760.0
+        pcaf = np.ones(8760) / 8760.0
+        prices = {2026: np.ones(8760) * 45.0, 2030: np.ones(8760) * 50.0}
+
+        res = calculate_multi_year_avoided_costs_and_npv(
+            asset_life=10,
+            start_year=2026,
+            interpolated_energy_prices=prices,
+            load_reduction=load_red,
+            cwft_array=cwft,
+            pcaf_array=pcaf,
+            cap_value=100.0,
+            trans_value=20.0,
+            dist_value=15.0,
+            carbon_tax=25.0,
+            discount_rate=7.0,
+            customer_discount_rate=5.0,
+            degradation_rate=0.0,
+            annual_lost_revenue_yr1=500.0,
+            retail_escalation_rate=0.0,
+            gross_measure_cost=2000.0,
+            utility_incentive=400.0,
+            utility_admin_cost=100.0,
+            utility_ongoing_om=30.0,
+            customer_ongoing_om=45.0,
+            financial_method="current",
+        )
+
+        # Check cash flow dataframe columns
+        cf_df = res["cash_flow_df"]
+        assert "Utility_Ongoing_OM" in cf_df.columns
+        assert "Customer_Ongoing_OM" in cf_df.columns
+        assert "Discounted_Utility_OM" in cf_df.columns
+        assert "Discounted_Customer_OM" in cf_df.columns
+
+        assert np.all(cf_df["Utility_Ongoing_OM"] == 30.0)
+        assert np.all(cf_df["Customer_Ongoing_OM"] == 45.0)
+
+        # Check NPVs
+        assert res["npv_utility_ongoing_om"] > 0.0
+        assert res["npv_customer_ongoing_om"] > 0.0
+        assert res["npv_total_program_cost"] == pytest.approx(
+            res["npv_program_cost"] + res["npv_utility_ongoing_om"]
+        )
+
+        expected_net = (
+            res["npv_grid_savings"]
+            - res["npv_retail_lost_revenue"]
+            - res["npv_total_program_cost"]
+        )
+        assert pytest.approx(res["npv_net_savings"], abs=1e-4) == expected_net
+        # Verify cumulative cash flow at end of asset life matches net NPV
+        assert pytest.approx(cf_df["Cumulative_Utility_Net_PV"].iloc[-1], abs=1e-4) == expected_net
+
 
 # ======================================================================
 #  TEST SUITE 11: Southeast Utility Capacity & Feeder Engine
@@ -2514,6 +2660,12 @@ class TestSoutheastUtilityCapacityEngine:
         fig2 = plot_southeast_cwf_distribution(cwf)
         assert fig2 is not None
 
+        # 2b. Seasonal grid risk chart (sample day: Winter / Summer / Shoulder)
+        from visualizations import build_seasonal_grid_risk_chart
+        fig_seasonal = build_seasonal_grid_risk_chart()
+        assert fig_seasonal is not None
+        assert len([t for t in fig_seasonal.data if t.type == "bar"]) == 3
+
         # 3. Feeder vs system
         feeder = np.ones(8760) / 8760
         system = np.ones(8760) / 8760
@@ -2534,6 +2686,56 @@ class TestSoutheastUtilityCapacityEngine:
         assert len(bar_traces) == 2
         assert all(t.width is not None for t in bar_traces)
         assert bar_traces[0].width == bar_traces[1].width
+
+    def test_seasonal_grid_risk_chart_sample_day(self):
+        from visualizations import build_seasonal_grid_risk_chart, plot_southeast_cwf_distribution
+        from calculations import calculate_southeast_dual_peak_cwf
+
+        # 1. Default cumulative seasonal sum mode (normalize_per_season=False)
+        fig_default = build_seasonal_grid_risk_chart()
+        traces = [t for t in fig_default.data if t.type == "bar"]
+        assert len(traces) == 3
+        winter_t, summer_t, shoulder_t = traces[0], traces[1], traces[2]
+
+        # In cumulative sum mode, seasons sum to total annual risk (60% + 35% + 5% = 100%)
+        assert pytest.approx(sum(winter_t.y) + sum(summer_t.y) + sum(shoulder_t.y), abs=1e-3) == 100.0
+        assert winter_t.text is not None
+        assert any(len(t) > 0 for t in winter_t.text)
+
+        # Winter peaks at hour 7, Summer at hour 16
+        assert list(winter_t.y).index(max(winter_t.y)) == 7
+        assert list(summer_t.y).index(max(summer_t.y)) == 16
+
+        # 1b. Explicit normalized sample day mode (each season sums to 100%)
+        fig_norm = build_seasonal_grid_risk_chart(normalize_per_season=True)
+        traces_norm = [t for t in fig_norm.data if t.type == "bar"]
+        assert pytest.approx(sum(traces_norm[0].y), abs=1e-3) == 100.0
+        assert pytest.approx(sum(traces_norm[1].y), abs=1e-3) == 100.0
+        assert pytest.approx(sum(traces_norm[2].y), abs=1e-3) == 100.0
+
+        # 2. With actual dual-peak CWF array
+        cwf = calculate_southeast_dual_peak_cwf(winter_weight=0.75, summer_weight=0.25)
+        fig_cwf = build_seasonal_grid_risk_chart(cwf, normalize_per_season=True)
+        traces_cwf = [t for t in fig_cwf.data if t.type == "bar"]
+        assert len(traces_cwf) == 3
+        assert pytest.approx(sum(traces_cwf[0].y), abs=1e-3) == 100.0
+        assert pytest.approx(sum(traces_cwf[1].y), abs=1e-3) == 100.0
+        # Shoulder has 0 weight in strict dual-peak; sums to 0.0 without errors
+        assert sum(traces_cwf[2].y) == 0.0
+
+        # 3. Cumulative annual share mode with custom array
+        fig_ann = build_seasonal_grid_risk_chart(cwf, normalize_per_season=False, layout_mode="grouped")
+        traces_ann = [t for t in fig_ann.data if t.type == "bar"]
+        assert pytest.approx(sum(traces_ann[0].y), abs=1e-3) == 75.0
+        assert pytest.approx(sum(traces_ann[1].y), abs=1e-3) == 25.0
+
+        # 3b. Subplot mode with custom array
+        fig_sub = build_seasonal_grid_risk_chart(cwf, normalize_per_season=False, layout_mode="subplots")
+        assert len([t for t in fig_sub.data if t.type == "bar"]) == 3
+
+        # 4. plot_southeast_cwf_distribution with include_shoulder=True
+        fig_sh = plot_southeast_cwf_distribution(cwf, include_shoulder=True)
+        assert len([t for t in fig_sh.data if t.type == "bar"]) == 3
 
     def test_cwf_temperature_exceedance_sums_and_shape(self):
         from calculations import calculate_cwf_temperature_exceedance

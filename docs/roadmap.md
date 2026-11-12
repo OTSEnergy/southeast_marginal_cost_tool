@@ -285,7 +285,7 @@ Phase 2 (Additional Budget / Future Year)
 
 - [ ] Add sidebar inputs:
   - Installed equipment cost ($)
-  - Annual O&M cost ($/yr)
+  - [x] Annual O&M cost ($/yr) (Utility Program & Customer)
   - Program administration cost ($/yr)
   - Non-energy benefits estimate ($/yr, with tooltip explaining common values)
 - [ ] Calculate TRC: `(NPV Avoided Costs + NPV NEBs) / (NPV Measure Costs + NPV Program Costs)`
@@ -359,7 +359,7 @@ Phase 2 (Additional Budget / Future Year)
 - [ ] Add vendor-oriented inputs:
   - Equipment + installation cost ($)
   - Available rebates/incentives ($)
-  - Annual O&M cost ($/yr)
+  - [x] Annual O&M cost ($/yr) (Utility Program & Customer)
   - Customer's personal discount rate or financing terms
 - [ ] Calculate and display:
   - Simple payback period (years)

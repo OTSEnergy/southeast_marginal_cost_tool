@@ -1026,6 +1026,8 @@ DEFAULT_DEGRADATION_RATE = 1.0   # %  (annual efficiency decay)
 DEFAULT_GROSS_MEASURE_COST = 3000.0   # $ (Total upfront installed equipment & labor cost)
 DEFAULT_UTILITY_INCENTIVE = 500.0     # $ (Customer rebate / incentive paid by utility)
 DEFAULT_UTILITY_ADMIN_COST = 100.0    # $ (Utility program marketing & administrative cost)
+DEFAULT_UTILITY_ONGOING_OM = 0.0     # $/yr (Annual ongoing utility program operations, admin, software, or maintenance cost per participant)
+DEFAULT_CUSTOMER_ONGOING_OM = 0.0    # $/yr (Annual ongoing customer equipment maintenance, filter replacement, or service contract)
 
 
 # ==============================================================================

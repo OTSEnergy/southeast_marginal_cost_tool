@@ -208,9 +208,9 @@ This file exists in the repository but is **never imported or used** by `app.py`
 > already reflected that. This detail section just never got updated to match.
 
 **Resolved:** `calculate_cost_effectiveness_tests()` in `calculations.py` computes TRC
-alongside PCT and RIM: `TRC = NPV Avoided Grid Costs / (Gross Measure Cost + Utility
-Admin Cost)`, using the existing Gross Measure Cost / Utility Incentive / Utility Admin
-Cost sidebar inputs (Financial Assumptions section). Displayed via `ratio_card_html()`
+alongside PCT and RIM: `TRC = NPV Avoided Grid Costs / (Gross Measure Cost + Utility Admin Cost + PV of Ongoing O&M)`, using Gross Measure Cost / Utility Incentive / Utility Admin Cost and Ongoing O&M inputs. Displayed via `ratio_card_html()`
+
+
 on the Overview Scorecard tab alongside RIM and PCT, and in the Cost-Effectiveness Table
 tab. Non-energy benefits are **not** incorporated (out of scope for the current formula).
 
@@ -222,9 +222,9 @@ tab. Non-energy benefits are **not** incorporated (out of scope for the current 
 > "Last Updated" date, but the detail text here was never revised to match.
 
 **Resolved:** `calculate_cost_effectiveness_tests()` in `calculations.py` computes:
-- **PCT** (Participant Cost Test / Customer ROI): `(NPV Customer Bill Savings + Incentive) / Gross Measure Cost`
-- **Simple Payback Period** (years): net customer cost ÷ year-1 bill savings
-- **Discounted Payback Period** (years): first year cumulative discounted savings ≥ net customer cost, with fractional-year interpolation
+- **PCT** (Participant Cost Test / Customer ROI): `(NPV Customer Bill Savings + Incentive) / (Gross Measure Cost + PV of Customer Ongoing O&M)`
+- **Simple Payback Period** (years): net customer upfront cost ÷ (year-1 bill savings − customer ongoing O&M)
+- **Discounted Payback Period** (years): first year cumulative discounted net savings (bill savings − customer ongoing O&M) ≥ net customer upfront cost, with fractional-year interpolation
 
 All shown on the Overview Scorecard tab. Not yet implemented: customer IRR, and a
 dedicated "cost to utility vs. cost to homeowner" gap visualization (that framing is

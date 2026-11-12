@@ -1260,6 +1260,7 @@ def load_cambium_net_demand_stress_weights(
     summer_weight: Optional[float] = None,
     aggregation_level: str = "state",
     top_n_peak_hours: int = 100,
+    scarcity_price_weight: float = 0.50,
 ) -> Dict[str, Any]:
     """
     Integration boundary exposing the Streamlit-free Cambium net-demand
@@ -1278,6 +1279,7 @@ def load_cambium_net_demand_stress_weights(
         summer_weight=summer_weight,
         aggregation_level=aggregation_level,
         top_n_peak_hours=top_n_peak_hours,
+        scarcity_price_weight=scarcity_price_weight,
     )
     if not res.get("is_qualified") and auto_download_missing:
         if res.get("missing_bas_by_state"):

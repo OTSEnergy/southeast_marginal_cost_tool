@@ -707,7 +707,9 @@ def build_lifetime_npv_chart(years, benefit_stream, cost_stream=None,
                               cost_name="Lost Retail Revenue (PV)",
                               cost_negative_name="Revenue Gain (PV)",
                               upfront_cost=0.0,
-                              upfront_name="Upfront Cost (after rebate)"):
+                              upfront_name="Upfront Cost (after rebate)",
+                              om_stream=None,
+                              om_name="Ongoing O&M (PV)"):
     """
     Lifetime cash-flow view, in today's dollars (present value). Each bar's
     color follows its own year-by-year sign — green when it actually helps
@@ -727,10 +729,10 @@ def build_lifetime_npv_chart(years, benefit_stream, cost_stream=None,
     - Utility: `benefit_stream` = grid savings, `cost_stream` = lost retail
       revenue (a recurring annual cost, positive = revenue actually lost),
       `upfront_cost` = the program cost paid once at rollout (incentive +
-      admin/marketing).
+      admin/marketing), `om_stream` = utility program ongoing O&M (PV).
     - Customer: `benefit_stream` = bill savings, `upfront_cost` = their net
-      equipment cost after any utility rebate, charged once at "Year 0"
-      (no `cost_stream`).
+      equipment cost after any utility rebate, charged once at "Year 0",
+      `om_stream` = customer ongoing equipment O&M (PV).
 
     Parameters
     ----------
@@ -748,6 +750,10 @@ def build_lifetime_npv_chart(years, benefit_stream, cost_stream=None,
     upfront_cost : float
         A one-time cost incurred before Year 1, plotted as its own "Year 0"
         bar. 0 (default) means there isn't one. Assumed non-negative.
+    om_stream : np.ndarray, optional
+        Discounted (present value) recurring ongoing O&M cost per year.
+    om_name : str, optional
+        Legend label for ongoing O&M trace.
 
     Returns
     -------
@@ -757,13 +763,16 @@ def build_lifetime_npv_chart(years, benefit_stream, cost_stream=None,
     benefit_stream = np.asarray(benefit_stream, dtype=float)
     has_cost_stream = cost_stream is not None
     cost_stream = np.asarray(cost_stream, dtype=float) if has_cost_stream else np.zeros_like(benefit_stream)
+    has_om = om_stream is not None
+    om_stream = np.asarray(om_stream, dtype=float) if has_om else np.zeros_like(benefit_stream)
     has_upfront = upfront_cost > 0
 
     x_years = np.concatenate(([0], years)) if has_upfront else years
     benefit_full = np.concatenate(([0.0], benefit_stream)) if has_upfront else benefit_stream
     cost_full = np.concatenate(([0.0], cost_stream)) if has_upfront else cost_stream
+    om_full = np.concatenate(([0.0], om_stream)) if has_upfront else om_stream
 
-    period_net = benefit_stream - cost_stream
+    period_net = benefit_stream - cost_stream - om_stream
     if has_upfront:
         period_net = np.concatenate(([-upfront_cost], period_net))
     cumulative_net = np.cumsum(period_net)
@@ -793,6 +802,11 @@ def build_lifetime_npv_chart(years, benefit_stream, cost_stream=None,
             x_years, -cost_full, cost_negative_name, cost_name,
             COLORS["pink"] if has_upfront else COLORS["red"]
         )
+    if has_om and np.any(om_full > 0):
+        fig.add_trace(go.Bar(
+            x=x_years, y=-om_full,
+            name=om_name, marker_color=COLORS["amber"]
+        ))
     fig.add_trace(go.Scatter(
         x=x_years, y=cumulative_net, name='Cumulative Net Cash Flow (PV)',
         mode='lines+markers', line=dict(color=COLORS["slate_dark"], width=2.5)
@@ -984,10 +998,10 @@ def plot_peaker_carrying_cost_breakdown(carrying_cost_dict):
     return fig
 
 
-def plot_southeast_cwf_distribution(cwf_array, datetime_series=None):
+def plot_southeast_cwf_distribution(cwf_array, datetime_series=None, include_shoulder=False, normalize_per_season=False):
     """
-    Build a dual-panel chart showing how Capacity Worth Factors (CWF)
-    distribute reliability risk across hours of the day in winter vs summer.
+    Build a chart showing how Capacity Worth Factors (CWF) distribute
+    reliability risk across hours of the day in winter vs summer (and optionally shoulder).
 
     Parameters
     ----------
@@ -995,6 +1009,12 @@ def plot_southeast_cwf_distribution(cwf_array, datetime_series=None):
         8,760 array of capacity weights.
     datetime_series : pd.Series or pd.DatetimeIndex, optional
         Timestamps.
+    include_shoulder : bool, default False
+        Whether to include a third trace for shoulder months (Mar-May, Oct-Nov).
+        Defaults to False to preserve standard dual-peak comparison.
+    normalize_per_season : bool, default False
+        If True, normalizes each season to 100% (sample day diurnal distribution).
+        If False, shows % of annual capacity value.
 
     Returns
     -------
@@ -1020,26 +1040,38 @@ def plot_southeast_cwf_distribution(cwf_array, datetime_series=None):
     # Group by season
     winter_mask = df_cwf["month"].isin([12, 1, 2])
     summer_mask = df_cwf["month"].isin([6, 7, 8, 9])
+    shoulder_mask = df_cwf["month"].isin([3, 4, 5, 10, 11])
 
-    winter_profile = df_cwf[winter_mask].groupby("hour")["cwf"].sum() * 100.0
-    summer_profile = df_cwf[summer_mask].groupby("hour")["cwf"].sum() * 100.0
+    w_tot = df_cwf.loc[winter_mask, "cwf"].sum()
+    s_tot = df_cwf.loc[summer_mask, "cwf"].sum()
+    sh_tot = df_cwf.loc[shoulder_mask, "cwf"].sum()
+
+    w_grp = df_cwf[winter_mask].groupby("hour")["cwf"].sum()
+    s_grp = df_cwf[summer_mask].groupby("hour")["cwf"].sum()
+    sh_grp = df_cwf[shoulder_mask].groupby("hour")["cwf"].sum()
 
     all_hours = np.arange(24)
-    w_vals = [winter_profile.get(h, 0.0) for h in all_hours]
-    s_vals = [summer_profile.get(h, 0.0) for h in all_hours]
+    if normalize_per_season:
+        w_vals = [float((w_grp.get(h, 0.0) / w_tot * 100.0) if w_tot > 0 else 0.0) for h in all_hours]
+        s_vals = [float((s_grp.get(h, 0.0) / s_tot * 100.0) if s_tot > 0 else 0.0) for h in all_hours]
+        sh_vals = [float((sh_grp.get(h, 0.0) / sh_tot * 100.0) if sh_tot > 0 else 0.0) for h in all_hours]
+        y_title = "% of Daily Risk (Sample Day)"
+    else:
+        w_vals = [float(w_grp.get(h, 0.0) * 100.0) for h in all_hours]
+        s_vals = [float(s_grp.get(h, 0.0) * 100.0) for h in all_hours]
+        sh_vals = [float(sh_grp.get(h, 0.0) * 100.0) for h in all_hours]
+        y_title = "% of Total Annual Capacity Value"
+
+    bar_width = 0.26 if include_shoulder else 0.40
 
     fig = go.Figure()
-    # Explicit width: on a linear (numeric) x-axis, Plotly's auto bar-width
-    # sizing for barmode="group" can render unevenly when most hours are
-    # zero-height -- a fixed width keeps every hour's pair of bars the same
-    # size regardless of how sparse the non-zero values are.
     fig.add_trace(go.Bar(
         x=all_hours,
         y=w_vals,
         name="Winter Cold Snaps (Dec–Feb)",
         marker_color="#2563EB",
         opacity=0.85,
-        width=0.4
+        width=bar_width
     ))
     fig.add_trace(go.Bar(
         x=all_hours,
@@ -1047,11 +1079,20 @@ def plot_southeast_cwf_distribution(cwf_array, datetime_series=None):
         name="Summer Heat Waves (Jun–Sep)",
         marker_color="#DC2626",
         opacity=0.85,
-        width=0.4
+        width=bar_width
     ))
+    if include_shoulder:
+        fig.add_trace(go.Bar(
+            x=all_hours,
+            y=sh_vals,
+            name="Shoulder Season (Mar–May, Oct–Nov)",
+            marker_color="#0D9488",
+            opacity=0.85,
+            width=bar_width
+        ))
 
     fig.update_layout(
-        title=dict(text="Capacity Risk by Hour of Day<br><sup>% of Annual Risk</sup>", font=dict(size=14)),
+        title=dict(text="Capacity Risk by Hour of Day<br><sup>% of Annual Risk</sup>" if not normalize_per_season else "Capacity Risk by Hour of Day<br><sup>% of Daily Risk (Sample Day)</sup>", font=dict(size=14)),
         template="plotly_white",
         barmode="group",
         height=400,
@@ -1063,8 +1104,285 @@ def plot_southeast_cwf_distribution(cwf_array, datetime_series=None):
             dtick=2,
             range=[-0.5, 23.5]
         ),
-        yaxis=dict(title="% of Total Annual Capacity Value"),
+        yaxis=dict(title=y_title),
         legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5)
+    )
+    return fig
+
+
+def build_seasonal_grid_risk_chart(
+    cwf_array=None,
+    datetime_series=None,
+    normalize_per_season=False,
+    winter_months=(12, 1, 2),
+    summer_months=(6, 7, 8, 9),
+    shoulder_months=(3, 4, 5, 10, 11),
+    title=None,
+    height=None,
+    winter_share=None,
+    layout_mode="subplots",
+):
+    """
+    Build a seasonal diurnal grid risk chart (Winter / Summer / Shoulder)
+    displaying the cumulative sum of capacity and reliability risk values
+    occurring across all days in each season by hour of the day.
+
+    Parameters
+    ----------
+    cwf_array : np.ndarray or list, optional
+        8,760 array of hourly capacity risk weights (sums to 1.0 annually).
+        If None, generates canonical Southeast representative sample day profiles:
+          - Winter: Morning cold snap heating peak (5–9 AM, peaking ~7 AM) with minor evening bump.
+          - Summer: Late afternoon heat wave AC peak (2–7 PM, peaking ~4–5 PM).
+          - Shoulder: Mild morning and solar ramp-down evening ramps (7–8 AM & 6–8 PM).
+    datetime_series : pd.Series or pd.DatetimeIndex, optional
+        Timestamps corresponding to cwf_array (length 8,760).
+    normalize_per_season : bool, default False
+        If False (default), displays the cumulative sum of risk values in each hour
+        across all days in that season (% of total annual generation capacity risk),
+        with exact percentage values presented on top of each bar.
+        If True, each season's 24 hours sum to 100%, representing a sample day's
+        diurnal risk distribution within that season.
+    winter_months : tuple of int, default (12, 1, 2)
+        Months mapped to Winter.
+    summer_months : tuple of int, default (6, 7, 8, 9)
+        Months mapped to Summer.
+    shoulder_months : tuple of int, default (3, 4, 5, 10, 11)
+        Months mapped to Shoulder.
+    title : str, optional
+        Custom figure title.
+    height : int, optional
+        Plot height in pixels. Defaults to 580 for subplots, 460 for grouped.
+    winter_share : float, optional
+        When cwf_array is None, sets the annual risk share assigned to Winter (e.g. 80.0%),
+        dynamically allocating the remainder to Summer and Shoulder in trace legends.
+    layout_mode : {"subplots", "grouped"}, default "subplots"
+        "subplots" creates 3 vertically stacked panels (Winter, Summer, Shoulder)
+        sharing the x-axis, with independent, beautifully scaled y-axes and bold,
+        clearly legible numbers above each bar.
+        "grouped" renders all 3 seasons side-by-side on a single common y-axis.
+
+    Returns
+    -------
+    go.Figure
+        Plotly Figure object.
+    """
+    all_hours = np.arange(24)
+    hour_labels = [f"{h % 12 or 12} {'AM' if h < 12 else 'PM'}" for h in range(24)]
+
+    if cwf_array is None:
+        # Canonical Southeast representative sample day profiles (% of daily risk)
+        w_sample = {5: 10.0, 6: 20.0, 7: 35.0, 8: 20.0, 9: 10.0, 19: 3.0, 20: 2.0}
+        s_sample = {13: 5.0, 14: 10.0, 15: 20.0, 16: 30.0, 17: 20.0, 18: 10.0, 19: 5.0}
+        sh_sample = {6: 5.0, 7: 15.0, 8: 10.0, 17: 10.0, 18: 25.0, 19: 25.0, 20: 10.0}
+
+        w_raw = np.array([w_sample.get(h, 0.0) for h in all_hours], dtype=float)
+        s_raw = np.array([s_sample.get(h, 0.0) for h in all_hours], dtype=float)
+        sh_raw = np.array([sh_sample.get(h, 0.0) for h in all_hours], dtype=float)
+
+        w_vals = (w_raw / w_raw.sum()) * 100.0
+        s_vals = (s_raw / s_raw.sum()) * 100.0
+        sh_vals = (sh_raw / sh_raw.sum()) * 100.0
+
+        if winter_share is not None:
+            w_ann_share = float(winter_share)
+            rem = max(0.0, 100.0 - w_ann_share)
+            s_ann_share = rem * 0.90 if rem > 5.0 else rem
+            sh_ann_share = rem - s_ann_share
+        else:
+            w_ann_share = 60.0
+            s_ann_share = 35.0
+            sh_ann_share = 5.0
+
+        if not normalize_per_season:
+            w_vals = w_vals * (w_ann_share / 100.0)
+            s_vals = s_vals * (s_ann_share / 100.0)
+            sh_vals = sh_vals * (sh_ann_share / 100.0)
+    else:
+        cwf_array = np.asarray(cwf_array, dtype=float)
+        n_hours = len(cwf_array)
+        if datetime_series is not None:
+            dts = pd.to_datetime(pd.Series(datetime_series).reset_index(drop=True))
+            months = dts.dt.month.to_numpy()
+            hours = dts.dt.hour.to_numpy()
+        else:
+            h_idx = np.arange(n_hours)
+            days = h_idx // 24
+            hours = h_idx % 24
+            month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            cum_days = np.cumsum([0] + month_days)
+            months = np.zeros(n_hours, dtype=int)
+            for m in range(12):
+                months[(days >= cum_days[m]) & (days < cum_days[m + 1])] = m + 1
+
+        df_cwf = pd.DataFrame({"month": months, "hour": hours, "cwf": cwf_array})
+
+        winter_mask = df_cwf["month"].isin(winter_months)
+        summer_mask = df_cwf["month"].isin(summer_months)
+        shoulder_mask = df_cwf["month"].isin(shoulder_months)
+
+        w_tot = float(df_cwf.loc[winter_mask, "cwf"].sum())
+        s_tot = float(df_cwf.loc[summer_mask, "cwf"].sum())
+        sh_tot = float(df_cwf.loc[shoulder_mask, "cwf"].sum())
+
+        ann_total = w_tot + s_tot + sh_tot
+        w_ann_share = (w_tot / ann_total * 100.0) if ann_total > 0 else 0.0
+        s_ann_share = (s_tot / ann_total * 100.0) if ann_total > 0 else 0.0
+        sh_ann_share = (sh_tot / ann_total * 100.0) if ann_total > 0 else 0.0
+
+        w_grp = df_cwf[winter_mask].groupby("hour")["cwf"].sum()
+        s_grp = df_cwf[summer_mask].groupby("hour")["cwf"].sum()
+        sh_grp = df_cwf[shoulder_mask].groupby("hour")["cwf"].sum()
+
+        if normalize_per_season:
+            w_vals = np.array([float((w_grp.get(h, 0.0) / w_tot * 100.0) if w_tot > 0 else 0.0) for h in all_hours])
+            s_vals = np.array([float((s_grp.get(h, 0.0) / s_tot * 100.0) if s_tot > 0 else 0.0) for h in all_hours])
+            sh_vals = np.array([float((sh_grp.get(h, 0.0) / sh_tot * 100.0) if sh_tot > 0 else 0.0) for h in all_hours])
+        else:
+            w_vals = np.array([float(w_grp.get(h, 0.0) * 100.0) for h in all_hours])
+            s_vals = np.array([float(s_grp.get(h, 0.0) * 100.0) for h in all_hours])
+            sh_vals = np.array([float(sh_grp.get(h, 0.0) * 100.0) for h in all_hours])
+
+    # Find peak metrics for subheadings/labels
+    w_peak_val = max(w_vals) if len(w_vals) > 0 else 0.0
+    w_peak_hr = all_hours[list(w_vals).index(w_peak_val)] if w_peak_val > 0 else None
+
+    s_peak_val = max(s_vals) if len(s_vals) > 0 else 0.0
+    s_peak_hr = all_hours[list(s_vals).index(s_peak_val)] if s_peak_val > 0 else None
+
+    sh_peak_val = max(sh_vals) if len(sh_vals) > 0 else 0.0
+    sh_peak_hr = all_hours[list(sh_vals).index(sh_peak_val)] if sh_peak_val > 0 else None
+
+    tick_vals = list(range(0, 24, 2))
+    tick_texts = [f"{h % 12 or 12} {'AM' if h < 12 else 'PM'}<br>({h})" for h in tick_vals]
+
+    if layout_mode == "subplots":
+        chart_height = height or 580
+        w_peak_str = f" (Peak: {w_peak_hr % 12 or 12} {'AM' if w_peak_hr < 12 else 'PM'} @ {w_peak_val:.1f}%)" if w_peak_val > 0 else ""
+        s_peak_str = f" (Peak: {s_peak_hr % 12 or 12} {'AM' if s_peak_hr < 12 else 'PM'} @ {s_peak_val:.1f}%)" if s_peak_val > 0 else ""
+        sh_peak_str = f" (Peak: {sh_peak_hr % 12 or 12} {'AM' if sh_peak_hr < 12 else 'PM'} @ {sh_peak_val:.1f}%)" if sh_peak_val > 0 else ""
+
+        w_title = f"<b>Winter (Dec–Feb)</b> — {w_ann_share:.1f}% Annual Total{w_peak_str}" if w_ann_share > 0 else "<b>Winter (Dec–Feb)</b>"
+        s_title = f"<b>Summer (Jun–Sep)</b> — {s_ann_share:.1f}% Annual Total{s_peak_str}" if s_ann_share > 0 else "<b>Summer (Jun–Sep)</b>"
+        sh_title = f"<b>Shoulder (Mar–May, Oct–Nov)</b> — {sh_ann_share:.1f}% Annual Total{sh_peak_str}" if sh_ann_share > 0 else "<b>Shoulder (Mar–May, Oct–Nov)</b>"
+
+        fig = make_subplots(
+            rows=3, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.10,
+            subplot_titles=[w_title, s_title, sh_title]
+        )
+
+        min_thresh = 0.5 if normalize_per_season else 0.2
+        w_text = [f"{v:.1f}%" if v >= min_thresh else "" for v in w_vals]
+        s_text = [f"{v:.1f}%" if v >= min_thresh / 2 else "" for v in s_vals]
+        sh_text = [f"{v:.1f}%" if v >= 0.05 else "" for v in sh_vals]
+
+        fig.add_trace(go.Bar(
+            x=all_hours, y=w_vals, name="Winter", marker_color="#2563EB",
+            text=w_text, textposition="outside",
+            textfont=dict(size=11, color="#1E293B", family="sans-serif"),
+            cliponaxis=False, customdata=hour_labels,
+            hovertemplate="<b>Winter Cold Snap</b><br>Hour: %{x}:00 (%{customdata})<br>Share: <b>%{y:.2f}%</b><extra></extra>",
+        ), row=1, col=1)
+
+        fig.add_trace(go.Bar(
+            x=all_hours, y=s_vals, name="Summer", marker_color="#DC2626",
+            text=s_text, textposition="outside",
+            textfont=dict(size=11, color="#1E293B", family="sans-serif"),
+            cliponaxis=False, customdata=hour_labels,
+            hovertemplate="<b>Summer Heat Wave</b><br>Hour: %{x}:00 (%{customdata})<br>Share: <b>%{y:.2f}%</b><extra></extra>",
+        ), row=2, col=1)
+
+        fig.add_trace(go.Bar(
+            x=all_hours, y=sh_vals, name="Shoulder", marker_color="#0D9488",
+            text=sh_text, textposition="outside",
+            textfont=dict(size=11, color="#1E293B", family="sans-serif"),
+            cliponaxis=False, customdata=hour_labels,
+            hovertemplate="<b>Shoulder Season</b><br>Hour: %{x}:00 (%{customdata})<br>Share: <b>%{y:.2f}%</b><extra></extra>",
+        ), row=3, col=1)
+
+        w_max = max(float(w_peak_val), 1.0)
+        s_max = max(float(s_peak_val), 0.5)
+        sh_max = max(float(sh_peak_val), 0.2)
+
+        fig.update_yaxes(ticksuffix="%", showgrid=True, gridcolor="#F1F5F9", row=1, col=1, range=[0, w_max * 1.35])
+        fig.update_yaxes(ticksuffix="%", showgrid=True, gridcolor="#F1F5F9", row=2, col=1, range=[0, s_max * 1.35])
+        fig.update_yaxes(ticksuffix="%", showgrid=True, gridcolor="#F1F5F9", row=3, col=1, range=[0, sh_max * 1.45])
+
+        for r in (1, 2, 3):
+            fig.update_xaxes(
+                tickmode="array", tickvals=tick_vals, ticktext=tick_texts,
+                range=[-0.5, 23.5], showgrid=True, gridcolor="#F1F5F9",
+                row=r, col=1,
+            )
+        fig.update_xaxes(title_text="Hour of Day", row=3, col=1)
+
+        fig.update_layout(
+            template="plotly_white",
+            height=chart_height,
+            showlegend=False,
+            margin=dict(l=50, r=30, t=35, b=50),
+        )
+        return fig
+
+    # Grouped single-axis mode with padded headroom
+    chart_height = height or 460
+    fig = go.Figure()
+    bar_width = 0.26
+    min_label_thresh = 0.8 if normalize_per_season else 0.4
+    w_text = [f"{v:.1f}%" if v >= min_label_thresh else "" for v in w_vals]
+    s_text = [f"{v:.1f}%" if v >= min_label_thresh else "" for v in s_vals]
+    sh_text = [f"{v:.1f}%" if v >= min_label_thresh else "" for v in sh_vals]
+
+    w_legend = f"Winter (Dec–Feb) — {w_ann_share:.1f}% Ann. Total" if w_ann_share > 0 else "Winter (Dec–Feb)"
+    s_legend = f"Summer (Jun–Sep) — {s_ann_share:.1f}% Ann. Total" if s_ann_share > 0 else "Summer (Jun–Sep)"
+    sh_legend = f"Shoulder (Mar–May, Oct–Nov) — {sh_ann_share:.1f}% Ann. Total" if sh_ann_share > 0 else "Shoulder (Mar–May, Oct–Nov)"
+
+    fig.add_trace(go.Bar(
+        x=all_hours, y=w_vals, name=w_legend, marker_color="#2563EB", opacity=0.88, width=bar_width,
+        text=w_text, textposition="outside", textfont=dict(size=10, color="#1E293B", family="sans-serif"), cliponaxis=False,
+        customdata=hour_labels, hovertemplate="<b>Winter Cold Snap</b><br>Hour: %{x}:00 (%{customdata})<br>Share: <b>%{y:.2f}%</b><extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        x=all_hours, y=s_vals, name=s_legend, marker_color="#DC2626", opacity=0.88, width=bar_width,
+        text=s_text, textposition="outside", textfont=dict(size=10, color="#1E293B", family="sans-serif"), cliponaxis=False,
+        customdata=hour_labels, hovertemplate="<b>Summer Heat Wave</b><br>Hour: %{x}:00 (%{customdata})<br>Share: <b>%{y:.2f}%</b><extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        x=all_hours, y=sh_vals, name=sh_legend, marker_color="#0D9488", opacity=0.88, width=bar_width,
+        text=sh_text, textposition="outside", textfont=dict(size=10, color="#1E293B", family="sans-serif"), cliponaxis=False,
+        customdata=hour_labels, hovertemplate="<b>Shoulder Season</b><br>Hour: %{x}:00 (%{customdata})<br>Share: <b>%{y:.2f}%</b><extra></extra>",
+    ))
+
+    max_overall = max(max(w_vals), max(s_vals), max(sh_vals), 1.0)
+    chart_title = title or (
+        "Seasonal Cumulative Grid Risk by Hour of Day<br>"
+        "<sup>Sum of all capacity risk values across each season (% of total annual risk)</sup>"
+    )
+    fig.update_layout(
+        title=dict(text=chart_title, font=dict(size=14)),
+        template="plotly_white",
+        barmode="group",
+        height=chart_height,
+        margin=dict(l=45, r=25, t=70, b=90),
+        xaxis=dict(
+            title="Hour of Day",
+            tickmode="array",
+            tickvals=tick_vals,
+            ticktext=tick_texts,
+            range=[-0.6, 23.6],
+            showgrid=True,
+            gridcolor="#F1F5F9",
+        ),
+        yaxis=dict(
+            title="% of Total Annual Capacity Risk (Hourly Sum)",
+            ticksuffix="%",
+            showgrid=True,
+            gridcolor="#F1F5F9",
+            range=[0, max_overall * 1.35],
+        ),
+        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5),
     )
     return fig
 
@@ -1134,11 +1452,13 @@ def plot_feeder_vs_system_load(feeder_weights, system_weights, datetime_series=N
 
 
 def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_net_savings,
-                                  npv_program_cost=0.0, npv_energy_savings=None, npv_capacity_savings=None):
+                                  npv_program_cost=0.0, npv_energy_savings=None, npv_capacity_savings=None,
+                                  npv_utility_ongoing_om=0.0):
     """
     Build a clean horizontal comparison / waterfall chart for the Lifetime Economic Balance
     showing Grid Avoided Costs (or broken into Fuel/Energy + Capacity savings) (+), Utility
-    Lost Revenue (-), optionally Utility Program Cost (-), and Net Valuation NPV.
+    Lost Revenue (-), optionally Utility Program Cost (-), optionally Utility Ongoing O&M (-),
+    and Net Valuation NPV.
 
     Parameters
     ----------
@@ -1147,7 +1467,7 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
     npv_retail_lost_revenue : float
         Discounted lifetime utility lost revenue / customer bill savings ($).
     npv_net_savings : float
-        Net valuation NPV (grid savings minus lost revenue minus program cost).
+        Net valuation NPV (grid savings minus lost revenue minus program cost minus ongoing O&M).
     npv_program_cost : float
         One-time utility program cost (incentive + admin), undiscounted since it's
         already in today's dollars. 0 (default) omits the bar entirely, so the
@@ -1158,6 +1478,9 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
         positive green bars.
     npv_capacity_savings : float, optional
         Discounted lifetime generation + T&D capacity avoided cost savings ($).
+    npv_utility_ongoing_om : float, optional
+        Discounted lifetime utility program ongoing O&M costs ($). 0 (default) omits
+        the bar.
 
     Returns
     -------
@@ -1201,6 +1524,12 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
         x.append(-npv_program_cost)
         text.append(_signed_dollar(-npv_program_cost))
 
+    if npv_utility_ongoing_om > 0:
+        measure.append("relative")
+        y.append("Utility Ongoing O&M")
+        x.append(-npv_utility_ongoing_om)
+        text.append(_signed_dollar(-npv_utility_ongoing_om))
+
     measure.append("total")
     y.append("Net Valuation NPV")
     x.append(0)
@@ -1222,6 +1551,9 @@ def build_economic_balance_chart(npv_grid_savings, npv_retail_lost_revenue, npv_
     running.append(curr)
     if npv_program_cost > 0:
         curr -= float(npv_program_cost)
+        running.append(curr)
+    if npv_utility_ongoing_om > 0:
+        curr -= float(npv_utility_ongoing_om)
         running.append(curr)
     running.append(float(npv_net_savings))
 
