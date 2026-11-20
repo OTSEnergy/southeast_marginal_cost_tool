@@ -2,6 +2,17 @@
 
 This file tracks changes to the living project documents in the `docs/` folder.
 
+## [2026-11-20] — Methodology Review (Sanity Check of Assumptions & Calculations)
+
+### Context
+Added a one-time review of the whole repository's logic, assumptions, gaps, and portability to other utilities, for John and Justin. It is a point-in-time snapshot against commit `7bc3eff`, not a living document; no source code was changed.
+
+### Key Changes
+- **`docs/reviews/2026-11-20_methodology_review.md`** (new): findings, ranked fix list with file/line references, sensitivity results, recommendations, and open questions.
+- **`docs/reviews/img/`** (new): the review's two charts (net-NPV sensitivity tornado; Cambium winter share of capacity cost vs. the tool's default split).
+- **`docs/reviews/review_spotcheck.py`** (new): reproduces every spot-check and sensitivity number in the review from the repo's own modules plus an independent NPV recomputation.
+- The review's findings have not yet been reflected in `needs_and_gaps.md` or `roadmap.md`; fold them in when fixes are scheduled.
+
 ## [2026-11-12] — Ongoing Equipment O&M Cost Wiring (Utility Program & User)
 
 ### Context
